@@ -1,0 +1,16 @@
+.DS_Store
+**/.DS_Store
+.gradle/
+.gradle-home/
+build/
+out/
+node_modules/
+dist/
+post-bubi-api/build/
+post-bubi-ui/build/
+post-bubi-ui/dist/
+data/files/
+data/protos/
+data/*.mv.db
+data/*.trace.db
+*.log

@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package com.bot.fsap.model.grpc.common.periphery;
+import "proto/common/common.proto";
+
+option java_multiple_files = true;
+
+//擴充
+message ArrayMap {
+  /*ArrayMap的擴充預備欄位*/
+  map<string, string> mapAttr = 1;
+}
+
+//Request
+message PeripheryRequest {
+  /* 預留的跨系統技術層的訊息交換 */
+  map<string, string> headers = 1;
+  /* 系統層的訊息交換 */
+  RqApHeader apheader = 2;
+  /* 服務層的訊息交換 */
+  RqPayload payload = 3;
+}
+
+//Request
+message RqApHeader {
+  /*交易發送系統代號*/
+  string x_bot_client_id = 1;
+  /*服務目的端系統代號:FSAP;NCB;*/
+  string x_bot_server_id = 2;
+  /*交易發送系統編的交易序號（15碼*/
+  string x_bot_client_seq = 3;
+  /*交易發送時間 yyyy-MM-dd HH:mm:ss*/
+  string x_bot_client_dt = 4;
+  /*連結串連序號 UUID 或key值*/
+  string x_bot_request_id = 5;
+  /*系統同步序號；由週邊系統發起時不放值*/
+  string x_bot_sys_syncno = 6;
+  /*分行同步序號；由週邊系統發起時不放值*/
+  string x_bot_branch_syncno = 7;
+  /*批次或連線交易別:批次:B;連線:O;同步資訊服務呼叫:S;*/
+  string x_bot_rt_batch_flag = 8;
+  /*預留的系統層的訊息交換
+    CLIENT_TYPE(呼叫系統回應方式) = 一般:REGULAR;不須等待回應:NON_RESPOND;不須回應前端:INTERRUPTIBLE;
+    TRANS_TYPE(傳輸通道類型) = 標準通道:STANDARD;快速通道:EXPRESS
+  */
+  map<string, string> apheaders = 9;
+}
+
+message RqPayload {
+  /*服務層的交易Key值資訊*/
+  RqHeader pyheader = 1;
+  /*服務層的實際資料內容編碼方式*/
+  Charsets charsets = 2;
+  /*服務層的實際資料內容格式*/
+  Format format = 3;
+  /*服務層的實際資料內容*/
+  bytes data = 4;
+}
+
+message RqHeader {
+  /*流程代號;由週邊系統發起時不放值*/
+  string pr_id = 1;
+  /*交易代號*/
+  string tx_code = 2;
+  /*摘要*/
+  string dscpt = 3;
+  /*TIMEOUT 記號;查詢記號*/
+  string rstinq = 4;
+  /*更正記號*/
+  string hcode = 5;
+  /*電文格式代號；由週邊系統發起時不放值*/
+  string txcode_fmtid = 6;
+  /*一般模式:0;rerun模式:1*/
+  string runtype = 7;
+  /*擴充預備欄位
+    JSON格式，RqBody裡的FSAPRq 各欄位資料[
+    USERID：使用者登入編號 或 員編
+    LAZYQUERYTOKENID：分頁查詢TokenID
+    PAGENO：分頁頁碼
+    PAGESIZE：每頁筆數
+    ]
+    AHCODE:是否為流程失敗的掛帳別
+    PR_VAR1:流程參數1
+    PR_VAR2:流程參數2
+    PR_VAR3:流程參數3
+  */
+  map<string, string> attributes = 8;
+  /* 擴充欄位，用來存放多維度的彈性變數*/
+  map<string, ArrayMap> arrayAttr = 9;
+
+}
+
+//Response
+message PeripheryResponse  {
+  /* 預留的跨系統技術層的訊息交換 */
+  map<string, string> headers = 1;
+  /* 系統層的訊息交換 */
+  RsApHeader apheader = 2;
+  /* 服務層的訊息交換;map key指的是TOTA的第幾筆*/
+  map<int64, RsPayload > payload = 3;
+}
+
+message RsApHeader {
+  /* 交易發送系統代號 */
+  string x_bot_client_id = 1;
+  /* 交易發送系統編的交易序號 */
+  string x_bot_client_seq = 2;
+  /* 連結串連序號 UUID */
+  string x_bot_request_id = 3;
+  /* 處理結果
+     成功:0000;
+     檢核失敗:9001;
+     timeout:9998;
+     其它錯誤:9999;
+  */
+  string x_bot_status = 4;
+  /* 預留的系統層的訊息交換 */
+  map<string, string> apheaders = 5;
+}
+
+message RsPayload {
+  /* 服務層的交易Key值資訊 */
+  RsHeader pyheader = 1;
+  /* 服務層的實際資料內容編碼方式 */
+  Charsets charsets = 2;
+  /* 服務層的實際資料內容格式 */
+  Format format = 3;
+  /* 服務層的實際資料內容 */
+  bytes data = 4;
+}
+
+message RsHeader {
+  /* 交易代號 */
+  string tx_code = 1;
+  /* 摘要 */
+  string dscpt = 2;
+  /* TOTA. 格式ID */
+  string msgid = 3;
+  /*擴充預備欄位
+    JSON格式，RsBody裡的FSAPRs各欄位資料[
+    LAZYQUERYTOKENID：分頁查詢TokenID
+    TOTALCOUNT：總筆數
+    ]
+    APTYPE:訊息業務別
+    MTYPE:訊息類別
+    MSGNO:訊息編號
+  */
+  map<string, string> attributes = 4;
+  /* 擴充欄位，用來存放多維度的彈性變數*/
+  map<string, ArrayMap> arrayAttr = 5;
+
+}
+
+
+
+

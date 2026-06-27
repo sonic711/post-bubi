@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package com.bot.fsap.model.grpc.common;
+
+option java_multiple_files = true;
+
+//編碼方式
+enum Charsets {
+  UTF8 = 0;
+  UTF_16BE = 1;
+  UTF_16LE = 2;
+  BIG5 = 3;
+  BUR = 4;      // 繁體Unisys內碼
+  ASCIIEX = 5;  // 簡體Unisys特殊內碼一
+  EBCDIC = 6;   // 簡體Unisys特殊內碼二
+}
+//資料格式
+enum Format {
+  TEXT = 0;
+  JSON = 1;
+  XML = 2;
+}

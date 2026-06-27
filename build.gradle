@@ -1,0 +1,36 @@
+buildscript {
+    ext {
+        springBootVersion = '3.3.6'
+        springDependencyManagementVersion = '1.1.6'
+        nodeGradlePluginVersion = '7.1.0'
+        javaVersion = JavaVersion.VERSION_17
+    }
+
+    def offlineRepoPath = gradle.startParameter.projectProperties['offlineRepo'] ?: System.getProperty('offlineRepo')
+    repositories {
+        mavenLocal()
+        if (offlineRepoPath) {
+            maven { url = uri(offlineRepoPath) }
+        }
+        mavenCentral()
+        maven { url = 'https://plugins.gradle.org/m2/' }
+    }
+
+    dependencies {
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}"
+        classpath "io.spring.gradle:dependency-management-plugin:${springDependencyManagementVersion}"
+        classpath "com.github.node-gradle.node:com.github.node-gradle.node.gradle.plugin:${nodeGradlePluginVersion}"
+    }
+}
+
+apply from: "${rootDir}/gradle/offline-maven-repo.gradle"
+
+allprojects {
+    group = 'com.postbubi'
+    version = '0.1.0-SNAPSHOT'
+}
+
+wrapper {
+    gradleVersion = '8.13'
+    distributionType = Wrapper.DistributionType.ALL
+}

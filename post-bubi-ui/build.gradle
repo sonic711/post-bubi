@@ -1,0 +1,137 @@
+buildscript {
+    def offlineRepoPath = gradle.startParameter.projectProperties['offlineRepo'] ?: System.getProperty('offlineRepo')
+    repositories {
+        mavenLocal()
+        if (offlineRepoPath) {
+            maven { url = uri(offlineRepoPath) }
+        }
+        maven { url = 'https://plugins.gradle.org/m2/' }
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "com.github.node-gradle.node:com.github.node-gradle.node.gradle.plugin:${rootProject.ext.nodeGradlePluginVersion}"
+    }
+}
+
+apply plugin: 'com.github.node-gradle.node'
+apply plugin: 'java'
+
+description = 'post-bubi-ui'
+
+ext {
+    classpath_in_jar = 'public'
+}
+
+jar {
+    enabled = false
+}
+
+if (gradle.startParameter.offline) {
+    nodeSetup.enabled = false
+    npmSetup.enabled = false
+    yarnSetup.enabled = false
+}
+
+node {
+    version = '18.17.0'
+    yarnVersion = '1.22.22'
+    download = true
+    def userHome = System.getProperty('user.home')
+    workDir = file("${userHome}/buildTool/nodeJs")
+    npmWorkDir = file("${userHome}/buildTool/npm")
+    yarnWorkDir = file("${userHome}/buildTool/yarn")
+}
+
+yarn_install {
+    dependsOn 'yarn'
+}
+
+def isTestTask = gradle.startParameter.taskNames.any { it.toLowerCase().contains('test') }
+def yarnMirrorPath = project.findProperty('yarnMirrorPath') ?: ''
+
+yarn_check_config {
+    yarnCommand = ['config', 'list']
+    onlyIf { !isTestTask }
+}
+
+if (yarnMirrorPath) {
+    tasks.yarn_check_config.dependsOn 'yarn_set_mirror'
+}
+
+yarn.mustRunAfter 'yarn_check_config'
+
+yarn_set_mirror {
+    yarnCommand = ['config', 'set', 'yarn-offline-mirror', yarnMirrorPath]
+    onlyIf { !isTestTask }
+}
+
+yarn_build_dev {
+    if (yarnMirrorPath) {
+        dependsOn 'yarn_set_mirror'
+    }
+    dependsOn 'yarn_check_config'
+    dependsOn 'yarn'
+    doLast {
+        copy {
+            from 'dist/post-bubi'
+            into 'build/devJar'
+        }
+    }
+    yarnCommand = ['build:dev']
+    onlyIf { !isTestTask }
+}
+
+yarn_build_prod {
+    if (yarnMirrorPath) {
+        dependsOn 'yarn_set_mirror'
+    }
+    dependsOn 'yarn_check_config'
+    dependsOn 'yarn'
+    doLast {
+        copy {
+            from 'dist/post-bubi'
+            into 'build/prodJar'
+        }
+    }
+    yarnCommand = ['build:prod']
+    onlyIf { !isTestTask }
+}
+
+tasks.register('build_dev') {
+    dependsOn 'yarn_build_dev'
+    finalizedBy 'devJar'
+}
+
+tasks.register('build_prod') {
+    dependsOn 'yarn_build_prod'
+    finalizedBy 'prodJar'
+}
+
+tasks.register('devJar', Jar) {
+    dependsOn 'yarn_build_dev'
+    archiveClassifier = ''
+    from 'build/devJar' into classpath_in_jar
+}
+
+tasks.register('prodJar', Jar) {
+    dependsOn 'yarn_build_prod'
+    archiveClassifier = ''
+    from 'build/prodJar' into classpath_in_jar
+}
+
+configurations {
+    dev
+    prod
+}
+
+artifacts {
+    dev(tasks.named('devJar').flatMap { it.archiveFile }) {
+        builtBy tasks.named('devJar')
+        type 'jar'
+    }
+    prod(tasks.named('prodJar').flatMap { it.archiveFile }) {
+        builtBy tasks.named('prodJar')
+        type 'jar'
+    }
+}

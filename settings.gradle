@@ -1,0 +1,28 @@
+pluginManagement {
+    def offlineRepoPath = gradle.startParameter.projectProperties['offlineRepo'] ?: System.getProperty('offlineRepo')
+    repositories {
+        mavenLocal()
+        if (offlineRepoPath) {
+            maven { url = uri(offlineRepoPath) }
+        }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    def offlineRepoPath = gradle.startParameter.projectProperties['offlineRepo'] ?: System.getProperty('offlineRepo')
+    repositories {
+        mavenLocal()
+        if (offlineRepoPath) {
+            maven { url = uri(offlineRepoPath) }
+        }
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'post-bubi'
+
+include(':post-bubi-api')
+include(':post-bubi-ui')

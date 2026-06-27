@@ -1,0 +1,67 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+
+apply plugin: 'java'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'io.spring.dependency-management'
+
+description = 'post-bubi-api'
+
+java {
+    sourceCompatibility = rootProject.ext.javaVersion
+    targetCompatibility = rootProject.ext.javaVersion
+}
+
+def activeProfile = System.getProperty('env', project.hasProperty('profile') ? project.property('profile') : 'prod')
+
+dependencies {
+    if (activeProfile != 'local') {
+        implementation project(path: ':post-bubi-ui', configuration: activeProfile)
+    }
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'com.h2database:h2'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.3.1'
+    implementation 'io.grpc:grpc-netty-shaded:1.65.1'
+    implementation 'io.grpc:grpc-protobuf:1.65.1'
+    implementation 'io.grpc:grpc-stub:1.65.1'
+    implementation 'io.grpc:grpc-services:1.65.1'
+    implementation 'com.google.protobuf:protobuf-java:3.25.3'
+    implementation 'com.google.protobuf:protobuf-java-util:3.25.3'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    filesMatching(['application.yml']) {
+        filter(ReplaceTokens, tokens: [
+                'project.version': project.version.toString()
+        ])
+    }
+}
+
+bootRun {
+    enabled = true
+    mainClass = 'com.postbubi.PostBubiApplication'
+    systemProperty 'env', 'local'
+}
+
+bootJar {
+    enabled = true
+    archiveClassifier = ''
+    archiveFileName = 'post-bubi.jar'
+    mainClass = 'com.postbubi.PostBubiApplication'
+}
+
+jar {
+    enabled = false
+}
+
+test {
+    useJUnitPlatform()
+}

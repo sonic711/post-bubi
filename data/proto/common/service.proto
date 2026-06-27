@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package com.bot.fsap.model.grpc.common;
+
+import "proto/common/periphery/message.proto";
+
+option java_multiple_files = true;
+option java_outer_classname = "ServiceProto";
+
+service Service {
+  rpc rpcPeriphery (com.bot.fsap.model.grpc.common.periphery.PeripheryRequest) returns (com.bot.fsap.model.grpc.common.periphery.PeripheryResponse) {}
+}
