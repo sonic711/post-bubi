@@ -13,4 +13,5 @@ data/files/
 data/protos/
 data/*.mv.db
 data/*.trace.db
+data/*.lock.db
 *.log

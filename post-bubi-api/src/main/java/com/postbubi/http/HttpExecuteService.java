@@ -1,0 +1,202 @@
+package com.postbubi.http;
+
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+import javax.net.ssl.SSLContext;
+
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.client5.http.ssl.NoopHostnameVerifier;
+import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactory;
+import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactoryBuilder;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.Header;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.hc.core5.net.URIBuilder;
+import org.apache.hc.core5.ssl.SSLContextBuilder;
+import org.apache.hc.core5.util.Timeout;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+
+import com.postbubi.web.dto.HttpExecuteRequest;
+import com.postbubi.web.dto.HttpExecuteResponse;
+import com.postbubi.web.dto.HttpNameValue;
+import com.postbubi.web.error.ApiException;
+
+@Service
+public class HttpExecuteService {
+
+    private static final Set<String> SUPPORTED_METHODS = Set.of("GET", "POST", "PUT", "PATCH", "DELETE");
+    private static final int DEFAULT_TIMEOUT_MILLIS = 30000;
+    private static final int MAX_TIMEOUT_MILLIS = 300000;
+
+    public HttpExecuteResponse execute(HttpExecuteRequest request) {
+        String method = normalizeMethod(request.method());
+        URI uri = buildUri(request.url(), request.params());
+        int timeoutMillis = normalizeTimeout(request.timeoutMillis());
+
+        HttpUriRequestBase httpRequest = new HttpUriRequestBase(method, uri);
+        applyHeaders(httpRequest, request.headers());
+        applyBody(httpRequest, method, request.bodyType(), request.body());
+
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(timeoutMillis))
+                .setResponseTimeout(Timeout.ofMilliseconds(timeoutMillis))
+                .setRedirectsEnabled(Boolean.TRUE.equals(request.followRedirects()))
+                .build();
+
+        long startNanos = System.nanoTime();
+        try (CloseableHttpClient client = createClient(Boolean.TRUE.equals(request.ignoreSslVerification()), requestConfig)) {
+            return client.execute(httpRequest, response -> {
+                byte[] bodyBytes = readBody(response.getEntity());
+                long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                return new HttpExecuteResponse(
+                        response.getCode(),
+                        response.getReasonPhrase(),
+                        durationMillis,
+                        (long) bodyBytes.length,
+                        toHeaders(response.getHeaders()),
+                        new String(bodyBytes, StandardCharsets.UTF_8),
+                        false
+                );
+            });
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "HTTP_EXECUTE_FAILED",
+                    "HTTP 請求執行失敗。",
+                    java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
+            );
+        }
+    }
+
+    private String normalizeMethod(String method) {
+        if (method == null || method.trim().isEmpty()) {
+            throw badRequest("HTTP_METHOD_REQUIRED", "HTTP method 不可空白。");
+        }
+        String normalized = method.trim().toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_METHODS.contains(normalized)) {
+            throw badRequest("HTTP_METHOD_NOT_SUPPORTED", "目前不支援指定的 HTTP method。");
+        }
+        return normalized;
+    }
+
+    private URI buildUri(String url, List<HttpNameValue> params) {
+        if (url == null || url.trim().isEmpty()) {
+            throw badRequest("HTTP_URL_REQUIRED", "URL 不可空白。");
+        }
+        try {
+            URIBuilder builder = new URIBuilder(url.trim());
+            for (HttpNameValue param : enabledEntries(params)) {
+                builder.addParameter(param.name().trim(), param.value() == null ? "" : param.value());
+            }
+            URI uri = builder.build();
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                throw badRequest("HTTP_URL_INVALID", "URL 必須包含 scheme 與 host，例如 http://localhost:18080/api/health。");
+            }
+            return uri;
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw badRequest("HTTP_URL_INVALID", "URL 格式錯誤。");
+        }
+    }
+
+    private void applyHeaders(HttpUriRequestBase request, List<HttpNameValue> headers) {
+        for (HttpNameValue header : enabledEntries(headers)) {
+            request.addHeader(header.name().trim(), header.value() == null ? "" : header.value());
+        }
+    }
+
+    private void applyBody(HttpUriRequestBase request, String method, String bodyType, String body) {
+        if ("GET".equals(method) || "DELETE".equals(method)) {
+            return;
+        }
+
+        String normalizedBodyType = bodyType == null ? "none" : bodyType.trim().toLowerCase(Locale.ROOT);
+        String content = body == null ? "" : body;
+        switch (normalizedBodyType) {
+            case "none" -> {
+            }
+            case "json" -> request.setEntity(new StringEntity(content, ContentType.APPLICATION_JSON));
+            case "raw" -> request.setEntity(new StringEntity(content, ContentType.TEXT_PLAIN.withCharset(StandardCharsets.UTF_8)));
+            case "x-www-form-urlencoded" -> request.setEntity(new StringEntity(content, ContentType.APPLICATION_FORM_URLENCODED.withCharset(StandardCharsets.UTF_8)));
+            default -> throw badRequest("HTTP_BODY_TYPE_NOT_SUPPORTED", "目前不支援指定的 body type。");
+        }
+    }
+
+    private CloseableHttpClient createClient(boolean ignoreSslVerification, RequestConfig requestConfig) throws Exception {
+        if (!ignoreSslVerification) {
+            return HttpClients.custom()
+                    .setDefaultRequestConfig(requestConfig)
+                    .build();
+        }
+
+        SSLContext sslContext = SSLContextBuilder.create()
+                .loadTrustMaterial((chain, authType) -> true)
+                .build();
+        SSLConnectionSocketFactory sslSocketFactory = SSLConnectionSocketFactoryBuilder.create()
+                .setSslContext(sslContext)
+                .setHostnameVerifier(NoopHostnameVerifier.INSTANCE)
+                .build();
+        PoolingHttpClientConnectionManager connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+                .setSSLSocketFactory(sslSocketFactory)
+                .build();
+
+        return HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(requestConfig)
+                .build();
+    }
+
+    private byte[] readBody(HttpEntity entity) throws IOException {
+        if (entity == null) {
+            return new byte[0];
+        }
+        return EntityUtils.toByteArray(entity);
+    }
+
+    private List<HttpNameValue> toHeaders(Header[] headers) {
+        List<HttpNameValue> result = new ArrayList<>();
+        for (Header header : headers) {
+            result.add(new HttpNameValue(header.getName(), header.getValue(), true));
+        }
+        return result;
+    }
+
+    private int normalizeTimeout(Integer timeoutMillis) {
+        int timeout = timeoutMillis == null ? DEFAULT_TIMEOUT_MILLIS : timeoutMillis;
+        if (timeout <= 0 || timeout > MAX_TIMEOUT_MILLIS) {
+            throw badRequest("HTTP_TIMEOUT_INVALID", "Timeout 必須介於 1 到 300000 毫秒。");
+        }
+        return timeout;
+    }
+
+    private List<HttpNameValue> enabledEntries(List<HttpNameValue> entries) {
+        if (entries == null) {
+            return List.of();
+        }
+        return entries.stream()
+                .filter(entry -> entry != null && !Boolean.FALSE.equals(entry.enabled()))
+                .filter(entry -> entry.name() != null && !entry.name().trim().isEmpty())
+                .toList();
+    }
+
+    private ApiException badRequest(String code, String message) {
+        return new ApiException(HttpStatus.BAD_REQUEST, code, message);
+    }
+}
