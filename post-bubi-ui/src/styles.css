@@ -39,6 +39,9 @@ textarea {
 }
 
 .primary-button,
+.secondary-button,
+.danger-button,
+.icon-danger-button,
 .send-button {
   border: 0;
   border-radius: 6px;
@@ -49,7 +52,35 @@ textarea {
   padding: 0 14px;
 }
 
+.secondary-button {
+  border: 1px solid #b9c6cc;
+  background: #ffffff;
+  color: #263238;
+}
+
+.danger-button {
+  border: 1px solid #d9a7a7;
+  background: #ffffff;
+  color: #b42318;
+}
+
+.icon-danger-button {
+  width: 46px;
+  height: 28px;
+  border: 1px solid #d9a7a7;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #b42318;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 0;
+}
+
 .primary-button:disabled,
+.secondary-button:disabled,
+.danger-button:disabled,
+.icon-danger-button:disabled,
 .send-button:disabled,
 .tree-item:disabled {
   cursor: not-allowed;
@@ -66,6 +97,22 @@ textarea {
   margin-bottom: 8px;
 }
 
+.empty-text,
+.status-text {
+  color: #667780;
+  font-size: 13px;
+}
+
+.collection-block {
+  margin-bottom: 8px;
+}
+
+.collection-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tree-item {
   display: block;
   width: 100%;
@@ -80,19 +127,30 @@ textarea {
   text-align: left;
 }
 
+.collection-item {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.request-item {
+  padding-left: 24px;
+  font-size: 14px;
+}
+
 .tree-item.active {
   background: #e6f4f1;
 }
 
 .panel {
   display: grid;
-  grid-template-rows: auto minmax(260px, 1fr) 320px;
+  grid-template-rows: auto auto minmax(260px, 1fr) 320px;
   min-width: 0;
 }
 
 .toolbar {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 88px;
+  grid-template-columns: 110px minmax(0, 1fr) 112px 88px;
   gap: 8px;
   border-bottom: 1px solid #d9e0e4;
   background: #ffffff;
@@ -100,11 +158,44 @@ textarea {
 }
 
 .toolbar input,
-.toolbar select {
+.toolbar select,
+.request-meta input {
   height: 36px;
   border: 1px solid #c8d2d8;
   border-radius: 6px;
   padding: 0 10px;
+}
+
+.request-meta {
+  display: grid;
+  grid-template-columns: minmax(220px, 360px) auto minmax(180px, 1fr);
+  gap: 12px;
+  align-items: end;
+  border-bottom: 1px solid #d9e0e4;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.request-meta label {
+  display: grid;
+  gap: 4px;
+  color: #50616a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.meta-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.meta-actions button {
+  height: 36px;
+}
+
+.status-text {
+  align-self: center;
+  justify-self: end;
 }
 
 .editor,

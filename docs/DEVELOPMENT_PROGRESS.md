@@ -19,6 +19,7 @@
 | 4 | Collection / Folder / Request CRUD | 完成 | curl 驗證 CRUD API 均符合預期 |
 | 5 | HTTP execute API | 完成 | curl 驗證 GET、POST JSON、錯誤 URL |
 | 6 | Vue HTTP request editor 與 response viewer | 完成 | `bootJar` 後首頁載入新版 assets，可從 UI 送 HTTP request |
+| 6.1 | Vue Collection / Request 保存 UI | 完成 | `bootJar` 後首頁載入新版 assets，CRUD API 驗證保存與刪除流程 |
 | 7 | File upload 與 multipart form-data | 未開始 | 尚未驗證 |
 | 8 | Request history | 未開始 | 尚未驗證 |
 | 9 | ZIP export / import | 未開始 | 尚未驗證 |
@@ -26,6 +27,37 @@
 | 11 | gRPC unary execute API | 未開始 | 尚未驗證 |
 | 12 | Vue gRPC request editor 與 response viewer | 未開始 | 尚未驗證 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 進行中 | 已完成 CRUD API 基本錯誤格式驗證，完整測試尚未完成 |
+
+## 程式碼比對摘要
+
+- 比對日期：2026-06-28
+- 比對範圍：
+  - `post-bubi-api/src/main/java`
+  - `post-bubi-ui/src`
+  - `docs/DEVELOPMENT_SPEC.md`
+- 比對結論：本文件目前記錄的完成狀態與程式碼一致。已完成項目在程式碼中可找到對應實作；未完成項目尚未出現完整可用的後端 API 與前端操作畫面。
+
+### 已完成且程式碼已存在
+
+- 單一 JAR 打包流程：`post-bubi-ui` 先打包 Vue 靜態資源，再由 `post-bubi-api` 產生可執行 JAR。
+- H2/JPA 持久化：已建立 `CollectionEntity`、`FolderEntity`、`RequestEntity` 與對應 repository。
+- Collection / Folder / Request 後端 CRUD：已建立 controller、service、DTO 與統一錯誤回應。
+- Collection 刪除：後端 `DELETE /api/collections/{id}` 會移除該 Collection 底下的 Request 與 Folder；前端已提供刪除按鈕與確認訊息。
+- HTTP execute API：已建立 `POST /api/http/execute`，支援 GET、POST、PUT、PATCH、DELETE、params、headers、JSON/raw/x-www-form-urlencoded body、timeout、redirect 與忽略 SSL 驗證。
+- Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
+- Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
+- Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
+
+### 尚未完成且程式碼尚未完整存在
+
+- HTTP multipart form-data 與 file upload：規格已定義，後端與前端尚未實作。
+- Request history：尚未建立資料表、API 或前端畫面。
+- ZIP export / import：尚未建立匯出與匯入 API。
+- Proto upload 與 inspect：尚未建立 proto 檔案管理、解析與選擇畫面。
+- gRPC unary execute API：尚未建立可呼叫 gRPC unary method 的後端 API。
+- Vue gRPC request editor 與 response viewer：尚未建立畫面。
+- Folder tree UI：後端 Folder CRUD 已完成，但前端尚未提供 Folder 新增、顯示階層、選取與管理流程。
+- 自動化測試：尚未加入單元測試或整合測試，目前以編譯、JAR 啟動與 curl 驗證為主。
 
 ## 已完成驗證紀錄
 
@@ -123,9 +155,48 @@ curl -s -i http://127.0.0.1:18080/
   - URL 格式錯誤時回應 400，錯誤格式為 `code/message/details`。
   - 首頁回應 200，載入新版前端 assets。
 
+### Vue Collection / Request 保存 UI
+
+- 日期：2026-06-27
+- 實作範圍：
+  - 前端啟動後自動讀取 `GET /api/collections`。
+  - 左側 sidebar 顯示 Collection 與 Request。
+  - 可從畫面新增 Collection。
+  - 可從畫面刪除 Collection，並連同底下 Request 一起移除。
+  - 可從目前 HTTP editor 內容新增 Request。
+  - 可選取已儲存 Request 並載入 method、URL、params、headers、body、settings。
+  - 可更新已儲存 Request。
+  - 可刪除已儲存 Request。
+  - 畫面顯示目前操作狀態與錯誤訊息。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-save-ui;AUTO_SERVER=TRUE --server.port=18080
+curl -s -i -X POST http://127.0.0.1:18080/api/collections -H 'Content-Type: application/json' -d '{"name":"UI 保存驗證","description":""}'
+curl -s -i -X POST http://127.0.0.1:18080/api/requests -H 'Content-Type: application/json' -d '{"collectionId":1,"folderId":null,"type":"HTTP","name":"UI 健康檢查","sortOrder":0,"payloadJson":"{\"method\":\"GET\",\"url\":\"http://localhost:18080/api/health\",\"paramsText\":\"\",\"headersText\":\"Accept=application/json\",\"bodyType\":\"none\",\"body\":\"\",\"timeoutMillis\":30000,\"followRedirects\":true,\"ignoreSslVerification\":false}"}'
+curl -s -i http://127.0.0.1:18080/api/collections
+curl -s -i http://127.0.0.1:18080/
+curl -s -i -X DELETE http://127.0.0.1:18080/api/requests/1
+curl -s -i -X POST http://127.0.0.1:18080/api/collections -H 'Content-Type: application/json' -d '{"name":"刪除 Collection 驗證","description":""}'
+curl -s -i -X POST http://127.0.0.1:18080/api/requests -H 'Content-Type: application/json' -d '{"collectionId":1,"folderId":null,"type":"HTTP","name":"會被連帶刪除","sortOrder":0,"payloadJson":"{\"method\":\"GET\",\"url\":\"http://localhost:18080/api/health\"}"}'
+curl -s -i -X DELETE http://127.0.0.1:18080/api/collections/1
+curl -s -i http://127.0.0.1:18080/api/collections
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - Collection 建立 API 回應 201。
+  - Request 建立 API 回應 201。
+  - Collection 列表可回傳保存的 Request 與 payload。
+  - 首頁回應 200，載入新版前端 assets。
+  - Request 刪除 API 回應 204。
+  - Collection 刪除 API 回應 204。
+  - 刪除 Collection 後列表回應 `[]`，確認底下 Request 已被連帶移除。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor。
+目前可測階段：HTTP request editor 與 Request 保存。
 
 1. 建置：
 
@@ -147,6 +218,13 @@ http://localhost:18080
 
 4. 可測項目：
 
+- 點「新增 Collection」建立 Collection。
+- 點 Collection 右側「刪除」可刪除 Collection；刪除時會確認，底下 Request 會一起移除。
+- 編輯 Request 名稱、method、URL、params、headers、body、settings。
+- 點「另存 Request」把目前 HTTP request 存進左側選取的 Collection。
+- 點左側已儲存 Request，可載入 request 設定。
+- 修改已載入 Request 後點「儲存」，重新整理頁面後應仍保留修改內容。
+- 點「刪除 Request」可刪除目前選取的 Request。
 - 預設 URL 為 `http://localhost:18080/api/health`，按「送出」應看到 response body。
 - Params tab 可用每行 `name=value` 加 query string。
 - Headers tab 可用每行 `name=value` 加 header。
@@ -195,11 +273,23 @@ http://localhost:18080
 - 已完成 Vue HTTP request editor 與 response viewer。
 - 已完成 GET、POST JSON、錯誤 URL、首頁載入與 `bootJar` 驗證。
 
+本輪目標：
+
+- 串接前端 Collection / Request CRUD。
+- 讓使用者可以從 UI 保存、載入、更新、刪除 HTTP request。
+
+本輪結果：
+
+- 已完成 Collection 載入與新增。
+- 已完成 Collection 刪除。
+- 已完成 HTTP Request 保存、載入、更新、刪除。
+- 已完成 `bootJar`、首頁載入與 CRUD API 保存流程驗證。
+
 ## 未完成事項
 
 - HTTP request 執行已完成第一階段；尚未支援 multipart form-data 與 file upload。
 - gRPC unary request 執行尚未開始。
 - 匯入 / 匯出 ZIP 尚未開始。
 - 檔案上傳與 proto 管理尚未開始。
-- 前端已可送 HTTP request，但 Collection / Folder / Request CRUD UI 尚未串接。
+- 前端已可保存與載入 HTTP request；Folder UI 尚未串接。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。

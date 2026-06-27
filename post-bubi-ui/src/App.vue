@@ -2,12 +2,43 @@
   <main class="workspace">
     <aside class="sidebar">
       <div class="brand">Post Bubi</div>
-      <button class="primary-button" type="button" disabled>新增 Collection</button>
+      <button class="primary-button" type="button" :disabled="loadingCollections" @click="createCollection">
+        新增 Collection
+      </button>
       <section class="tree">
-        <div class="tree-title">目前階段</div>
-        <button class="tree-item active" type="button">HTTP Request</button>
-        <button class="tree-item" type="button" disabled>Collection 儲存</button>
-        <button class="tree-item" type="button" disabled>gRPC Request</button>
+        <div class="tree-title">Collections</div>
+        <p v-if="!collections.length" class="empty-text">尚無 Collection</p>
+        <div v-for="collection in collections" :key="collection.id" class="collection-block">
+          <div class="collection-row">
+            <button
+              class="tree-item collection-item"
+              type="button"
+              :class="{ active: selectedCollectionId === collection.id && !selectedRequestId }"
+              @click="selectCollection(collection.id)"
+            >
+              {{ collection.name }}
+            </button>
+            <button
+              class="icon-danger-button"
+              type="button"
+              :disabled="deletingCollection"
+              :title="`刪除 Collection ${collection.name}`"
+              @click="deleteCollection(collection)"
+            >
+              刪除
+            </button>
+          </div>
+          <button
+            v-for="request in collection.requests"
+            :key="request.id"
+            class="tree-item request-item"
+            type="button"
+            :class="{ active: selectedRequestId === request.id }"
+            @click="selectRequest(request)"
+          >
+            {{ request.name }}
+          </button>
+        </div>
       </section>
     </aside>
 
@@ -21,10 +52,29 @@
           <option>DELETE</option>
         </select>
         <input v-model="url" aria-label="URL" />
+        <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
+          {{ selectedRequestId ? '儲存' : '另存 Request' }}
+        </button>
         <button class="send-button" type="button" :disabled="sending" @click="sendHttpRequest">
           {{ sending ? '送出中' : '送出' }}
         </button>
       </header>
+
+      <section class="request-meta">
+        <label>
+          Request 名稱
+          <input v-model="requestName" aria-label="Request name" />
+        </label>
+        <div class="meta-actions">
+          <button class="secondary-button" type="button" :disabled="!selectedCollectionId" @click="newDraftRequest">
+            新 HTTP Request
+          </button>
+          <button class="danger-button" type="button" :disabled="!selectedRequestId || deleting" @click="deleteSelectedRequest">
+            刪除 Request
+          </button>
+        </div>
+        <span class="status-text">{{ workspaceStatus }}</span>
+      </section>
 
       <section class="editor">
         <nav class="tabs">
@@ -105,7 +155,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const requestTabs = [
   { key: 'params', label: 'Params' },
@@ -120,6 +170,10 @@ const responseTabs = [
   { key: 'info', label: 'Info' },
 ]
 
+const collections = ref([])
+const selectedCollectionId = ref(null)
+const selectedRequestId = ref(null)
+const requestName = ref('健康檢查')
 const method = ref('GET')
 const url = ref('http://localhost:18080/api/health')
 const paramsText = ref('')
@@ -131,9 +185,14 @@ const followRedirects = ref(true)
 const ignoreSslVerification = ref(false)
 const activeRequestTab = ref('params')
 const activeResponseTab = ref('body')
+const loadingCollections = ref(false)
+const saving = ref(false)
+const deleting = ref(false)
+const deletingCollection = ref(false)
 const sending = ref(false)
 const response = ref(null)
 const errorText = ref('')
+const workspaceStatus = ref('')
 
 const responseSummary = computed(() => {
   if (sending.value) return '送出中'
@@ -166,38 +225,254 @@ const responseInfo = computed(() => {
   }, null, 2)
 })
 
+onMounted(() => {
+  loadCollections()
+})
+
+async function loadCollections() {
+  loadingCollections.value = true
+  try {
+    collections.value = await apiJson('/api/collections')
+    if (!selectedCollectionId.value && collections.value.length) {
+      selectedCollectionId.value = collections.value[0].id
+    }
+    workspaceStatus.value = collections.value.length ? 'Collection 已載入' : '請先新增 Collection'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    loadingCollections.value = false
+  }
+}
+
+async function createCollection() {
+  const name = window.prompt('Collection 名稱', '預設 Collection')
+  if (!name || !name.trim()) {
+    return
+  }
+
+  try {
+    const collection = await apiJson('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim(), description: '' }),
+    })
+    selectedCollectionId.value = collection.id
+    selectedRequestId.value = null
+    await loadCollections()
+    workspaceStatus.value = 'Collection 已新增'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function deleteCollection(collection) {
+  const requestCount = collection.requests?.length || 0
+  const confirmed = window.confirm(`確定刪除 Collection「${collection.name}」？底下 ${requestCount} 個 Request 會一起刪除。`)
+  if (!confirmed) {
+    return
+  }
+
+  deletingCollection.value = true
+  try {
+    await apiJson(`/api/collections/${collection.id}`, { method: 'DELETE' })
+    if (selectedCollectionId.value === collection.id) {
+      selectedCollectionId.value = null
+      selectedRequestId.value = null
+      newDraftRequest()
+    }
+    await loadCollections()
+    if (!collections.value.length) {
+      selectedCollectionId.value = null
+      workspaceStatus.value = 'Collection 已刪除，請新增 Collection'
+    } else {
+      selectedCollectionId.value = collections.value[0].id
+      workspaceStatus.value = 'Collection 已刪除'
+    }
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    deletingCollection.value = false
+  }
+}
+
+function selectCollection(collectionId) {
+  selectedCollectionId.value = collectionId
+  selectedRequestId.value = null
+  newDraftRequest()
+  workspaceStatus.value = '已選擇 Collection'
+}
+
+function selectRequest(request) {
+  selectedCollectionId.value = request.collectionId
+  selectedRequestId.value = request.id
+  requestName.value = request.name
+  loadPayloadToEditor(safeJsonParse(request.payloadJson))
+  workspaceStatus.value = '已載入 Request'
+}
+
+function newDraftRequest() {
+  selectedRequestId.value = null
+  requestName.value = '未命名 HTTP Request'
+  method.value = 'GET'
+  url.value = 'http://localhost:18080/api/health'
+  paramsText.value = ''
+  headersText.value = 'Accept=application/json'
+  bodyType.value = 'none'
+  bodyText.value = '{\n  "name": "Post Bubi"\n}'
+  timeoutMillis.value = 30000
+  followRedirects.value = true
+  ignoreSslVerification.value = false
+  response.value = null
+  errorText.value = ''
+}
+
+async function saveRequest() {
+  if (!selectedCollectionId.value) {
+    workspaceStatus.value = '請先新增或選擇 Collection'
+    return
+  }
+  if (!requestName.value.trim()) {
+    workspaceStatus.value = 'Request 名稱不可空白'
+    return
+  }
+
+  saving.value = true
+  try {
+    const payloadJson = JSON.stringify(editorPayload())
+    if (selectedRequestId.value) {
+      await apiJson(`/api/requests/${selectedRequestId.value}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          folderId: null,
+          type: 'HTTP',
+          name: requestName.value.trim(),
+          sortOrder: 0,
+          payloadJson,
+        }),
+      })
+      workspaceStatus.value = 'Request 已儲存'
+    } else {
+      const created = await apiJson('/api/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          collectionId: selectedCollectionId.value,
+          folderId: null,
+          type: 'HTTP',
+          name: requestName.value.trim(),
+          sortOrder: 0,
+          payloadJson,
+        }),
+      })
+      selectedRequestId.value = created.id
+      workspaceStatus.value = 'Request 已新增'
+    }
+    await loadCollections()
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function deleteSelectedRequest() {
+  if (!selectedRequestId.value) {
+    return
+  }
+  const confirmed = window.confirm(`確定刪除 Request「${requestName.value}」？`)
+  if (!confirmed) {
+    return
+  }
+
+  deleting.value = true
+  try {
+    await apiJson(`/api/requests/${selectedRequestId.value}`, { method: 'DELETE' })
+    selectedRequestId.value = null
+    newDraftRequest()
+    await loadCollections()
+    workspaceStatus.value = 'Request 已刪除'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function sendHttpRequest() {
   sending.value = true
   errorText.value = ''
   response.value = null
 
   try {
-    const backendResponse = await fetch('/api/http/execute', {
+    response.value = await apiJson('/api/http/execute', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        method: method.value,
-        url: url.value,
-        params: parseNameValueLines(paramsText.value),
-        headers: parseNameValueLines(headersText.value),
-        bodyType: bodyType.value,
-        body: bodyType.value === 'none' ? '' : bodyText.value,
-        timeoutMillis: timeoutMillis.value,
-        followRedirects: followRedirects.value,
-        ignoreSslVerification: ignoreSslVerification.value,
-      }),
+      body: JSON.stringify(executePayload()),
     })
-
-    const payload = await backendResponse.json()
-    if (!backendResponse.ok) {
-      throw new Error(`${payload.code || backendResponse.status}: ${payload.message || backendResponse.statusText}`)
-    }
-    response.value = payload
   } catch (error) {
-    errorText.value = error instanceof Error ? error.message : String(error)
+    errorText.value = readableError(error)
   } finally {
     sending.value = false
   }
+}
+
+function editorPayload() {
+  return {
+    method: method.value,
+    url: url.value,
+    paramsText: paramsText.value,
+    headersText: headersText.value,
+    bodyType: bodyType.value,
+    body: bodyText.value,
+    timeoutMillis: timeoutMillis.value,
+    followRedirects: followRedirects.value,
+    ignoreSslVerification: ignoreSslVerification.value,
+  }
+}
+
+function executePayload() {
+  return {
+    method: method.value,
+    url: url.value,
+    params: parseNameValueLines(paramsText.value),
+    headers: parseNameValueLines(headersText.value),
+    bodyType: bodyType.value,
+    body: bodyType.value === 'none' ? '' : bodyText.value,
+    timeoutMillis: timeoutMillis.value,
+    followRedirects: followRedirects.value,
+    ignoreSslVerification: ignoreSslVerification.value,
+  }
+}
+
+function loadPayloadToEditor(payload) {
+  method.value = payload.method || 'GET'
+  url.value = payload.url || 'http://localhost:18080/api/health'
+  paramsText.value = payload.paramsText || ''
+  headersText.value = payload.headersText || ''
+  bodyType.value = payload.bodyType || 'none'
+  bodyText.value = payload.body || ''
+  timeoutMillis.value = payload.timeoutMillis || 30000
+  followRedirects.value = payload.followRedirects !== false
+  ignoreSslVerification.value = payload.ignoreSslVerification === true
+  response.value = null
+  errorText.value = ''
+}
+
+async function apiJson(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  })
+
+  if (response.status === 204) {
+    return null
+  }
+
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+  }
+  return payload
 }
 
 function parseNameValueLines(text) {
@@ -218,6 +493,18 @@ function parseNameValueLines(text) {
       }
     })
     .filter((entry) => entry.name)
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function readableError(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function prettyText(text) {
