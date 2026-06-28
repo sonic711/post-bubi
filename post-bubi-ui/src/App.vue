@@ -81,18 +81,28 @@
 
     <section class="panel">
       <header class="toolbar">
-        <select v-model="method" aria-label="HTTP method">
-          <option>GET</option>
-          <option>POST</option>
-          <option>PUT</option>
-          <option>PATCH</option>
-          <option>DELETE</option>
+        <select v-model="requestType" aria-label="Request type">
+          <option value="HTTP">HTTP</option>
+          <option value="GRPC">gRPC</option>
         </select>
-        <input v-model="url" aria-label="URL" />
+        <template v-if="requestType === 'HTTP'">
+          <select v-model="method" aria-label="HTTP method">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>PATCH</option>
+            <option>DELETE</option>
+          </select>
+          <input v-model="url" aria-label="URL" />
+        </template>
+        <template v-else>
+          <input v-model="grpcTarget" aria-label="gRPC target" placeholder="localhost:50051" />
+          <input v-model="grpcFullMethod" aria-label="gRPC method" placeholder="package.Service/Method" />
+        </template>
         <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
           {{ selectedRequestId ? '儲存' : '另存 Request' }}
         </button>
-        <button class="send-button" type="button" :disabled="sending" @click="sendHttpRequest">
+        <button class="send-button" type="button" :disabled="sending" @click="sendCurrentRequest">
           {{ sending ? '送出中' : '送出' }}
         </button>
       </header>
@@ -104,7 +114,7 @@
         </label>
         <div class="meta-actions">
           <button class="secondary-button" type="button" :disabled="!selectedCollectionId" @click="newDraftRequest">
-            新 HTTP Request
+            新 Request
           </button>
           <button class="danger-button" type="button" :disabled="!selectedRequestId || deleting" @click="deleteSelectedRequest">
             刪除 Request
@@ -127,18 +137,38 @@
           </button>
         </nav>
 
-        <div v-if="activeRequestTab === 'params'" class="editor-pane">
+        <div v-if="activeRequestTab === 'params' && requestType === 'HTTP'" class="editor-pane">
           <label>Query Params</label>
           <textarea v-model="paramsText" spellcheck="false" aria-label="Query Params"></textarea>
         </div>
 
+        <div v-if="activeRequestTab === 'params' && requestType === 'GRPC'" class="grpc-pane">
+          <label>
+            Host
+            <input v-model="grpcHost" placeholder="localhost" />
+          </label>
+          <label>
+            Port
+            <input v-model.number="grpcPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            Service
+            <input v-model="grpcServiceName" placeholder="package.Service" />
+          </label>
+          <label>
+            Method
+            <input v-model="grpcMethodName" placeholder="UnaryMethod" />
+          </label>
+        </div>
+
         <div v-if="activeRequestTab === 'headers'" class="editor-pane">
-          <label>Headers</label>
-          <textarea v-model="headersText" spellcheck="false" aria-label="Headers"></textarea>
+          <label>{{ requestType === 'GRPC' ? 'Metadata' : 'Headers' }}</label>
+          <textarea v-if="requestType === 'HTTP'" v-model="headersText" spellcheck="false" aria-label="Headers"></textarea>
+          <textarea v-else v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
         </div>
 
         <div v-if="activeRequestTab === 'body'" class="editor-pane body-pane">
-          <div class="body-toolbar">
+          <div v-if="requestType === 'HTTP'" class="body-toolbar">
             <label for="body-type">Body Type</label>
             <select id="body-type" v-model="bodyType">
               <option value="none">none</option>
@@ -148,7 +178,7 @@
               <option value="form-data">form-data</option>
             </select>
           </div>
-          <div v-if="bodyType === 'form-data'" class="form-data-editor">
+          <div v-if="requestType === 'HTTP' && bodyType === 'form-data'" class="form-data-editor">
             <div class="form-data-header">
               <span>Type</span>
               <span>Name</span>
@@ -175,12 +205,13 @@
             </div>
             <button class="secondary-button add-row-button" type="button" @click="addFormDataPart">新增欄位</button>
           </div>
+          <label v-if="requestType === 'GRPC'" class="grpc-body-label">JSON Request</label>
           <textarea
-            v-else
-            v-model="bodyText"
+            v-if="requestType === 'GRPC' || bodyType !== 'form-data'"
+            v-model="activeBodyText"
             spellcheck="false"
             aria-label="Body"
-            :disabled="bodyType === 'none'"
+            :disabled="requestType === 'HTTP' && bodyType === 'none'"
           ></textarea>
         </div>
 
@@ -196,6 +227,10 @@
           <label class="check-line">
             <input v-model="ignoreSslVerification" type="checkbox" />
             Ignore SSL certificate verification
+          </label>
+          <label v-if="requestType === 'GRPC'" class="check-line">
+            <input v-model="grpcPlaintext" type="checkbox" />
+            Plaintext
           </label>
         </div>
       </section>
@@ -271,8 +306,16 @@ const selectedRequestId = ref(null)
 const selectedProto = ref(null)
 const selectedProtoInspect = ref(null)
 const requestName = ref('健康檢查')
+const requestType = ref('HTTP')
 const method = ref('GET')
 const url = ref('http://localhost:18080/api/health')
+const grpcHost = ref('localhost')
+const grpcPort = ref(50051)
+const grpcServiceName = ref('')
+const grpcMethodName = ref('')
+const grpcMetadataText = ref('')
+const grpcBodyText = ref('{}')
+const grpcPlaintext = ref(true)
 const paramsText = ref('')
 const headersText = ref('Accept=application/json')
 const bodyType = ref('none')
@@ -294,28 +337,76 @@ const errorText = ref('')
 const workspaceStatus = ref('')
 const historyItems = ref([])
 
+const grpcTarget = computed({
+  get() {
+    return `${grpcHost.value}:${grpcPort.value}`
+  },
+  set(value) {
+    const [host, port] = value.split(':')
+    grpcHost.value = host || ''
+    grpcPort.value = Number(port || 50051)
+  },
+})
+
+const grpcFullMethod = computed({
+  get() {
+    return grpcServiceName.value && grpcMethodName.value ? `${grpcServiceName.value}/${grpcMethodName.value}` : ''
+  },
+  set(value) {
+    const [service, methodName] = value.split('/')
+    grpcServiceName.value = service || ''
+    grpcMethodName.value = methodName || ''
+  },
+})
+
+const activeBodyText = computed({
+  get() {
+    return requestType.value === 'GRPC' ? grpcBodyText.value : bodyText.value
+  },
+  set(value) {
+    if (requestType.value === 'GRPC') {
+      grpcBodyText.value = value
+    } else {
+      bodyText.value = value
+    }
+  },
+})
+
 const responseSummary = computed(() => {
   if (sending.value) return '送出中'
   if (errorText.value) return '錯誤'
   if (!response.value) return '尚未送出'
+  if (requestType.value === 'GRPC') {
+    return `${response.value.statusCode} · ${response.value.durationMillis} ms`
+  }
   return `${response.value.statusCode} ${response.value.reasonPhrase || ''} · ${response.value.durationMillis} ms · ${response.value.sizeBytes} bytes`
 })
 
 const responseBody = computed(() => {
   if (errorText.value) return errorText.value
   if (!response.value) return '尚未送出 request。'
+  if (requestType.value === 'GRPC') return prettyText(response.value.body || response.value.errorMessage)
   return prettyText(response.value.body)
 })
 
 const responseHeaders = computed(() => {
   if (!response.value) return ''
-  return response.value.headers
-    .map((header) => `${header.name}: ${header.value}`)
+  const entries = requestType.value === 'GRPC' ? response.value.metadata || [] : response.value.headers
+  return entries
+    .map((entry) => `${entry.name}: ${entry.value}`)
     .join('\n')
 })
 
 const responseInfo = computed(() => {
   if (!response.value) return ''
+  if (requestType.value === 'GRPC') {
+    return JSON.stringify({
+      statusCode: response.value.statusCode,
+      statusDescription: response.value.statusDescription,
+      durationMillis: response.value.durationMillis,
+      errorMessage: response.value.errorMessage,
+    }, null, 2)
+  }
   return JSON.stringify({
     statusCode: response.value.statusCode,
     reasonPhrase: response.value.reasonPhrase,
@@ -503,13 +594,15 @@ function selectRequest(request) {
   selectedCollectionId.value = request.collectionId
   selectedRequestId.value = request.id
   requestName.value = request.name
-  loadPayloadToEditor(safeJsonParse(request.payloadJson))
+  const payload = safeJsonParse(request.payloadJson)
+  payload.requestType = payload.requestType || request.type || 'HTTP'
+  loadPayloadToEditor(payload)
   workspaceStatus.value = '已載入 Request'
 }
 
 function newDraftRequest() {
   selectedRequestId.value = null
-  requestName.value = '未命名 HTTP Request'
+  requestName.value = requestType.value === 'GRPC' ? '未命名 gRPC Request' : '未命名 HTTP Request'
   method.value = 'GET'
   url.value = 'http://localhost:18080/api/health'
   paramsText.value = ''
@@ -542,7 +635,7 @@ async function saveRequest() {
         method: 'PUT',
         body: JSON.stringify({
           folderId: null,
-          type: 'HTTP',
+          type: requestType.value,
           name: requestName.value.trim(),
           sortOrder: 0,
           payloadJson,
@@ -555,7 +648,7 @@ async function saveRequest() {
         body: JSON.stringify({
           collectionId: selectedCollectionId.value,
           folderId: null,
-          type: 'HTTP',
+          type: requestType.value,
           name: requestName.value.trim(),
           sortOrder: 0,
           payloadJson,
@@ -595,6 +688,14 @@ async function deleteSelectedRequest() {
   }
 }
 
+async function sendCurrentRequest() {
+  if (requestType.value === 'GRPC') {
+    await sendGrpcRequest()
+  } else {
+    await sendHttpRequest()
+  }
+}
+
 async function sendHttpRequest() {
   sending.value = true
   errorText.value = ''
@@ -609,6 +710,23 @@ async function sendHttpRequest() {
   } catch (error) {
     errorText.value = readableError(error)
     await loadHistory()
+  } finally {
+    sending.value = false
+  }
+}
+
+async function sendGrpcRequest() {
+  sending.value = true
+  errorText.value = ''
+  response.value = null
+
+  try {
+    response.value = await apiJson('/api/grpc/execute', {
+      method: 'POST',
+      body: JSON.stringify(grpcExecutePayload()),
+    })
+  } catch (error) {
+    errorText.value = readableError(error)
   } finally {
     sending.value = false
   }
@@ -647,6 +765,7 @@ function loadHistoryItem(item) {
 
 function editorPayload() {
   return {
+    requestType: requestType.value,
     method: method.value,
     url: url.value,
     paramsText: paramsText.value,
@@ -657,6 +776,26 @@ function editorPayload() {
     timeoutMillis: timeoutMillis.value,
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
+    grpcHost: grpcHost.value,
+    grpcPort: grpcPort.value,
+    grpcServiceName: grpcServiceName.value,
+    grpcMethodName: grpcMethodName.value,
+    grpcMetadataText: grpcMetadataText.value,
+    grpcBody: grpcBodyText.value,
+    grpcPlaintext: grpcPlaintext.value,
+  }
+}
+
+function grpcExecutePayload() {
+  return {
+    host: grpcHost.value,
+    port: grpcPort.value,
+    plaintext: grpcPlaintext.value,
+    metadata: parseNameValueLines(grpcMetadataText.value),
+    serviceName: grpcServiceName.value,
+    methodName: grpcMethodName.value,
+    body: grpcBodyText.value,
+    timeoutMillis: timeoutMillis.value,
   }
 }
 
@@ -677,6 +816,7 @@ function executePayload() {
 }
 
 function loadPayloadToEditor(payload) {
+  requestType.value = payload.requestType || 'HTTP'
   method.value = payload.method || 'GET'
   url.value = payload.url || 'http://localhost:18080/api/health'
   paramsText.value = payload.paramsText || ''
@@ -687,6 +827,13 @@ function loadPayloadToEditor(payload) {
   timeoutMillis.value = payload.timeoutMillis || 30000
   followRedirects.value = payload.followRedirects !== false
   ignoreSslVerification.value = payload.ignoreSslVerification === true
+  grpcHost.value = payload.grpcHost || 'localhost'
+  grpcPort.value = payload.grpcPort || 50051
+  grpcServiceName.value = payload.grpcServiceName || ''
+  grpcMethodName.value = payload.grpcMethodName || ''
+  grpcMetadataText.value = payload.grpcMetadataText || ''
+  grpcBodyText.value = payload.grpcBody || '{}'
+  grpcPlaintext.value = payload.grpcPlaintext !== false
   response.value = null
   errorText.value = ''
 }
