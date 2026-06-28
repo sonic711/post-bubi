@@ -108,9 +108,43 @@
               <option value="json">JSON</option>
               <option value="raw">raw text</option>
               <option value="x-www-form-urlencoded">x-www-form-urlencoded</option>
+              <option value="form-data">form-data</option>
             </select>
           </div>
-          <textarea v-model="bodyText" spellcheck="false" aria-label="Body" :disabled="bodyType === 'none'"></textarea>
+          <div v-if="bodyType === 'form-data'" class="form-data-editor">
+            <div class="form-data-header">
+              <span>Type</span>
+              <span>Name</span>
+              <span>Value / File</span>
+              <span></span>
+            </div>
+            <div v-for="part in formDataParts" :key="part.id" class="form-data-row">
+              <select v-model="part.type" aria-label="form-data type" @change="resetFormDataFile(part)">
+                <option value="text">text</option>
+                <option value="file">file</option>
+              </select>
+              <input v-model="part.name" aria-label="form-data name" placeholder="name" />
+              <input
+                v-if="part.type === 'text'"
+                v-model="part.value"
+                aria-label="form-data value"
+                placeholder="value"
+              />
+              <label v-else class="file-picker">
+                <input type="file" @change="uploadFormDataFile(part, $event)" />
+                <span>{{ part.fileName || '選擇檔案' }}</span>
+              </label>
+              <button class="icon-danger-button" type="button" @click="removeFormDataPart(part.id)">刪除</button>
+            </div>
+            <button class="secondary-button add-row-button" type="button" @click="addFormDataPart">新增欄位</button>
+          </div>
+          <textarea
+            v-else
+            v-model="bodyText"
+            spellcheck="false"
+            aria-label="Body"
+            :disabled="bodyType === 'none'"
+          ></textarea>
         </div>
 
         <div v-if="activeRequestTab === 'settings'" class="settings-pane">
@@ -180,6 +214,7 @@ const paramsText = ref('')
 const headersText = ref('Accept=application/json')
 const bodyType = ref('none')
 const bodyText = ref('{\n  "name": "Post Bubi"\n}')
+const formDataParts = ref([newFormDataPart()])
 const timeoutMillis = ref(30000)
 const followRedirects = ref(true)
 const ignoreSslVerification = ref(false)
@@ -318,6 +353,7 @@ function newDraftRequest() {
   headersText.value = 'Accept=application/json'
   bodyType.value = 'none'
   bodyText.value = '{\n  "name": "Post Bubi"\n}'
+  formDataParts.value = [newFormDataPart()]
   timeoutMillis.value = 30000
   followRedirects.value = true
   ignoreSslVerification.value = false
@@ -421,6 +457,7 @@ function editorPayload() {
     headersText: headersText.value,
     bodyType: bodyType.value,
     body: bodyText.value,
+    formData: cleanFormDataParts(),
     timeoutMillis: timeoutMillis.value,
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
@@ -435,6 +472,7 @@ function executePayload() {
     headers: parseNameValueLines(headersText.value),
     bodyType: bodyType.value,
     body: bodyType.value === 'none' ? '' : bodyText.value,
+    formData: bodyType.value === 'form-data' ? cleanFormDataParts() : [],
     timeoutMillis: timeoutMillis.value,
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
@@ -448,6 +486,7 @@ function loadPayloadToEditor(payload) {
   headersText.value = payload.headersText || ''
   bodyType.value = payload.bodyType || 'none'
   bodyText.value = payload.body || ''
+  formDataParts.value = restoreFormDataParts(payload.formData)
   timeoutMillis.value = payload.timeoutMillis || 30000
   followRedirects.value = payload.followRedirects !== false
   ignoreSslVerification.value = payload.ignoreSslVerification === true
@@ -473,6 +512,108 @@ async function apiJson(path, options = {}) {
     throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
   }
   return payload
+}
+
+function addFormDataPart() {
+  formDataParts.value.push(newFormDataPart())
+}
+
+function removeFormDataPart(id) {
+  formDataParts.value = formDataParts.value.filter((part) => part.id !== id)
+  if (!formDataParts.value.length) {
+    addFormDataPart()
+  }
+}
+
+function resetFormDataFile(part) {
+  part.fileId = ''
+  part.fileName = ''
+  part.contentType = ''
+  part.sizeBytes = 0
+  if (part.type === 'text') {
+    part.value = part.value || ''
+  }
+}
+
+async function uploadFormDataFile(part, event) {
+  const file = event.target.files?.[0]
+  if (!file) {
+    return
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const uploaded = await uploadFile(formData)
+    part.fileId = uploaded.fileId
+    part.fileName = uploaded.originalFilename
+    part.contentType = uploaded.contentType
+    part.sizeBytes = uploaded.sizeBytes
+    workspaceStatus.value = `檔案已上傳：${uploaded.originalFilename}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+    event.target.value = ''
+  }
+}
+
+async function uploadFile(formData) {
+  const response = await fetch('/api/files', {
+    method: 'POST',
+    body: formData,
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+  }
+  return payload
+}
+
+function cleanFormDataParts() {
+  return formDataParts.value
+    .map((part) => ({
+      type: part.type,
+      name: part.name.trim(),
+      value: part.value,
+      fileId: part.fileId,
+      fileName: part.fileName,
+      contentType: part.contentType,
+      enabled: true,
+    }))
+    .filter((part) => part.name)
+    .filter((part) => part.type !== 'file' || part.fileId)
+}
+
+function restoreFormDataParts(parts) {
+  if (!Array.isArray(parts) || !parts.length) {
+    return [newFormDataPart()]
+  }
+  return parts.map((part) => ({
+    id: nextFormDataId(),
+    type: part.type === 'file' ? 'file' : 'text',
+    name: part.name || '',
+    value: part.value || '',
+    fileId: part.fileId || '',
+    fileName: part.fileName || '',
+    contentType: part.contentType || '',
+    sizeBytes: part.sizeBytes || 0,
+  }))
+}
+
+function newFormDataPart() {
+  return {
+    id: nextFormDataId(),
+    type: 'text',
+    name: '',
+    value: '',
+    fileId: '',
+    fileName: '',
+    contentType: '',
+    sizeBytes: 0,
+  }
+}
+
+function nextFormDataId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function parseNameValueLines(text) {

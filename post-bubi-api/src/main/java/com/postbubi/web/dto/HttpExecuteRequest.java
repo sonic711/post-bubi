@@ -9,6 +9,7 @@ public record HttpExecuteRequest(
         List<HttpNameValue> headers,
         String bodyType,
         String body,
+        List<HttpFormDataPart> formData,
         Integer timeoutMillis,
         Boolean followRedirects,
         Boolean ignoreSslVerification

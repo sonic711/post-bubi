@@ -20,7 +20,7 @@
 | 5 | HTTP execute API | 完成 | curl 驗證 GET、POST JSON、錯誤 URL |
 | 6 | Vue HTTP request editor 與 response viewer | 完成 | `bootJar` 後首頁載入新版 assets，可從 UI 送 HTTP request |
 | 6.1 | Vue Collection / Request 保存 UI | 完成 | `bootJar` 後首頁載入新版 assets，CRUD API 驗證保存與刪除流程 |
-| 7 | File upload 與 multipart form-data | 未開始 | 尚未驗證 |
+| 7 | File upload 與 multipart form-data | 完成 | `bootJar`、`/api/files` 上傳、`form-data` execute 成功 |
 | 8 | Request history | 未開始 | 尚未驗證 |
 | 9 | ZIP export / import | 未開始 | 尚未驗證 |
 | 10 | Proto upload 與 inspect | 未開始 | 尚未驗證 |
@@ -43,14 +43,14 @@
 - H2/JPA 持久化：已建立 `CollectionEntity`、`FolderEntity`、`RequestEntity` 與對應 repository。
 - Collection / Folder / Request 後端 CRUD：已建立 controller、service、DTO 與統一錯誤回應。
 - Collection 刪除：後端 `DELETE /api/collections/{id}` 會移除該 Collection 底下的 Request 與 Folder；前端已提供刪除按鈕與確認訊息。
-- HTTP execute API：已建立 `POST /api/http/execute`，支援 GET、POST、PUT、PATCH、DELETE、params、headers、JSON/raw/x-www-form-urlencoded body、timeout、redirect 與忽略 SSL 驗證。
+- HTTP execute API：已建立 `POST /api/http/execute`，支援 GET、POST、PUT、PATCH、DELETE、params、headers、JSON/raw/x-www-form-urlencoded/form-data body、timeout、redirect 與忽略 SSL 驗證。
+- File upload：已建立 `POST /api/files`，可將前端選取檔案存到本機 `post-bubi.storage.files-dir`，並回傳 `fileId` 供 form-data request 引用。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- HTTP multipart form-data 與 file upload：規格已定義，後端與前端尚未實作。
 - Request history：尚未建立資料表、API 或前端畫面。
 - ZIP export / import：尚未建立匯出與匯入 API。
 - Proto upload 與 inspect：尚未建立 proto 檔案管理、解析與選擇畫面。
@@ -194,9 +194,41 @@ curl -s -i http://127.0.0.1:18080/api/collections
   - Collection 刪除 API 回應 204。
   - 刪除 Collection 後列表回應 `[]`，確認底下 Request 已被連帶移除。
 
+### File upload 與 multipart form-data
+
+- 日期：2026-06-28
+- 實作範圍：
+  - 新增 `POST /api/files`，使用 multipart form-data 上傳單一檔案。
+  - 檔案會儲存在 `post-bubi.storage.files-dir`，預設為 `./data/files`。
+  - Spring multipart 上傳限制設定為單檔 100MB、單次 request 120MB。
+  - 上傳後回傳 `fileId`、原始檔名、儲存檔名、content type 與大小。
+  - `POST /api/http/execute` 新增 `bodyType=form-data`。
+  - form-data 欄位支援 `text` 與 `file`。
+  - file 欄位使用已上傳檔案的 `fileId` 引用本機檔案。
+  - multipart execute 會自動產生 boundary，若 headers 手動填入 `Content-Type`，後端會略過該 header，避免 boundary 錯誤。
+  - 前端 Body tab 新增 `form-data` 選項。
+  - 前端 form-data 編輯器可新增 text/file 欄位，file 欄位選檔後會先上傳並保存 `fileId`。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-form-data;AUTO_SERVER=TRUE --post-bubi.storage.files-dir=./build/verify/files --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i -X POST http://127.0.0.1:18080/api/files -F file=@build/verify/multipart-sample.txt
+curl -s -i -X POST http://127.0.0.1:18080/api/http/execute -H 'Content-Type: application/json' -d '{"method":"POST","url":"http://127.0.0.1:18080/api/health","bodyType":"form-data","formData":[],"timeoutMillis":30000,"followRedirects":true,"ignoreSslVerification":false}'
+curl -s -i -X POST http://127.0.0.1:18080/api/http/execute -H 'Content-Type: application/json' -d '{"method":"POST","url":"http://127.0.0.1:18080/api/files","headers":[{"name":"Content-Type","value":"multipart/form-data","enabled":true}],"bodyType":"form-data","formData":[{"type":"file","name":"file","fileId":"24a2180e-acc0-4358-bec2-936d3a91433f","fileName":"multipart-sample.txt","contentType":"text/plain","enabled":true}],"timeoutMillis":30000,"followRedirects":true,"ignoreSslVerification":false}'
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - 首頁回應 200，載入新版前端 assets。
+  - `POST /api/files` 回應 201，並回傳 `fileId`。
+  - 空的 form-data execute 回應 400，錯誤碼為 `HTTP_FORM_DATA_REQUIRED`。
+  - multipart file execute 外層回應 200，內層目標 `/api/files` 回應 201，確認 `file` part 已成功送出。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor 與 Request 保存。
+目前可測階段：HTTP request editor、Request 保存、form-data 與 file upload。
 
 1. 建置：
 
@@ -229,6 +261,7 @@ http://localhost:18080
 - Params tab 可用每行 `name=value` 加 query string。
 - Headers tab 可用每行 `name=value` 加 header。
 - Body tab 可切換 `none`、`JSON`、`raw text`、`x-www-form-urlencoded`。
+- Body tab 可切換 `form-data`，新增 text 欄位或 file 欄位；file 欄位選檔後會先上傳，送出時會以 multipart form-data 發送。
 - Settings tab 可調整 timeout、follow redirects、ignore SSL certificate verification。
 
 ## 本輪開發目標
@@ -285,11 +318,23 @@ http://localhost:18080
 - 已完成 HTTP Request 保存、載入、更新、刪除。
 - 已完成 `bootJar`、首頁載入與 CRUD API 保存流程驗證。
 
+本輪目標：
+
+- 實作 HTTP multipart form-data。
+- 實作本機 file upload，讓 form-data file 欄位可引用已上傳檔案。
+- 串接 Vue Body tab 的 form-data 編輯器。
+
+本輪結果：
+
+- 已完成 `POST /api/files`。
+- 已完成 `POST /api/http/execute` 的 `bodyType=form-data`。
+- 已完成 Vue form-data text/file 欄位編輯與檔案上傳。
+- 已完成 `bootJar`、首頁載入、檔案上傳、空 form-data 錯誤與 multipart file execute 驗證。
+
 ## 未完成事項
 
-- HTTP request 執行已完成第一階段；尚未支援 multipart form-data 與 file upload。
 - gRPC unary request 執行尚未開始。
 - 匯入 / 匯出 ZIP 尚未開始。
-- 檔案上傳與 proto 管理尚未開始。
+- proto 管理尚未開始。
 - 前端已可保存與載入 HTTP request；Folder UI 尚未串接。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。

@@ -5,7 +5,7 @@ spring:
   application:
     name: post-bubi
   datasource:
-    url: jdbc:h2:file:./data/post-bubi;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:./data/post-bubi
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -13,6 +13,10 @@ spring:
     console:
       enabled: true
       path: /h2-console
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 120MB
   jpa:
     hibernate:
       ddl-auto: update

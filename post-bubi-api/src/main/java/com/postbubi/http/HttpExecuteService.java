@@ -3,6 +3,8 @@ package com.postbubi.http;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -12,6 +14,7 @@ import javax.net.ssl.SSLContext;
 
 import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
@@ -30,8 +33,10 @@ import org.apache.hc.core5.util.Timeout;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import com.postbubi.storage.FileStorageService;
 import com.postbubi.web.dto.HttpExecuteRequest;
 import com.postbubi.web.dto.HttpExecuteResponse;
+import com.postbubi.web.dto.HttpFormDataPart;
 import com.postbubi.web.dto.HttpNameValue;
 import com.postbubi.web.error.ApiException;
 
@@ -42,14 +47,20 @@ public class HttpExecuteService {
     private static final int DEFAULT_TIMEOUT_MILLIS = 30000;
     private static final int MAX_TIMEOUT_MILLIS = 300000;
 
+    private final FileStorageService fileStorageService;
+
+    public HttpExecuteService(FileStorageService fileStorageService) {
+        this.fileStorageService = fileStorageService;
+    }
+
     public HttpExecuteResponse execute(HttpExecuteRequest request) {
         String method = normalizeMethod(request.method());
         URI uri = buildUri(request.url(), request.params());
         int timeoutMillis = normalizeTimeout(request.timeoutMillis());
 
         HttpUriRequestBase httpRequest = new HttpUriRequestBase(method, uri);
-        applyHeaders(httpRequest, request.headers());
-        applyBody(httpRequest, method, request.bodyType(), request.body());
+        applyHeaders(httpRequest, request.headers(), request.bodyType());
+        applyBody(httpRequest, method, request.bodyType(), request.body(), request.formData());
 
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectionRequestTimeout(Timeout.ofMilliseconds(timeoutMillis))
@@ -116,18 +127,22 @@ public class HttpExecuteService {
         }
     }
 
-    private void applyHeaders(HttpUriRequestBase request, List<HttpNameValue> headers) {
+    private void applyHeaders(HttpUriRequestBase request, List<HttpNameValue> headers, String bodyType) {
+        boolean multipart = "form-data".equals(normalizeBodyType(bodyType));
         for (HttpNameValue header : enabledEntries(headers)) {
+            if (multipart && "content-type".equals(header.name().trim().toLowerCase(Locale.ROOT))) {
+                continue;
+            }
             request.addHeader(header.name().trim(), header.value() == null ? "" : header.value());
         }
     }
 
-    private void applyBody(HttpUriRequestBase request, String method, String bodyType, String body) {
+    private void applyBody(HttpUriRequestBase request, String method, String bodyType, String body, List<HttpFormDataPart> formData) {
         if ("GET".equals(method) || "DELETE".equals(method)) {
             return;
         }
 
-        String normalizedBodyType = bodyType == null ? "none" : bodyType.trim().toLowerCase(Locale.ROOT);
+        String normalizedBodyType = normalizeBodyType(bodyType);
         String content = body == null ? "" : body;
         switch (normalizedBodyType) {
             case "none" -> {
@@ -135,8 +150,32 @@ public class HttpExecuteService {
             case "json" -> request.setEntity(new StringEntity(content, ContentType.APPLICATION_JSON));
             case "raw" -> request.setEntity(new StringEntity(content, ContentType.TEXT_PLAIN.withCharset(StandardCharsets.UTF_8)));
             case "x-www-form-urlencoded" -> request.setEntity(new StringEntity(content, ContentType.APPLICATION_FORM_URLENCODED.withCharset(StandardCharsets.UTF_8)));
+            case "form-data" -> request.setEntity(buildMultipartEntity(formData));
             default -> throw badRequest("HTTP_BODY_TYPE_NOT_SUPPORTED", "目前不支援指定的 body type。");
         }
+    }
+
+    private HttpEntity buildMultipartEntity(List<HttpFormDataPart> formData) {
+        MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+        int partCount = 0;
+        for (HttpFormDataPart part : enabledFormDataParts(formData)) {
+            String name = part.name().trim();
+            String type = normalizeFormDataType(part.type());
+            if ("file".equals(type)) {
+                Path file = fileStorageService.findUploadedFile(part.fileId());
+                String filename = part.fileName() == null || part.fileName().trim().isEmpty()
+                        ? file.getFileName().toString()
+                        : part.fileName().trim();
+                builder.addBinaryBody(name, file.toFile(), resolveContentType(part.contentType(), file), filename);
+            } else {
+                builder.addTextBody(name, part.value() == null ? "" : part.value(), ContentType.TEXT_PLAIN.withCharset(StandardCharsets.UTF_8));
+            }
+            partCount++;
+        }
+        if (partCount == 0) {
+            throw badRequest("HTTP_FORM_DATA_REQUIRED", "form-data 至少需要一個啟用的欄位。");
+        }
+        return builder.build();
     }
 
     private CloseableHttpClient createClient(boolean ignoreSslVerification, RequestConfig requestConfig) throws Exception {
@@ -186,7 +225,44 @@ public class HttpExecuteService {
         return timeout;
     }
 
+    private String normalizeBodyType(String bodyType) {
+        return bodyType == null ? "none" : bodyType.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeFormDataType(String type) {
+        String normalized = type == null ? "text" : type.trim().toLowerCase(Locale.ROOT);
+        if (!Set.of("text", "file").contains(normalized)) {
+            throw badRequest("HTTP_FORM_DATA_TYPE_NOT_SUPPORTED", "form-data 欄位類型只支援 text 或 file。");
+        }
+        return normalized;
+    }
+
+    private ContentType resolveContentType(String contentType, Path file) {
+        String value = contentType;
+        try {
+            if (value == null || value.trim().isEmpty()) {
+                value = Files.probeContentType(file);
+            }
+        } catch (IOException ignored) {
+            value = null;
+        }
+        if (value == null || value.trim().isEmpty()) {
+            return ContentType.APPLICATION_OCTET_STREAM;
+        }
+        return ContentType.parse(value.trim());
+    }
+
     private List<HttpNameValue> enabledEntries(List<HttpNameValue> entries) {
+        if (entries == null) {
+            return List.of();
+        }
+        return entries.stream()
+                .filter(entry -> entry != null && !Boolean.FALSE.equals(entry.enabled()))
+                .filter(entry -> entry.name() != null && !entry.name().trim().isEmpty())
+                .toList();
+    }
+
+    private List<HttpFormDataPart> enabledFormDataParts(List<HttpFormDataPart> entries) {
         if (entries == null) {
             return List.of();
         }

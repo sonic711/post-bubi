@@ -276,11 +276,67 @@ textarea {
 }
 
 .body-toolbar select,
-.settings-pane input[type="number"] {
+.settings-pane input[type="number"],
+.form-data-row input,
+.form-data-row select {
   height: 32px;
   border: 1px solid #c8d2d8;
   border-radius: 6px;
   padding: 0 10px;
+}
+
+.form-data-editor {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  height: 100%;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.form-data-header,
+.form-data-row {
+  display: grid;
+  grid-template-columns: 96px minmax(140px, 220px) minmax(0, 1fr) 52px;
+  gap: 8px;
+  align-items: center;
+}
+
+.form-data-header {
+  color: #667780;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.form-data-row input,
+.form-data-row select {
+  min-width: 0;
+}
+
+.file-picker {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid #c8d2d8;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+.file-picker input {
+  display: none;
+}
+
+.file-picker span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-row-button {
+  width: 96px;
+  margin-top: 4px;
 }
 
 .settings-pane {
