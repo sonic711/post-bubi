@@ -1,6 +1,7 @@
 package com.postbubi.storage;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -74,6 +75,32 @@ public class FileStorageService {
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "FILE_LOOKUP_FAILED",
                     "檔案查詢失敗。",
+                    java.util.Map.of("reason", exception.getMessage())
+            );
+        }
+    }
+
+    public FileUploadResponse storeImportedFile(String originalFilename, String contentType, InputStream inputStream) {
+        String normalizedFilename = sanitizeFilename(originalFilename);
+        String fileId = UUID.randomUUID().toString();
+        String storedFilename = fileId + "-" + normalizedFilename;
+        Path target = resolveStoredFile(storedFilename);
+
+        try {
+            Files.createDirectories(filesDir);
+            Files.copy(inputStream, target);
+            return new FileUploadResponse(
+                    fileId,
+                    normalizedFilename,
+                    storedFilename,
+                    normalizeContentType(contentType),
+                    Files.size(target)
+            );
+        } catch (IOException exception) {
+            throw new ApiException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "FILE_IMPORT_FAILED",
+                    "匯入檔案儲存失敗。",
                     java.util.Map.of("reason", exception.getMessage())
             );
         }

@@ -5,6 +5,13 @@
       <button class="primary-button" type="button" :disabled="loadingCollections" @click="createCollection">
         新增 Collection
       </button>
+      <div class="archive-actions">
+        <button class="secondary-button" type="button" @click="exportWorkspace">匯出 ZIP</button>
+        <label class="secondary-button import-button">
+          匯入 ZIP
+          <input type="file" accept=".zip,application/zip" @change="importWorkspace" />
+        </label>
+      </div>
       <section class="tree">
         <div class="tree-title">Collections</div>
         <p v-if="!collections.length" class="empty-text">尚無 Collection</p>
@@ -322,6 +329,54 @@ async function createCollection() {
     workspaceStatus.value = 'Collection 已新增'
   } catch (error) {
     workspaceStatus.value = readableError(error)
+  }
+}
+
+async function exportWorkspace() {
+  try {
+    const response = await fetch('/api/workspace/export')
+    if (!response.ok) {
+      const payload = await response.json()
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'post-bubi-workspace.zip'
+    link.click()
+    URL.revokeObjectURL(url)
+    workspaceStatus.value = 'Workspace 已匯出'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function importWorkspace(event) {
+  const file = event.target.files?.[0]
+  if (!file) {
+    return
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch('/api/workspace/import', {
+      method: 'POST',
+      body: formData,
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    selectedCollectionId.value = null
+    selectedRequestId.value = null
+    await loadCollections()
+    workspaceStatus.value = `匯入完成：${payload.collections} 個 Collection、${payload.requests} 個 Request`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    event.target.value = ''
   }
 }
 

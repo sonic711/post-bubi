@@ -22,7 +22,7 @@
 | 6.1 | Vue Collection / Request 保存 UI | 完成 | `bootJar` 後首頁載入新版 assets，CRUD API 驗證保存與刪除流程 |
 | 7 | File upload 與 multipart form-data | 完成 | `bootJar`、`/api/files` 上傳、`form-data` execute 成功 |
 | 8 | Request history | 完成 | `bootJar`、HTTP execute 後 `/api/http/history` 可查到紀錄 |
-| 9 | ZIP export / import | 未開始 | 尚未驗證 |
+| 9 | ZIP export / import | 完成 | `bootJar`、匯出 ZIP、匯入 ZIP 後 Collection 增加 |
 | 10 | Proto upload 與 inspect | 未開始 | 尚未驗證 |
 | 11 | gRPC unary execute API | 未開始 | 尚未驗證 |
 | 12 | Vue gRPC request editor 與 response viewer | 未開始 | 尚未驗證 |
@@ -46,13 +46,13 @@
 - HTTP execute API：已建立 `POST /api/http/execute`，支援 GET、POST、PUT、PATCH、DELETE、params、headers、JSON/raw/x-www-form-urlencoded/form-data body、timeout、redirect 與忽略 SSL 驗證。
 - File upload：已建立 `POST /api/files`，可將前端選取檔案存到本機 `post-bubi.storage.files-dir`，並回傳 `fileId` 供 form-data request 引用。
 - Request history：已建立 `request_histories` 與 `GET /api/http/history`，HTTP execute 後會保存最近執行紀錄供前端載入。
+- ZIP export / import：已建立 `GET /api/workspace/export` 與 `POST /api/workspace/import`，可匯出/匯入 Collection、Folder、Request 與 file references。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- ZIP export / import：尚未建立匯出與匯入 API。
 - Proto upload 與 inspect：尚未建立 proto 檔案管理、解析與選擇畫面。
 - gRPC unary execute API：尚未建立可呼叫 gRPC unary method 的後端 API。
 - Vue gRPC request editor 與 response viewer：尚未建立畫面。
@@ -256,9 +256,44 @@ curl -s -i http://127.0.0.1:18080/api/http/history
   - `POST /api/http/execute` 目標為 `/api/health` 時，外層 API 回應 200，內層 response statusCode 為 200。
   - 再次查詢 `GET /api/http/history` 可取得剛才執行紀錄，包含 method、url、statusCode、requestJson、responseBodyPreview 與 createdAt。
 
+### ZIP Export / Import
+
+- 日期：2026-06-28
+- 實作範圍：
+  - 新增 `GET /api/workspace/export`。
+  - 新增 `POST /api/workspace/import`。
+  - 匯出 ZIP 內容包含 `collection.json` 與 `protos/` 目錄。
+  - `collection.json` 包含 schema version、collections、folders、requests、file references。
+  - 匯出時會掃描 HTTP request payload 中的 form-data file references，若有對應本機檔案會放入 `files/`。
+  - 匯入時會建立新的 Collection，不覆蓋既有 Collection。
+  - 匯入時會重建 Folder 與 Request，並重新對應 Collection/Folder ID。
+  - 匯入時若 ZIP 內包含 file references，會將檔案複製到本機 `post-bubi.storage.files-dir` 並重新對應 `fileId`。
+  - 前端 sidebar 新增「匯出 ZIP」與「匯入 ZIP」操作。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-archive-2 --server.port=18080
+curl -s -i -X POST http://127.0.0.1:18080/api/collections -H 'Content-Type: application/json' -d '{"name":"ZIP 驗證 Collection","description":"匯出匯入驗證"}'
+curl -s -i -X POST http://127.0.0.1:18080/api/requests -H 'Content-Type: application/json' -d '{"collectionId":1,"folderId":null,"type":"HTTP","name":"ZIP 健康檢查","sortOrder":0,"payloadJson":"{\"method\":\"GET\",\"url\":\"http://localhost:18080/api/health\",\"bodyType\":\"none\"}"}'
+curl -s -o build/verify/post-bubi-workspace.zip http://127.0.0.1:18080/api/workspace/export
+unzip -l build/verify/post-bubi-workspace.zip
+curl -s -i -X POST http://127.0.0.1:18080/api/workspace/import -F file=@build/verify/post-bubi-workspace.zip
+curl -s -i http://127.0.0.1:18080/api/collections
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - 首頁回應 200，載入新版前端 assets。
+  - Collection 建立 API 回應 201。
+  - Request 建立 API 回應 201。
+  - 匯出的 ZIP 可由 `unzip -l` 讀取，包含 `collection.json` 與 `protos/`。
+  - `POST /api/workspace/import` 回應 200，結果為 `{"collections":1,"folders":0,"requests":1}`。
+  - 匯入後 `GET /api/collections` 可看到原 Collection 與「匯入」副本，確認未覆蓋既有資料。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history。
+目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history、ZIP 匯出/匯入。
 
 1. 建置：
 
@@ -295,6 +330,8 @@ http://localhost:18080
 - Settings tab 可調整 timeout、follow redirects、ignore SSL certificate verification。
 - Response 區塊的 History tab 可查看最近 50 筆 HTTP execute 紀錄。
 - 點 History 內任一筆紀錄，可把該筆 request 載回上方 HTTP editor。
+- 左側 sidebar 可點「匯出 ZIP」下載目前 workspace。
+- 左側 sidebar 可點「匯入 ZIP」匯入 Post Bubi ZIP；匯入會新增 Collection，不覆蓋既有資料。
 
 ## 本輪開發目標
 
@@ -377,10 +414,23 @@ http://localhost:18080
 - 已完成 Vue History tab 與載回 editor。
 - 已完成 `bootJar`、首頁載入、初始 history、HTTP execute 後 history 查詢驗證。
 
+本輪目標：
+
+- 實作 Post Bubi ZIP export。
+- 實作 Post Bubi ZIP import。
+- 前端提供匯出與匯入操作入口。
+
+本輪結果：
+
+- 已完成 `GET /api/workspace/export`。
+- 已完成 `POST /api/workspace/import`。
+- 已完成 ZIP 內 `collection.json`、`files/` references 與 `protos/` 目錄處理。
+- 已完成 Vue sidebar 匯出/匯入按鈕。
+- 已完成 `bootJar`、ZIP 匯出、ZIP 結構檢查、ZIP 匯入與 Collection 副本驗證。
+
 ## 未完成事項
 
 - gRPC unary request 執行尚未開始。
-- 匯入 / 匯出 ZIP 尚未開始。
 - proto 管理尚未開始。
 - 前端已可保存與載入 HTTP request；Folder UI 尚未串接。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。

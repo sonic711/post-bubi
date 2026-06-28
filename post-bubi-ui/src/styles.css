@@ -87,6 +87,25 @@ textarea {
   opacity: 0.55;
 }
 
+.archive-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.archive-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.import-button input {
+  display: none;
+}
+
 .tree {
   margin-top: 20px;
 }
