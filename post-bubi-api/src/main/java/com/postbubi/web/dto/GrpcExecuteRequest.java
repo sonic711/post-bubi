@@ -1,0 +1,15 @@
+package com.postbubi.web.dto;
+
+import java.util.List;
+
+public record GrpcExecuteRequest(
+        String host,
+        Integer port,
+        Boolean plaintext,
+        List<HttpNameValue> metadata,
+        String serviceName,
+        String methodName,
+        String body,
+        Integer timeoutMillis
+) {
+}

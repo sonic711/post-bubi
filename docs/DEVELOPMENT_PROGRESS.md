@@ -24,7 +24,7 @@
 | 8 | Request history | 完成 | `bootJar`、HTTP execute 後 `/api/http/history` 可查到紀錄 |
 | 9 | ZIP export / import | 完成 | `bootJar`、匯出 ZIP、匯入 ZIP 後 Collection 增加 |
 | 10 | Proto upload 與 inspect | 完成 | `bootJar`、`.proto` 上傳、列表與 inspect API 成功 |
-| 11 | gRPC unary execute API | 未開始 | 尚未驗證 |
+| 11 | gRPC unary execute API | 完成 | `bootJar`、API 參數驗證、reflection 失敗格式驗證；實際成功呼叫需可用的 reflection gRPC server |
 | 12 | Vue gRPC request editor 與 response viewer | 未開始 | 尚未驗證 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 進行中 | 已完成 CRUD API 基本錯誤格式驗證，完整測試尚未完成 |
 
@@ -48,13 +48,13 @@
 - Request history：已建立 `request_histories` 與 `GET /api/http/history`，HTTP execute 後會保存最近執行紀錄供前端載入。
 - ZIP export / import：已建立 `GET /api/workspace/export` 與 `POST /api/workspace/import`，可匯出/匯入 Collection、Folder、Request 與 file references。
 - Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
+- gRPC unary execute API：已建立 `POST /api/grpc/execute`，第一階段透過 server reflection 取得 descriptor，將 JSON request 轉為 `DynamicMessage` 後呼叫 unary method。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- gRPC unary execute API：尚未建立可呼叫 gRPC unary method 的後端 API。
 - Vue gRPC request editor 與 response viewer：尚未建立畫面。
 - Folder tree UI：後端 Folder CRUD 已完成，但前端尚未提供 Folder 新增、顯示階層、選取與管理流程。
 - 自動化測試：尚未加入單元測試或整合測試，目前以編譯、JAR 啟動與 curl 驗證為主。
@@ -319,9 +319,37 @@ curl -s -i http://127.0.0.1:18080/api/protos/65781cc1-e4b2-4588-a9c7-b661f6a1bb1
   - `GET /api/protos` 回應 200，列表包含完整 UUID 格式 `protoId` 與原始檔名。
   - `GET /api/protos/{protoId}/inspect` 回應 200，可解析 `packageName`、`imports`、service `Service` 與 unary method `rpcPeriphery`。
 
+### gRPC Unary Execute API
+
+- 日期：2026-06-28
+- 實作範圍：
+  - 新增 `POST /api/grpc/execute`。
+  - 第一階段支援使用 target gRPC server 的 server reflection 取得 service/method descriptor。
+  - 支援 plaintext channel。
+  - 支援 host、port、serviceName、methodName、JSON request body、timeout。
+  - 使用 Protobuf `DynamicMessage` 與 `JsonFormat` 將 JSON request 轉成 gRPC request message。
+  - 使用動態 `MethodDescriptor` 呼叫 unary method。
+  - 回應包含 status code、status description、duration、metadata、JSON response body 與 error message。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-grpc --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: application/json' -d '{"host":"","port":50051,"plaintext":true,"serviceName":"demo.EchoService","methodName":"Echo","body":"{}","timeoutMillis":1000}'
+curl -s -i -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: application/json' -d '{"host":"127.0.0.1","port":59999,"plaintext":true,"serviceName":"demo.EchoService","methodName":"Echo","body":"{}","timeoutMillis":1000}'
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - 首頁回應 200。
+  - Host 空白時回應 400，錯誤碼為 `GRPC_HOST_REQUIRED`。
+  - 連到沒有 gRPC server 的 port 時回應 400，錯誤碼為 `GRPC_REFLECTION_FAILED`。
+  - 本階段尚未在實際可用且有開 server reflection 的 gRPC server 上驗證成功呼叫；後續使用者可提供 target server 測試。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect。
+目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、gRPC unary execute API。
 
 1. 建置：
 
@@ -362,6 +390,8 @@ http://localhost:18080
 - 左側 sidebar 可點「匯入 ZIP」匯入 Post Bubi ZIP；匯入會新增 Collection，不覆蓋既有資料。
 - 左側 sidebar 的 Protos 區塊可點「上傳 Proto」選擇 `.proto` 檔。
 - 點 Protos 列表內的檔案，可查看 package、services、rpc methods 與 messages。
+- gRPC unary execute API 可用 `POST /api/grpc/execute` 測試；目前尚未有 Vue gRPC editor。
+- gRPC target server 必須開啟 server reflection，第一階段才能動態解析 descriptor 並呼叫 unary method。
 
 ## 本輪開發目標
 
@@ -473,8 +503,23 @@ http://localhost:18080
 - 已完成 Vue Protos sidebar 區塊。
 - 已完成 `bootJar`、首頁載入、Proto 上傳、Proto 列表與 Proto inspect 驗證。
 
+本輪目標：
+
+- 實作 gRPC unary execute API。
+- 透過 server reflection 取得 service/method descriptor。
+- 支援 JSON request body 轉 Protobuf DynamicMessage。
+
+本輪結果：
+
+- 已完成 `POST /api/grpc/execute`。
+- 已完成 server reflection descriptor resolver。
+- 已完成 DynamicMessage unary call 流程。
+- 已完成 `bootJar`、首頁載入、參數驗證與 reflection 失敗格式驗證。
+- 實際成功呼叫需使用有開 server reflection 的 gRPC target server 測試。
+
 ## 未完成事項
 
-- gRPC unary request 執行尚未開始。
+- gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
 - 前端已可保存與載入 HTTP request；Folder UI 尚未串接。
+- Vue gRPC request editor 與 response viewer 尚未開始。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。
