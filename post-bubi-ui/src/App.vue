@@ -182,6 +182,28 @@
         </nav>
         <pre v-if="activeResponseTab === 'body'">{{ responseBody }}</pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
+        <div v-else-if="activeResponseTab === 'history'" class="history-list">
+          <div class="history-actions">
+            <button class="secondary-button" type="button" :disabled="loadingHistory" @click="loadHistory">
+              {{ loadingHistory ? '載入中' : '重新整理' }}
+            </button>
+          </div>
+          <p v-if="!historyItems.length" class="empty-text">尚無執行紀錄</p>
+          <button
+            v-for="item in historyItems"
+            :key="item.id"
+            class="history-item"
+            type="button"
+            @click="loadHistoryItem(item)"
+          >
+            <span class="history-method">{{ item.method }}</span>
+            <span class="history-url">{{ item.url }}</span>
+            <span class="history-status" :class="{ failed: !item.success }">
+              {{ item.success ? item.statusCode : 'ERR' }}
+            </span>
+            <span class="history-time">{{ formatDateTime(item.createdAt) }}</span>
+          </button>
+        </div>
         <pre v-else>{{ responseInfo }}</pre>
       </section>
     </section>
@@ -202,6 +224,7 @@ const responseTabs = [
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
   { key: 'info', label: 'Info' },
+  { key: 'history', label: 'History' },
 ]
 
 const collections = ref([])
@@ -221,6 +244,7 @@ const ignoreSslVerification = ref(false)
 const activeRequestTab = ref('params')
 const activeResponseTab = ref('body')
 const loadingCollections = ref(false)
+const loadingHistory = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
 const deletingCollection = ref(false)
@@ -228,6 +252,7 @@ const sending = ref(false)
 const response = ref(null)
 const errorText = ref('')
 const workspaceStatus = ref('')
+const historyItems = ref([])
 
 const responseSummary = computed(() => {
   if (sending.value) return '送出中'
@@ -262,6 +287,7 @@ const responseInfo = computed(() => {
 
 onMounted(() => {
   loadCollections()
+  loadHistory()
 })
 
 async function loadCollections() {
@@ -442,11 +468,44 @@ async function sendHttpRequest() {
       method: 'POST',
       body: JSON.stringify(executePayload()),
     })
+    await loadHistory()
   } catch (error) {
     errorText.value = readableError(error)
+    await loadHistory()
   } finally {
     sending.value = false
   }
+}
+
+async function loadHistory() {
+  loadingHistory.value = true
+  try {
+    historyItems.value = await apiJson('/api/http/history')
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+function loadHistoryItem(item) {
+  const payload = safeJsonParse(item.requestJson)
+  selectedRequestId.value = payload.requestId || null
+  requestName.value = item.method && item.url ? `${item.method} ${item.url}` : '歷史紀錄'
+  method.value = payload.method || item.method || 'GET'
+  url.value = payload.url || item.url || 'http://localhost:18080/api/health'
+  paramsText.value = nameValueToText(payload.params)
+  headersText.value = nameValueToText(payload.headers)
+  bodyType.value = payload.bodyType || 'none'
+  bodyText.value = payload.body || ''
+  formDataParts.value = restoreFormDataParts(payload.formData)
+  timeoutMillis.value = payload.timeoutMillis || 30000
+  followRedirects.value = payload.followRedirects !== false
+  ignoreSslVerification.value = payload.ignoreSslVerification === true
+  response.value = null
+  errorText.value = ''
+  activeRequestTab.value = 'params'
+  workspaceStatus.value = '已載入 History request'
 }
 
 function editorPayload() {
@@ -466,6 +525,7 @@ function editorPayload() {
 
 function executePayload() {
   return {
+    requestId: selectedRequestId.value,
     method: method.value,
     url: url.value,
     params: parseNameValueLines(paramsText.value),
@@ -614,6 +674,28 @@ function newFormDataPart() {
 
 function nextFormDataId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function nameValueToText(entries) {
+  if (!Array.isArray(entries)) {
+    return ''
+  }
+  return entries
+    .filter((entry) => entry && entry.name)
+    .map((entry) => `${entry.name}=${entry.value || ''}`)
+    .join('\n')
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return ''
+  }
+  return new Date(value).toLocaleString('zh-TW', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function parseNameValueLines(text) {

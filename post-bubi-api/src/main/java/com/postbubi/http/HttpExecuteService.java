@@ -48,9 +48,11 @@ public class HttpExecuteService {
     private static final int MAX_TIMEOUT_MILLIS = 300000;
 
     private final FileStorageService fileStorageService;
+    private final RequestHistoryService requestHistoryService;
 
-    public HttpExecuteService(FileStorageService fileStorageService) {
+    public HttpExecuteService(FileStorageService fileStorageService, RequestHistoryService requestHistoryService) {
         this.fileStorageService = fileStorageService;
+        this.requestHistoryService = requestHistoryService;
     }
 
     public HttpExecuteResponse execute(HttpExecuteRequest request) {
@@ -70,7 +72,7 @@ public class HttpExecuteService {
 
         long startNanos = System.nanoTime();
         try (CloseableHttpClient client = createClient(Boolean.TRUE.equals(request.ignoreSslVerification()), requestConfig)) {
-            return client.execute(httpRequest, response -> {
+            HttpExecuteResponse executeResponse = client.execute(httpRequest, response -> {
                 byte[] bodyBytes = readBody(response.getEntity());
                 long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
                 return new HttpExecuteResponse(
@@ -83,9 +85,12 @@ public class HttpExecuteService {
                         false
                 );
             });
+            requestHistoryService.record(request, executeResponse, null);
+            return executeResponse;
         } catch (ApiException exception) {
             throw exception;
         } catch (Exception exception) {
+            requestHistoryService.record(request, null, exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage());
             throw new ApiException(
                     HttpStatus.BAD_GATEWAY,
                     "HTTP_EXECUTE_FAILED",

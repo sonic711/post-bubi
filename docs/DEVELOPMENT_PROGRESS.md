@@ -21,7 +21,7 @@
 | 6 | Vue HTTP request editor 與 response viewer | 完成 | `bootJar` 後首頁載入新版 assets，可從 UI 送 HTTP request |
 | 6.1 | Vue Collection / Request 保存 UI | 完成 | `bootJar` 後首頁載入新版 assets，CRUD API 驗證保存與刪除流程 |
 | 7 | File upload 與 multipart form-data | 完成 | `bootJar`、`/api/files` 上傳、`form-data` execute 成功 |
-| 8 | Request history | 未開始 | 尚未驗證 |
+| 8 | Request history | 完成 | `bootJar`、HTTP execute 後 `/api/http/history` 可查到紀錄 |
 | 9 | ZIP export / import | 未開始 | 尚未驗證 |
 | 10 | Proto upload 與 inspect | 未開始 | 尚未驗證 |
 | 11 | gRPC unary execute API | 未開始 | 尚未驗證 |
@@ -45,13 +45,13 @@
 - Collection 刪除：後端 `DELETE /api/collections/{id}` 會移除該 Collection 底下的 Request 與 Folder；前端已提供刪除按鈕與確認訊息。
 - HTTP execute API：已建立 `POST /api/http/execute`，支援 GET、POST、PUT、PATCH、DELETE、params、headers、JSON/raw/x-www-form-urlencoded/form-data body、timeout、redirect 與忽略 SSL 驗證。
 - File upload：已建立 `POST /api/files`，可將前端選取檔案存到本機 `post-bubi.storage.files-dir`，並回傳 `fileId` 供 form-data request 引用。
+- Request history：已建立 `request_histories` 與 `GET /api/http/history`，HTTP execute 後會保存最近執行紀錄供前端載入。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- Request history：尚未建立資料表、API 或前端畫面。
 - ZIP export / import：尚未建立匯出與匯入 API。
 - Proto upload 與 inspect：尚未建立 proto 檔案管理、解析與選擇畫面。
 - gRPC unary execute API：尚未建立可呼叫 gRPC unary method 的後端 API。
@@ -226,9 +226,39 @@ curl -s -i -X POST http://127.0.0.1:18080/api/http/execute -H 'Content-Type: app
   - 空的 form-data execute 回應 400，錯誤碼為 `HTTP_FORM_DATA_REQUIRED`。
   - multipart file execute 外層回應 200，內層目標 `/api/files` 回應 201，確認 `file` part 已成功送出。
 
+### Request History
+
+- 日期：2026-06-28
+- 實作範圍：
+  - 新增 `request_histories` JPA entity 與 repository。
+  - 新增 `RequestHistoryService`，HTTP execute 成功或連線執行失敗時會保存歷史紀錄。
+  - 新增 `GET /api/http/history`，回傳最近 50 筆執行紀錄。
+  - History 紀錄包含 method、url、status code、duration、size、success、error message、request JSON、response body preview 與建立時間。
+  - 前端 Response 區塊新增 `History` tab。
+  - 前端送出 HTTP request 後會重新載入 history。
+  - 點擊 history item 可將該筆 request 載回 HTTP editor。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-history --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i http://127.0.0.1:18080/api/http/history
+curl -s -i -X POST http://127.0.0.1:18080/api/http/execute -H 'Content-Type: application/json' -d '{"method":"GET","url":"http://127.0.0.1:18080/api/health","headers":[{"name":"Accept","value":"application/json","enabled":true}],"params":[{"name":"stage","value":"history","enabled":true}],"bodyType":"none","timeoutMillis":30000,"followRedirects":true,"ignoreSslVerification":false}'
+curl -s -i http://127.0.0.1:18080/api/http/history
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - JPA 啟動時掃描到 4 個 repository。
+  - 首頁回應 200，載入新版前端 assets。
+  - 初始 `GET /api/http/history` 回應 `[]`。
+  - `POST /api/http/execute` 目標為 `/api/health` 時，外層 API 回應 200，內層 response statusCode 為 200。
+  - 再次查詢 `GET /api/http/history` 可取得剛才執行紀錄，包含 method、url、statusCode、requestJson、responseBodyPreview 與 createdAt。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、form-data 與 file upload。
+目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history。
 
 1. 建置：
 
@@ -263,6 +293,8 @@ http://localhost:18080
 - Body tab 可切換 `none`、`JSON`、`raw text`、`x-www-form-urlencoded`。
 - Body tab 可切換 `form-data`，新增 text 欄位或 file 欄位；file 欄位選檔後會先上傳，送出時會以 multipart form-data 發送。
 - Settings tab 可調整 timeout、follow redirects、ignore SSL certificate verification。
+- Response 區塊的 History tab 可查看最近 50 筆 HTTP execute 紀錄。
+- 點 History 內任一筆紀錄，可把該筆 request 載回上方 HTTP editor。
 
 ## 本輪開發目標
 
@@ -330,6 +362,20 @@ http://localhost:18080
 - 已完成 `POST /api/http/execute` 的 `bodyType=form-data`。
 - 已完成 Vue form-data text/file 欄位編輯與檔案上傳。
 - 已完成 `bootJar`、首頁載入、檔案上傳、空 form-data 錯誤與 multipart file execute 驗證。
+
+本輪目標：
+
+- 實作 Request history 資料表與查詢 API。
+- HTTP execute 後保存執行紀錄。
+- 前端可查看最近 history 並載回 request editor。
+
+本輪結果：
+
+- 已完成 `request_histories`。
+- 已完成 `GET /api/http/history`。
+- 已完成 HTTP execute 成功與執行失敗的 history 保存。
+- 已完成 Vue History tab 與載回 editor。
+- 已完成 `bootJar`、首頁載入、初始 history、HTTP execute 後 history 查詢驗證。
 
 ## 未完成事項
 

@@ -375,6 +375,64 @@ textarea {
   height: 42px;
 }
 
+.history-list {
+  height: calc(100% - 84px);
+  overflow: auto;
+  padding: 12px;
+}
+
+.history-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 72px 112px;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-bottom: 1px solid #e6ecef;
+  background: #ffffff;
+  color: #263238;
+  cursor: pointer;
+  padding: 0 4px;
+  text-align: left;
+}
+
+.history-item:hover {
+  background: #f5f7f8;
+}
+
+.history-method {
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.history-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-status {
+  color: #1a7f37;
+  font-weight: 700;
+}
+
+.history-status.failed {
+  color: #b42318;
+}
+
+.history-time {
+  color: #667780;
+  font-size: 12px;
+  text-align: right;
+}
+
 pre {
   height: calc(100% - 84px);
   margin: 0;
