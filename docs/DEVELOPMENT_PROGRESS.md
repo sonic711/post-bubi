@@ -23,7 +23,7 @@
 | 7 | File upload 與 multipart form-data | 完成 | `bootJar`、`/api/files` 上傳、`form-data` execute 成功 |
 | 8 | Request history | 完成 | `bootJar`、HTTP execute 後 `/api/http/history` 可查到紀錄 |
 | 9 | ZIP export / import | 完成 | `bootJar`、匯出 ZIP、匯入 ZIP 後 Collection 增加 |
-| 10 | Proto upload 與 inspect | 未開始 | 尚未驗證 |
+| 10 | Proto upload 與 inspect | 完成 | `bootJar`、`.proto` 上傳、列表與 inspect API 成功 |
 | 11 | gRPC unary execute API | 未開始 | 尚未驗證 |
 | 12 | Vue gRPC request editor 與 response viewer | 未開始 | 尚未驗證 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 進行中 | 已完成 CRUD API 基本錯誤格式驗證，完整測試尚未完成 |
@@ -47,13 +47,13 @@
 - File upload：已建立 `POST /api/files`，可將前端選取檔案存到本機 `post-bubi.storage.files-dir`，並回傳 `fileId` 供 form-data request 引用。
 - Request history：已建立 `request_histories` 與 `GET /api/http/history`，HTTP execute 後會保存最近執行紀錄供前端載入。
 - ZIP export / import：已建立 `GET /api/workspace/export` 與 `POST /api/workspace/import`，可匯出/匯入 Collection、Folder、Request 與 file references。
+- Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- Proto upload 與 inspect：尚未建立 proto 檔案管理、解析與選擇畫面。
 - gRPC unary execute API：尚未建立可呼叫 gRPC unary method 的後端 API。
 - Vue gRPC request editor 與 response viewer：尚未建立畫面。
 - Folder tree UI：後端 Folder CRUD 已完成，但前端尚未提供 Folder 新增、顯示階層、選取與管理流程。
@@ -291,9 +291,37 @@ curl -s -i http://127.0.0.1:18080/api/collections
   - `POST /api/workspace/import` 回應 200，結果為 `{"collections":1,"folders":0,"requests":1}`。
   - 匯入後 `GET /api/collections` 可看到原 Collection 與「匯入」副本，確認未覆蓋既有資料。
 
+### Proto Upload 與 Inspect
+
+- 日期：2026-06-28
+- 實作範圍：
+  - 新增 `POST /api/protos`，可上傳單一 `.proto` 檔。
+  - Proto 檔會儲存在 `post-bubi.storage.protos-dir`，預設為 `./data/protos`。
+  - 新增 `GET /api/protos`，回傳已上傳 Proto 列表。
+  - 新增 `GET /api/protos/{protoId}/inspect`，解析 Proto 內容。
+  - Inspect 結果包含 package、imports、messages、services、rpc methods、request/response type、client/server streaming flag。
+  - 前端 sidebar 新增 Protos 區塊，可上傳 `.proto`、顯示列表、點選後顯示 inspect 結果。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-proto-2 --post-bubi.storage.protos-dir=./build/verify/protos-2 --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i -X POST http://127.0.0.1:18080/api/protos -F file=@data/proto/common/service.proto
+curl -s -i http://127.0.0.1:18080/api/protos
+curl -s -i http://127.0.0.1:18080/api/protos/65781cc1-e4b2-4588-a9c7-b661f6a1bb1f/inspect
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - 首頁回應 200，載入新版前端 assets。
+  - `POST /api/protos` 回應 201，回傳完整 `protoId`。
+  - `GET /api/protos` 回應 200，列表包含完整 UUID 格式 `protoId` 與原始檔名。
+  - `GET /api/protos/{protoId}/inspect` 回應 200，可解析 `packageName`、`imports`、service `Service` 與 unary method `rpcPeriphery`。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history、ZIP 匯出/匯入。
+目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect。
 
 1. 建置：
 
@@ -332,6 +360,8 @@ http://localhost:18080
 - 點 History 內任一筆紀錄，可把該筆 request 載回上方 HTTP editor。
 - 左側 sidebar 可點「匯出 ZIP」下載目前 workspace。
 - 左側 sidebar 可點「匯入 ZIP」匯入 Post Bubi ZIP；匯入會新增 Collection，不覆蓋既有資料。
+- 左側 sidebar 的 Protos 區塊可點「上傳 Proto」選擇 `.proto` 檔。
+- 點 Protos 列表內的檔案，可查看 package、services、rpc methods 與 messages。
 
 ## 本輪開發目標
 
@@ -428,9 +458,23 @@ http://localhost:18080
 - 已完成 Vue sidebar 匯出/匯入按鈕。
 - 已完成 `bootJar`、ZIP 匯出、ZIP 結構檢查、ZIP 匯入與 Collection 副本驗證。
 
+本輪目標：
+
+- 實作 Proto upload。
+- 實作 Proto list。
+- 實作 Proto inspect。
+- 前端提供 Proto 上傳、列表與 inspect 結果。
+
+本輪結果：
+
+- 已完成 `POST /api/protos`。
+- 已完成 `GET /api/protos`。
+- 已完成 `GET /api/protos/{protoId}/inspect`。
+- 已完成 Vue Protos sidebar 區塊。
+- 已完成 `bootJar`、首頁載入、Proto 上傳、Proto 列表與 Proto inspect 驗證。
+
 ## 未完成事項
 
 - gRPC unary request 執行尚未開始。
-- proto 管理尚未開始。
 - 前端已可保存與載入 HTTP request；Folder UI 尚未串接。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。

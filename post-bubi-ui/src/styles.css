@@ -110,6 +110,22 @@ textarea {
   margin-top: 20px;
 }
 
+.proto-panel {
+  margin-top: 20px;
+}
+
+.proto-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.proto-upload-button input {
+  display: none;
+}
+
 .tree-title {
   color: #667780;
   font-size: 13px;
@@ -155,6 +171,36 @@ textarea {
 .request-item {
   padding-left: 24px;
   font-size: 14px;
+}
+
+.proto-item {
+  font-size: 13px;
+}
+
+.proto-inspect {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #e6ecef;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.proto-package,
+.proto-messages {
+  color: #667780;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.proto-service {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.proto-service span {
+  color: #263238;
+  overflow-wrap: anywhere;
 }
 
 .tree-item.active {

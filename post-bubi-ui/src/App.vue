@@ -47,6 +47,36 @@
           </button>
         </div>
       </section>
+      <section class="proto-panel">
+        <div class="tree-title">Protos</div>
+        <label class="secondary-button proto-upload-button">
+          上傳 Proto
+          <input type="file" accept=".proto" @change="uploadProto" />
+        </label>
+        <p v-if="!protos.length" class="empty-text">尚無 Proto</p>
+        <button
+          v-for="proto in protos"
+          :key="proto.protoId"
+          class="tree-item proto-item"
+          type="button"
+          :class="{ active: selectedProto?.protoId === proto.protoId }"
+          @click="inspectProto(proto)"
+        >
+          {{ proto.filename }}
+        </button>
+        <div v-if="selectedProtoInspect" class="proto-inspect">
+          <div class="proto-package">{{ selectedProtoInspect.packageName || '無 package' }}</div>
+          <div v-for="service in selectedProtoInspect.services" :key="service.name" class="proto-service">
+            <strong>{{ service.name }}</strong>
+            <span v-for="method in service.methods" :key="method.name">
+              {{ method.name }}({{ method.requestType }}) returns ({{ method.responseType }})
+            </span>
+          </div>
+          <div v-if="selectedProtoInspect.messages.length" class="proto-messages">
+            Messages: {{ selectedProtoInspect.messages.join(', ') }}
+          </div>
+        </div>
+      </section>
     </aside>
 
     <section class="panel">
@@ -235,8 +265,11 @@ const responseTabs = [
 ]
 
 const collections = ref([])
+const protos = ref([])
 const selectedCollectionId = ref(null)
 const selectedRequestId = ref(null)
+const selectedProto = ref(null)
+const selectedProtoInspect = ref(null)
 const requestName = ref('健康檢查')
 const method = ref('GET')
 const url = ref('http://localhost:18080/api/health')
@@ -295,6 +328,7 @@ const responseInfo = computed(() => {
 onMounted(() => {
   loadCollections()
   loadHistory()
+  loadProtos()
 })
 
 async function loadCollections() {
@@ -327,6 +361,54 @@ async function createCollection() {
     selectedRequestId.value = null
     await loadCollections()
     workspaceStatus.value = 'Collection 已新增'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function loadProtos() {
+  try {
+    protos.value = await apiJson('/api/protos')
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function uploadProto(event) {
+  const file = event.target.files?.[0]
+  if (!file) {
+    return
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch('/api/protos', {
+      method: 'POST',
+      body: formData,
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    await loadProtos()
+    const uploaded = protos.value.find((proto) => proto.protoId === payload.protoId)
+    if (uploaded) {
+      await inspectProto(uploaded)
+    }
+    workspaceStatus.value = `Proto 已上傳：${payload.originalFilename}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    event.target.value = ''
+  }
+}
+
+async function inspectProto(proto) {
+  selectedProto.value = proto
+  try {
+    selectedProtoInspect.value = await apiJson(`/api/protos/${proto.protoId}/inspect`)
+    workspaceStatus.value = 'Proto inspect 已載入'
   } catch (error) {
     workspaceStatus.value = readableError(error)
   }
