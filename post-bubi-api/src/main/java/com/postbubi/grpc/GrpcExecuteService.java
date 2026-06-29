@@ -15,8 +15,11 @@ import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.protobuf.ProtoUtils;
 import io.grpc.stub.ClientCalls;
+import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -44,11 +47,7 @@ public class GrpcExecuteService {
         String serviceName = requiredText(request.serviceName(), "GRPC_SERVICE_REQUIRED", "Service name 不可空白。");
         String methodName = requiredText(request.methodName(), "GRPC_METHOD_REQUIRED", "Method name 不可空白。");
 
-        ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(host, port);
-        if (Boolean.TRUE.equals(request.plaintext())) {
-            builder.usePlaintext();
-        }
-        ManagedChannel channel = builder.build();
+        ManagedChannel channel = createChannel(host, port, request);
         long startNanos = System.nanoTime();
         try {
             var grpcMethod = descriptorResolver.resolveMethod(channel, serviceName, methodName);
@@ -98,6 +97,31 @@ public class GrpcExecuteService {
         } finally {
             channel.shutdownNow();
         }
+    }
+
+    private ManagedChannel createChannel(String host, int port, GrpcExecuteRequest request) {
+        if (Boolean.TRUE.equals(request.plaintext())) {
+            return ManagedChannelBuilder.forAddress(host, port)
+                    .usePlaintext()
+                    .build();
+        }
+        if (Boolean.TRUE.equals(request.ignoreTlsVerification())) {
+            try {
+                return NettyChannelBuilder.forAddress(host, port)
+                        .sslContext(GrpcSslContexts.forClient()
+                                .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                                .build())
+                        .build();
+            } catch (Exception exception) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "GRPC_TLS_CONFIG_INVALID",
+                        "gRPC TLS 設定錯誤。",
+                        java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
+                );
+            }
+        }
+        return ManagedChannelBuilder.forAddress(host, port).build();
     }
 
     private DynamicMessage toDynamicMessage(com.google.protobuf.Descriptors.Descriptor descriptor, String body) {

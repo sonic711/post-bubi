@@ -29,6 +29,7 @@
 | 11 | gRPC unary execute API | 完成 | `bootJar`、API 參數驗證、reflection 失敗格式驗證；實際成功呼叫需可用的 reflection gRPC server |
 | 12 | Vue gRPC request editor 與 response viewer | 完成 | `bootJar`、首頁載入新版 assets、gRPC execute 錯誤路徑驗證 |
 | 12.1 | Proto method 套用到 gRPC editor | 完成 | `bootJar`、首頁載入新版 assets、Proto 上傳與 inspect 驗證 |
+| 12.2 | gRPC TLS 忽略憑證驗證 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過，首頁載入新版 assets，TLS 設定 payload 驗證 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
@@ -58,6 +59,7 @@
 - Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
 - gRPC unary execute API：已建立 `POST /api/grpc/execute`，第一階段透過 server reflection 取得 descriptor，將 JSON request 轉為 `DynamicMessage` 後呼叫 unary method。
 - Vue gRPC request editor / response viewer：前端已可切換 HTTP/gRPC，填寫 gRPC target、service、method、metadata、JSON body 與 settings，並顯示 gRPC response body、metadata 與 info。
+- gRPC TLS 設定：gRPC editor 已支援 Plaintext / TLS 切換；使用 TLS 時可開啟 Ignore TLS certificate verification，後端會使用不驗證憑證的 TLS channel 執行 request。
 - Proto method 套用到 gRPC editor：前端 Proto inspect 的 rpc method 已可點選，並自動切換到 gRPC、填入完整 service/method 與 JSON body。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
@@ -456,6 +458,33 @@ curl -s -i -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: app
   - 連到沒有 gRPC server 的 port 時回應 400，錯誤碼為 `GRPC_REFLECTION_FAILED`。
   - 本階段尚未在實際可用且有開 server reflection 的 gRPC server 上驗證成功呼叫；後續使用者可提供 target server 測試。
 
+### gRPC TLS 忽略憑證驗證
+
+- 日期：2026-06-29
+- 實作範圍：
+  - `POST /api/grpc/execute` 新增 `ignoreTlsVerification` request setting。
+  - Plaintext 開啟時維持原本 plaintext channel。
+  - Plaintext 關閉且 `ignoreTlsVerification=false` 時使用一般 TLS channel。
+  - Plaintext 關閉且 `ignoreTlsVerification=true` 時使用不驗證憑證鏈的 TLS channel。
+  - Vue gRPC Settings tab 在 TLS 模式顯示 `Ignore TLS certificate verification` 開關。
+  - gRPC request 保存與載入流程會保留 `grpcIgnoreTlsVerification`。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-grpc-tls --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: application/json' -d '{"host":"127.0.0.1","port":59999,"plaintext":false,"ignoreTlsVerification":true,"serviceName":"demo.EchoService","methodName":"Echo","body":"{}","timeoutMillis":1000}'
+```
+
+- 結果：
+  - `:post-bubi-api:test` 成功。
+  - `:post-bubi-api:bootJar` 成功。
+  - 首頁回應 200，載入新版前端 asset `index-Du1ZGR93.js`。
+  - API 可接收 `ignoreTlsVerification=true` 並進入 TLS channel 建立流程；連到沒有 gRPC server 的 port 時回應 400，錯誤碼為 `GRPC_REFLECTION_FAILED`。
+  - 本階段尚未在實際使用自簽憑證且有開 server reflection 的 gRPC TLS server 上驗證成功呼叫；後續使用者可提供 target server 測試。
+
 ### Proto Method 套用到 gRPC Editor
 
 - 日期：2026-06-29
@@ -639,7 +668,7 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
 
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
+目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor、gRPC TLS 忽略憑證驗證。
 
 1. 建置：
 
@@ -688,6 +717,7 @@ http://localhost:18080
 - gRPC target server 必須開啟 server reflection，第一階段才能動態解析 descriptor 並呼叫 unary method。
 - Toolbar 左側可切換 `HTTP` / `gRPC`。
 - gRPC 模式可輸入 `host:port`、`package.Service/Method`、Metadata、JSON body、Plaintext，再按「送出」。
+- gRPC Settings tab 取消勾選 Plaintext 後，會顯示 `Ignore TLS certificate verification`；若目標是自簽憑證 TLS gRPC server，可勾選後測試。
 - gRPC request 可另存為 Collection request，類型會保存為 `GRPC`。
 
 ## 本輪開發目標
@@ -942,14 +972,14 @@ http://localhost:18080
 - 已完成 `GRPC_REQUEST_JSON_INVALID` 錯誤格式測試。
 - 已完成 `:post-bubi-api:test` 驗證。
 
-本輪目標：
+上一輪目標：
 
 - 補齊 ZIP export / import 的 proto 檔案處理。
 - 匯出 ZIP 時將已上傳 proto 放入 `protos/`。
 - 匯入 ZIP 時將 proto 寫回本機 proto storage。
 - 匯入完成訊息顯示 proto 數量。
 
-本輪結果：
+上一輪結果：
 
 - 已完成 proto 檔案匯出至 ZIP。
 - 已完成 proto 檔案從 ZIP 匯入。
@@ -957,7 +987,23 @@ http://localhost:18080
 - 已更新 `WorkspaceArchiveIntegrationTest` 覆蓋 proto 匯出/匯入。
 - 已完成 `:post-bubi-api:test` 驗證。
 
+本輪目標：
+
+- 補齊 gRPC TLS 模式的 Ignore TLS certificate verification 設定。
+- 前端只在 TLS 模式顯示忽略憑證驗證開關。
+- 後端依 request setting 建立一般 TLS 或不驗證憑證的 TLS channel。
+- gRPC request 保存與載入需保留此設定。
+
+本輪結果：
+
+- 已完成 `ignoreTlsVerification` request setting。
+- 已完成後端 TLS channel 建立邏輯。
+- 已完成 Vue gRPC Settings tab 條件顯示與 payload 保存。
+- 已完成 `:post-bubi-api:test` 與 `:post-bubi-api:bootJar` 驗證。
+- 已啟動本機 JAR 供使用者測試；實際自簽憑證 TLS 成功呼叫需搭配可用 target server 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已透過本機 reflection gRPC server 自動化測試驗證成功呼叫；若需驗證使用者實際 target server，仍需由使用者提供可連線服務。
+- gRPC TLS 忽略憑證驗證已完成設定串接；若需驗證自簽憑證成功呼叫，仍需可用且開啟 server reflection 的 TLS gRPC server。
 - 後續可持續擴充前端端對端測試與更多錯誤情境。

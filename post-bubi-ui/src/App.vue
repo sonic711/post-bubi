@@ -286,6 +286,10 @@
             <input v-model="grpcPlaintext" type="checkbox" />
             Plaintext
           </label>
+          <label v-if="requestType === 'GRPC' && !grpcPlaintext" class="check-line">
+            <input v-model="grpcIgnoreTlsVerification" type="checkbox" />
+            Ignore TLS certificate verification
+          </label>
         </div>
       </section>
 
@@ -371,6 +375,7 @@ const grpcMethodName = ref('')
 const grpcMetadataText = ref('')
 const grpcBodyText = ref('{}')
 const grpcPlaintext = ref(true)
+const grpcIgnoreTlsVerification = ref(false)
 const paramsText = ref('')
 const headersText = ref('Accept=application/json')
 const bodyType = ref('none')
@@ -929,6 +934,7 @@ function editorPayload() {
     grpcMetadataText: grpcMetadataText.value,
     grpcBody: grpcBodyText.value,
     grpcPlaintext: grpcPlaintext.value,
+    grpcIgnoreTlsVerification: grpcIgnoreTlsVerification.value,
   }
 }
 
@@ -937,6 +943,7 @@ function grpcExecutePayload() {
     host: grpcHost.value,
     port: grpcPort.value,
     plaintext: grpcPlaintext.value,
+    ignoreTlsVerification: grpcIgnoreTlsVerification.value,
     metadata: parseNameValueLines(grpcMetadataText.value),
     serviceName: grpcServiceName.value,
     methodName: grpcMethodName.value,
@@ -1031,6 +1038,7 @@ function loadPayloadToEditor(payload) {
   grpcMetadataText.value = payload.grpcMetadataText || ''
   grpcBodyText.value = payload.grpcBody || '{}'
   grpcPlaintext.value = payload.grpcPlaintext !== false
+  grpcIgnoreTlsVerification.value = payload.grpcIgnoreTlsVerification === true
   response.value = null
   errorText.value = ''
 }

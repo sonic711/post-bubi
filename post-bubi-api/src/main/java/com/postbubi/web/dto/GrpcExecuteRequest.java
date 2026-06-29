@@ -6,6 +6,7 @@ public record GrpcExecuteRequest(
         String host,
         Integer port,
         Boolean plaintext,
+        Boolean ignoreTlsVerification,
         List<HttpNameValue> metadata,
         String serviceName,
         String methodName,
