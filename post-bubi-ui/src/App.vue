@@ -116,9 +116,15 @@
           <div class="proto-package">{{ selectedProtoInspect.packageName || '無 package' }}</div>
           <div v-for="service in selectedProtoInspect.services" :key="service.name" class="proto-service">
             <strong>{{ service.name }}</strong>
-            <span v-for="method in service.methods" :key="method.name">
+            <button
+              v-for="method in service.methods"
+              :key="method.name"
+              class="proto-method-button"
+              type="button"
+              @click="applyProtoMethod(service, method)"
+            >
               {{ method.name }}({{ method.requestType }}) returns ({{ method.responseType }})
-            </span>
+            </button>
           </div>
           <div v-if="selectedProtoInspect.messages.length" class="proto-messages">
             Messages: {{ selectedProtoInspect.messages.join(', ') }}
@@ -583,6 +589,27 @@ async function inspectProto(proto) {
   } catch (error) {
     workspaceStatus.value = readableError(error)
   }
+}
+
+function applyProtoMethod(service, methodDefinition) {
+  const serviceName = fullProtoServiceName(service.name)
+  requestType.value = 'GRPC'
+  grpcServiceName.value = serviceName
+  grpcMethodName.value = methodDefinition.name
+  grpcBodyText.value = '{}'
+  requestName.value = `${serviceName}/${methodDefinition.name}`
+  activeRequestTab.value = 'body'
+  response.value = null
+  errorText.value = ''
+  workspaceStatus.value = '已套用 Proto method 到 gRPC request'
+}
+
+function fullProtoServiceName(serviceName) {
+  const packageName = selectedProtoInspect.value?.packageName || ''
+  if (!packageName || serviceName.includes('.')) {
+    return serviceName
+  }
+  return `${packageName}.${serviceName}`
 }
 
 async function exportWorkspace() {

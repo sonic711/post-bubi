@@ -27,11 +27,12 @@
 | 10 | Proto upload 與 inspect | 完成 | `bootJar`、`.proto` 上傳、列表與 inspect API 成功 |
 | 11 | gRPC unary execute API | 完成 | `bootJar`、API 參數驗證、reflection 失敗格式驗證；實際成功呼叫需可用的 reflection gRPC server |
 | 12 | Vue gRPC request editor 與 response viewer | 完成 | `bootJar`、首頁載入新版 assets、gRPC execute 錯誤路徑驗證 |
+| 12.1 | Proto method 套用到 gRPC editor | 完成 | `bootJar`、首頁載入新版 assets、Proto 上傳與 inspect 驗證 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 進行中 | 已完成 CRUD API 基本錯誤格式驗證，完整測試尚未完成 |
 
 ## 程式碼比對摘要
 
-- 比對日期：2026-06-28
+- 比對日期：2026-06-29
 - 比對範圍：
   - `post-bubi-api/src/main/java`
   - `post-bubi-ui/src`
@@ -51,6 +52,7 @@
 - Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
 - gRPC unary execute API：已建立 `POST /api/grpc/execute`，第一階段透過 server reflection 取得 descriptor，將 JSON request 轉為 `DynamicMessage` 後呼叫 unary method。
 - Vue gRPC request editor / response viewer：前端已可切換 HTTP/gRPC，填寫 gRPC target、service、method、metadata、JSON body 與 settings，並顯示 gRPC response body、metadata 與 info。
+- Proto method 套用到 gRPC editor：前端 Proto inspect 的 rpc method 已可點選，並自動切換到 gRPC、填入完整 service/method 與 JSON body。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
@@ -417,9 +419,39 @@ curl -s -i -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: app
   - 連到沒有 gRPC server 的 port 時回應 400，錯誤碼為 `GRPC_REFLECTION_FAILED`。
   - 本階段尚未在實際可用且有開 server reflection 的 gRPC server 上驗證成功呼叫；後續使用者可提供 target server 測試。
 
+### Proto Method 套用到 gRPC Editor
+
+- 日期：2026-06-29
+- 實作範圍：
+  - Proto inspect 的 rpc method 由純文字改為可點選項。
+  - 點選 rpc method 後自動切換 request type 為 `GRPC`。
+  - 自動帶入完整 service name；若 proto 有 package，格式為 `package.Service`。
+  - 自動帶入 method name。
+  - 自動將 request 名稱設為 `package.Service/Method`。
+  - 自動將 gRPC JSON request body 初始化為 `{}`。
+  - 點選後清空既有 response 與錯誤訊息，方便重新送出。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-proto-apply --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i -X POST http://127.0.0.1:18080/api/protos -F file=@data/proto/common/service.proto
+curl -s http://127.0.0.1:18080/api/protos
+curl -s http://127.0.0.1:18080/api/protos/d8cfce0f-f4a5-4869-ba13-26774bfef7f9/inspect
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - 首頁回應 200，載入新版前端 assets。
+  - Proto 上傳 API 回應 201。
+  - Proto 列表可查到上傳的 `service.proto`。
+  - Proto inspect 可解析出 package `com.bot.fsap.model.grpc.common`、service `Service` 與 method `rpcPeriphery`。
+  - UI 可由 inspect 結果套用成 gRPC method `com.bot.fsap.model.grpc.common.Service/rpcPeriphery`。
+
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、gRPC unary execute API、Vue gRPC request editor。
+目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
 
 1. 建置：
 
@@ -463,6 +495,7 @@ http://localhost:18080
 - 左側 sidebar 可點「匯入 ZIP」匯入 Post Bubi ZIP；匯入會新增 Collection，不覆蓋既有資料。
 - 左側 sidebar 的 Protos 區塊可點「上傳 Proto」選擇 `.proto` 檔。
 - 點 Protos 列表內的檔案，可查看 package、services、rpc methods 與 messages。
+- 點 Proto inspect 內任一 rpc method，可自動切換到 gRPC editor 並帶入 `package.Service/Method`。
 - gRPC unary execute API 可用 `POST /api/grpc/execute` 或 Vue gRPC editor 測試。
 - gRPC target server 必須開啟 server reflection，第一階段才能動態解析 descriptor 並呼叫 unary method。
 - Toolbar 左側可切換 `HTTP` / `gRPC`。
@@ -624,8 +657,20 @@ http://localhost:18080
 - 已完成 Folder 刪除操作與錯誤訊息串接。
 - 已完成 `bootJar`、首頁載入、Folder CRUD 與 Request folderId 驗證。
 
+本輪目標：
+
+- 將 Proto inspect 的 rpc method 串接到 gRPC editor。
+- 點選 method 後自動帶入完整 `package.Service/Method`。
+- 讓使用者從已上傳 proto 更快建立 gRPC unary request。
+
+本輪結果：
+
+- 已完成 Proto method 可點選操作。
+- 已完成 request type 自動切換為 `GRPC`。
+- 已完成 service/method、request 名稱與 JSON body 初始化。
+- 已完成 `bootJar`、首頁載入、Proto 上傳與 inspect 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- Vue gRPC editor 已完成第一階段；尚未加入由 Proto inspect 結果自動帶入 service/method。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。

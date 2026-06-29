@@ -232,9 +232,21 @@ textarea {
   font-size: 12px;
 }
 
-.proto-service span {
+.proto-method-button {
+  border: 1px solid #d9e0e4;
+  border-radius: 6px;
+  background: #ffffff;
   color: #263238;
+  cursor: pointer;
+  font-size: 12px;
   overflow-wrap: anywhere;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.proto-method-button:hover {
+  border-color: #0f766e;
+  background: #e6f4f1;
 }
 
 .tree-item.active {
