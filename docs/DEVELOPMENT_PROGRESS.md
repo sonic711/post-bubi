@@ -30,6 +30,8 @@
 | 12 | Vue gRPC request editor 與 response viewer | 完成 | `bootJar`、首頁載入新版 assets、gRPC execute 錯誤路徑驗證 |
 | 12.1 | Proto method 套用到 gRPC editor | 完成 | `bootJar`、首頁載入新版 assets、Proto 上傳與 inspect 驗證 |
 | 12.2 | gRPC TLS 忽略憑證驗證 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過，首頁載入新版 assets，TLS 設定 payload 驗證 |
+| 12.3 | 品牌主色與 Logo 套用 | 完成 | `:post-bubi-api:bootJar` 通過，前端 CSS 產物包含 `#ab005f`，Logo asset 已打包進 UI JAR |
+| 12.4 | Light / Dark Theme | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，CSS 包含 Light/Dark 變數與本機偏好保存 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
@@ -61,6 +63,9 @@
 - Vue gRPC request editor / response viewer：前端已可切換 HTTP/gRPC，填寫 gRPC target、service、method、metadata、JSON body 與 settings，並顯示 gRPC response body、metadata 與 info。
 - gRPC TLS 設定：gRPC editor 已支援 Plaintext / TLS 切換；使用 TLS 時可開啟 Ignore TLS certificate verification，後端會使用不驗證憑證的 TLS channel 執行 request。
 - Proto method 套用到 gRPC editor：前端 Proto inspect 的 rpc method 已可點選，並自動切換到 gRPC、填入完整 service/method 與 JSON body。
+- 品牌主色與 Logo 套用：前端 CSS 已集中定義品牌色變數，將 `#AB005F` 套用到主操作按鈕、送出按鈕、目前選取狀態、active tab、Proto method hover、history method 與 keyboard focus；sidebar 品牌區已使用 `post-bubi-ui/src/assets/post-bubi-logo.png`。
+- Light / Dark Theme：左側 sidebar 已新增 Light/Dark segmented control，使用 `data-theme` 與 CSS 變數切換主題，使用者選擇會保存到 `localStorage`。
+- UI resource JAR 打包清理：`post-bubi-ui` 的 dev/prod resource 目錄會在每次複製前清空，避免舊 hash asset 累積進單一 JAR。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
@@ -485,6 +490,65 @@ curl -s -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: applic
   - API 可接收 `ignoreTlsVerification=true` 並進入 TLS channel 建立流程；連到沒有 gRPC server 的 port 時回應 400，錯誤碼為 `GRPC_REFLECTION_FAILED`。
   - 本階段尚未在實際使用自簽憑證且有開 server reflection 的 gRPC TLS server 上驗證成功呼叫；後續使用者可提供 target server 測試。
 
+### 品牌主色與 Logo 套用
+
+- 日期：2026-06-29
+- 實作範圍：
+  - `docs/DEVELOPMENT_SPEC.md` 新增品牌視覺規範。
+  - 將使用者提供的 `etc/img/PostBubi.png` 複製到 `post-bubi-ui/src/assets/post-bubi-logo.png`。
+  - Vue sidebar 品牌區改用 logo 圖片，並透過 Vite asset import 參與打包。
+  - 前端 CSS 新增品牌色變數，品牌主色為酒紅色 `#AB005F`。
+  - 主操作按鈕與送出按鈕套用品牌主色與 hover 色。
+  - Collection/Folder/Request/Proto 目前選取狀態使用淡酒紅底色與品牌色文字。
+  - active tab、Proto method hover、History method 與 keyboard focus 套用品牌色系。
+  - 移除原本作為主視覺的青綠色。
+  - `post-bubi-ui` 打包時清空 `build/devJar` 與 `build/prodJar` 後再複製前端產物，避免舊 hash asset 累積。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+rg -n "ab005f|930052|fce7f2|e6a9ca|0f766e|e6f4f1" post-bubi-ui/dist/post-bubi/assets/index-CTO8UZA6.css post-bubi-ui/src/styles.css
+jar tf post-bubi-ui/build/libs/post-bubi-ui-0.1.0-SNAPSHOT.jar | rg "public/(index.html|assets/)"
+curl -s -i http://127.0.0.1:18080/
+curl -s -i http://127.0.0.1:18080/assets/index-CTO8UZA6.css
+curl -s -i http://127.0.0.1:18080/assets/post-bubi-logo-Xq1HpFiw.png
+```
+
+- 結果：
+  - `:post-bubi-api:bootJar` 成功。
+  - 前端 CSS 產物 `index-CTO8UZA6.css` 包含 `#ab005f`、`#930052`、`#fce7f2` 與 `#e6a9ca`。
+  - 前端 CSS 產物未再出現舊主色 `#0f766e` 與舊淡青綠底色 `#e6f4f1`。
+  - UI resource JAR 包含 `public/index.html`、新版 CSS/JS asset 與 logo 圖片 asset。
+  - 首頁回應 200，載入新版前端 asset `index-CTO8UZA6.css`。
+  - CSS asset 回應 200，Content-Type 為 `text/css`。
+  - Logo asset 回應 200，Content-Type 為 `image/png`。
+
+### Light / Dark Theme
+
+- 日期：2026-06-29
+- 實作範圍：
+  - 左側 sidebar 新增 Light / Dark segmented control。
+  - 使用 `themeMode` 前端狀態管理目前主題。
+  - 使用 `document.documentElement.dataset.theme` 套用主題。
+  - 使用 `localStorage` 保存 `post-bubi-theme`，重新整理後保留使用者選擇。
+  - CSS 以 Light/Dark 兩組變數管理文字、背景、邊框、狀態色與品牌色。
+  - 補齊 input、select、textarea、pre、file picker、history list 等區塊在 Dark Theme 的背景與文字色。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+rg -n "data-theme|post-bubi-theme|themeMode|Light|Dark" post-bubi-ui/src/App.vue post-bubi-ui/src/styles.css
+rg -n "color-scheme: dark|--surface: #151a1f|--text-primary: #edf2f5" post-bubi-ui/src/styles.css post-bubi-ui/dist/post-bubi/assets/*.css
+curl -s -i http://127.0.0.1:18080/
+curl -s -i http://127.0.0.1:18080/assets/index-CTO8UZA6.css
+```
+
+- 結果：
+  - `:post-bubi-api:bootJar` 成功。
+  - 前端已包含 Light/Dark 切換控制。
+  - CSS source 與打包產物包含 Dark Theme 變數。
+  - 首頁回應 200，載入新版前端 assets。
+
 ### Proto Method 套用到 gRPC Editor
 
 - 日期：2026-06-29
@@ -668,7 +732,7 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
 
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor、gRPC TLS 忽略憑證驗證。
+目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor、gRPC TLS 忽略憑證驗證、品牌主色與 Logo 套用、Light / Dark Theme。
 
 1. 建置：
 
@@ -719,6 +783,11 @@ http://localhost:18080
 - gRPC 模式可輸入 `host:port`、`package.Service/Method`、Metadata、JSON body、Plaintext，再按「送出」。
 - gRPC Settings tab 取消勾選 Plaintext 後，會顯示 `Ignore TLS certificate verification`；若目標是自簽憑證 TLS gRPC server，可勾選後測試。
 - gRPC request 可另存為 Collection request，類型會保存為 `GRPC`。
+- 介面主色應為酒紅色 `#AB005F`，可檢查主按鈕、送出按鈕、選取狀態與 active tab。
+- 左側 sidebar 頂部應顯示 Post Bubi logo 圖片。
+- 左側 sidebar 的 Theme 控制可切換 `Light` / `Dark`。
+- 切換到 Dark 後，背景、表單、editor、response、history 與 sidebar 應改為深色且文字可讀。
+- 重新整理頁面後，前一次選擇的 Theme 應保留。
 
 ## 本輪開發目標
 
@@ -987,20 +1056,53 @@ http://localhost:18080
 - 已更新 `WorkspaceArchiveIntegrationTest` 覆蓋 proto 匯出/匯入。
 - 已完成 `:post-bubi-api:test` 驗證。
 
-本輪目標：
+上一輪目標：
 
 - 補齊 gRPC TLS 模式的 Ignore TLS certificate verification 設定。
 - 前端只在 TLS 模式顯示忽略憑證驗證開關。
 - 後端依 request setting 建立一般 TLS 或不驗證憑證的 TLS channel。
 - gRPC request 保存與載入需保留此設定。
 
-本輪結果：
+上一輪結果：
 
 - 已完成 `ignoreTlsVerification` request setting。
 - 已完成後端 TLS channel 建立邏輯。
 - 已完成 Vue gRPC Settings tab 條件顯示與 payload 保存。
 - 已完成 `:post-bubi-api:test` 與 `:post-bubi-api:bootJar` 驗證。
 - 已啟動本機 JAR 供使用者測試；實際自簽憑證 TLS 成功呼叫需搭配可用 target server 驗證。
+
+上一輪目標：
+
+- 將使用者提供的品牌主色 `#AB005F` 與 logo 納入開發規格。
+- 將前端主視覺、logo 與主要互動狀態改用品牌視覺。
+- 移除原本青綠色主視覺，保留工具型介面的中性底色與可讀性。
+
+上一輪結果：
+
+- 已完成 `docs/DEVELOPMENT_SPEC.md` 品牌視覺規範。
+- 已完成 logo 圖片納入 `post-bubi-ui/src/assets/post-bubi-logo.png`。
+- 已完成 Vue sidebar 品牌區顯示 logo。
+- 已完成前端 CSS 品牌色變數。
+- 已完成主按鈕、送出按鈕、選取狀態、active tab、Proto method hover、History method 與 keyboard focus 的品牌色套用。
+- 已修正 UI resource JAR 打包流程，避免舊 hash asset 累積。
+- 已完成 `:post-bubi-api:bootJar` 驗證。
+- 已確認前端 CSS 產物包含品牌色並移除舊青綠主色。
+- 已確認 UI resource JAR 包含最新前端 asset 與 logo 圖片 asset。
+
+本輪目標：
+
+- 新增 Light / Dark Theme 切換。
+- 使用 CSS 變數管理兩套主題色。
+- 主題選擇需保存到瀏覽器本機，重新整理後保留。
+- Dark Theme 必須覆蓋工具主要區塊，不留下明顯白底。
+
+本輪結果：
+
+- 已完成 sidebar Light / Dark segmented control。
+- 已完成 `data-theme` 主題套用與 `localStorage` 保存。
+- 已完成 Light/Dark CSS 變數。
+- 已完成 input、select、textarea、pre、file picker、history list 等區塊暗色樣式。
+- 已完成 `:post-bubi-api:bootJar` 驗證。
 
 ## 未完成事項
 

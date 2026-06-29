@@ -73,6 +73,7 @@ yarn_build_dev {
     dependsOn 'yarn_check_config'
     dependsOn 'yarn'
     doLast {
+        delete 'build/devJar'
         copy {
             from 'dist/post-bubi'
             into 'build/devJar'
@@ -89,6 +90,7 @@ yarn_build_prod {
     dependsOn 'yarn_check_config'
     dependsOn 'yarn'
     doLast {
+        delete 'build/prodJar'
         copy {
             from 'dist/post-bubi'
             into 'build/prodJar'

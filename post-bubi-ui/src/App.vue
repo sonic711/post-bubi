@@ -1,7 +1,25 @@
 <template>
   <main class="workspace">
     <aside class="sidebar">
-      <div class="brand">Post Bubi</div>
+      <div class="brand" aria-label="Post Bubi">
+        <img :src="postBubiLogo" alt="Post Bubi" />
+      </div>
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button
+          type="button"
+          :class="{ active: themeMode === 'light' }"
+          @click="setTheme('light')"
+        >
+          Light
+        </button>
+        <button
+          type="button"
+          :class="{ active: themeMode === 'dark' }"
+          @click="setTheme('dark')"
+        >
+          Dark
+        </button>
+      </div>
       <button class="primary-button" type="button" :disabled="loadingCollections" @click="createCollection">
         新增 Collection
       </button>
@@ -342,6 +360,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import postBubiLogo from './assets/post-bubi-logo.png'
 
 const requestTabs = [
   { key: 'params', label: 'Params' },
@@ -397,6 +416,7 @@ const response = ref(null)
 const errorText = ref('')
 const workspaceStatus = ref('')
 const historyItems = ref([])
+const themeMode = ref('light')
 
 const grpcTarget = computed({
   get() {
@@ -477,11 +497,24 @@ const responseInfo = computed(() => {
   }, null, 2)
 })
 
+initializeTheme()
+
 onMounted(() => {
   loadCollections()
   loadHistory()
   loadProtos()
 })
+
+function initializeTheme() {
+  const savedTheme = window.localStorage.getItem('post-bubi-theme')
+  setTheme(savedTheme === 'dark' ? 'dark' : 'light')
+}
+
+function setTheme(theme) {
+  themeMode.value = theme === 'dark' ? 'dark' : 'light'
+  document.documentElement.dataset.theme = themeMode.value
+  window.localStorage.setItem('post-bubi-theme', themeMode.value)
+}
 
 async function loadCollections() {
   loadingCollections.value = true

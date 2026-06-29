@@ -84,6 +84,20 @@ HTTP request 執行必須由後端發送，避免瀏覽器 CORS 限制。
 
 前端 build 後的靜態檔案必須先由 `post-bubi-ui` 子專案打包成 UI resource JAR，JAR 內路徑使用 `public/`。`post-bubi-api` 再依賴該 UI JAR，最終由 Spring Boot executable JAR 一起帶出。此方式比照 `fsap-admin-api` / `fsap-admin-ui` 的前端打包模式。
 
+### 3.3 品牌視覺
+
+Post Bubi 的品牌主色為酒紅色，必須用於標誌、主操作按鈕、目前選取狀態、主要互動焦點與第一層主視覺元素。
+
+- HEX：`#AB005F`
+- RGB：`171, 0, 95`
+- CMYK：`0%, 100%, 44%, 33%`
+
+前端樣式應透過 CSS 變數集中管理品牌色，避免在元件中散落硬編碼。工具型介面仍應維持中性、清楚、可長時間操作的視覺風格，不應讓整體畫面變成單一酒紅色系。
+
+品牌 logo 圖檔應放在前端 source asset 目錄，由 Vue/Vite import 後參與打包，避免使用部署主機上的外部路徑。第一版 logo 檔案位置為 `post-bubi-ui/src/assets/post-bubi-logo.png`。
+
+前端必須支援 Light Theme 與 Dark Theme。主題切換控制應放在主要操作畫面中，不需要登入即可使用；使用者選擇需保存在瀏覽器本機，重新整理後保留。主題色彩應透過 CSS 變數管理，Light/Dark 都必須維持品牌酒紅色識別、足夠文字對比與工具型介面的可讀性。
+
 ## 4. 第一版 MVP 範圍
 
 第一版目標是「可用的 API 測試工具」，不是完整複製 Postman。
