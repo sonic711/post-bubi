@@ -1,37 +1,44 @@
 <template>
   <main class="workspace">
     <aside class="sidebar">
-      <div class="brand" aria-label="Post Bubi">
-        <img :src="postBubiLogo" alt="Post Bubi" />
+      <div class="sidebar-head">
+        <div class="brand" aria-label="Post Bubi">
+          <img :src="postBubiLogo" alt="Post Bubi" />
+        </div>
+        <div class="theme-switch" role="group" aria-label="Theme">
+          <button
+            type="button"
+            :class="{ active: themeMode === 'light' }"
+            @click="setTheme('light')"
+          >
+            Light
+          </button>
+          <button
+            type="button"
+            :class="{ active: themeMode === 'dark' }"
+            @click="setTheme('dark')"
+          >
+            Dark
+          </button>
+        </div>
       </div>
-      <div class="theme-switch" role="group" aria-label="Theme">
-        <button
-          type="button"
-          :class="{ active: themeMode === 'light' }"
-          @click="setTheme('light')"
-        >
-          Light
+      <div class="sidebar-actions">
+        <button class="primary-button full-button" type="button" :disabled="loadingCollections" @click="createCollection">
+          新增 Collection
         </button>
-        <button
-          type="button"
-          :class="{ active: themeMode === 'dark' }"
-          @click="setTheme('dark')"
-        >
-          Dark
-        </button>
+        <div class="archive-actions">
+          <button class="secondary-button" type="button" @click="exportWorkspace">匯出 ZIP</button>
+          <label class="secondary-button import-button">
+            匯入 ZIP
+            <input type="file" accept=".zip,application/zip" @change="importWorkspace" />
+          </label>
+        </div>
       </div>
-      <button class="primary-button" type="button" :disabled="loadingCollections" @click="createCollection">
-        新增 Collection
-      </button>
-      <div class="archive-actions">
-        <button class="secondary-button" type="button" @click="exportWorkspace">匯出 ZIP</button>
-        <label class="secondary-button import-button">
-          匯入 ZIP
-          <input type="file" accept=".zip,application/zip" @change="importWorkspace" />
-        </label>
-      </div>
-      <section class="tree">
-        <div class="tree-title">Collections</div>
+      <section class="sidebar-section tree">
+        <div class="section-title">
+          <span>Collections</span>
+          <span class="section-count">{{ collections.length }}</span>
+        </div>
         <p v-if="!collections.length" class="empty-text">尚無 Collection</p>
         <div v-for="collection in collections" :key="collection.id" class="collection-block">
           <div class="collection-row">
@@ -52,7 +59,7 @@
               +F
             </button>
             <button
-              class="icon-danger-button"
+              class="icon-danger-button compact-danger"
               type="button"
               :disabled="deletingCollection"
               :title="`刪除 Collection ${collection.name}`"
@@ -80,7 +87,7 @@
                 +F
               </button>
               <button
-                class="icon-danger-button"
+                class="icon-danger-button compact-danger"
                 type="button"
                 :disabled="deletingFolder"
                 :title="`刪除 Folder ${folder.name}`"
@@ -113,8 +120,11 @@
           </button>
         </div>
       </section>
-      <section class="proto-panel">
-        <div class="tree-title">Protos</div>
+      <section class="sidebar-section proto-panel">
+        <div class="section-title">
+          <span>Protos</span>
+          <span class="section-count">{{ protos.length }}</span>
+        </div>
         <label class="secondary-button proto-upload-button">
           上傳 Proto
           <input type="file" accept=".proto" @change="uploadProto" />
@@ -153,23 +163,23 @@
 
     <section class="panel">
       <header class="toolbar">
-        <select v-model="requestType" aria-label="Request type">
+        <select v-model="requestType" class="type-select" aria-label="Request type">
           <option value="HTTP">HTTP</option>
           <option value="GRPC">gRPC</option>
         </select>
         <template v-if="requestType === 'HTTP'">
-          <select v-model="method" aria-label="HTTP method">
+          <select v-model="method" class="method-select" aria-label="HTTP method">
             <option>GET</option>
             <option>POST</option>
             <option>PUT</option>
             <option>PATCH</option>
             <option>DELETE</option>
           </select>
-          <input v-model="url" aria-label="URL" />
+          <input v-model="url" class="target-input" aria-label="URL" />
         </template>
         <template v-else>
-          <input v-model="grpcTarget" aria-label="gRPC target" placeholder="localhost:50051" />
-          <input v-model="grpcFullMethod" aria-label="gRPC method" placeholder="package.Service/Method" />
+          <input v-model="grpcTarget" class="target-input" aria-label="gRPC target" placeholder="localhost:50051" />
+          <input v-model="grpcFullMethod" class="target-input" aria-label="gRPC method" placeholder="package.Service/Method" />
         </template>
         <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
           {{ selectedRequestId ? '儲存' : '另存 Request' }}
@@ -180,10 +190,13 @@
       </header>
 
       <section class="request-meta">
-        <label>
-          Request 名稱
-          <input v-model="requestName" aria-label="Request name" />
-        </label>
+        <div class="request-title">
+          <label>
+            Request 名稱
+            <input v-model="requestName" aria-label="Request name" />
+          </label>
+          <span class="context-text">{{ selectedContextLabel }}</span>
+        </div>
         <div class="meta-actions">
           <button class="secondary-button" type="button" :disabled="!selectedCollectionId" @click="newDraftRequest">
             新 Request
@@ -192,7 +205,7 @@
             刪除 Request
           </button>
         </div>
-        <span class="status-text">{{ workspaceStatus }}</span>
+        <span class="status-pill">{{ workspaceStatus || 'Ready' }}</span>
       </section>
 
       <section class="editor">
@@ -313,8 +326,11 @@
 
       <section class="response">
         <div class="response-bar">
-          <strong>Response</strong>
-          <span>{{ responseSummary }}</span>
+          <div class="response-heading">
+            <strong>Response</strong>
+            <span>{{ activeResponseTab }}</span>
+          </div>
+          <span class="response-summary" :class="{ pending: sending, error: errorText }">{{ responseSummary }}</span>
         </div>
         <nav class="tabs response-tabs">
           <button
@@ -495,6 +511,18 @@ const responseInfo = computed(() => {
     sizeBytes: response.value.sizeBytes,
     bodyBase64Encoded: response.value.bodyBase64Encoded,
   }, null, 2)
+})
+
+const selectedContextLabel = computed(() => {
+  const collection = collections.value.find((item) => item.id === selectedCollectionId.value)
+  if (!collection) {
+    return '尚未選擇 Collection'
+  }
+  const folder = (collection.folders || []).find((item) => item.id === selectedFolderId.value)
+  if (folder) {
+    return `${collection.name} / ${folder.name}`
+  }
+  return collection.name
 })
 
 initializeTheme()

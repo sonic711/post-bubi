@@ -32,6 +32,7 @@
 | 12.2 | gRPC TLS 忽略憑證驗證 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過，首頁載入新版 assets，TLS 設定 payload 驗證 |
 | 12.3 | 品牌主色與 Logo 套用 | 完成 | `:post-bubi-api:bootJar` 通過，前端 CSS 產物包含 `#ab005f`，Logo asset 已打包進 UI JAR |
 | 12.4 | Light / Dark Theme | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，CSS 包含 Light/Dark 變數與本機偏好保存 |
+| 12.5 | 工作台 UI/UX 基礎升級 | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，完成 sidebar、toolbar、request meta、response summary 與窄版 layout 優化 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
@@ -65,6 +66,7 @@
 - Proto method 套用到 gRPC editor：前端 Proto inspect 的 rpc method 已可點選，並自動切換到 gRPC、填入完整 service/method 與 JSON body。
 - 品牌主色與 Logo 套用：前端 CSS 已集中定義品牌色變數，將 `#AB005F` 套用到主操作按鈕、送出按鈕、目前選取狀態、active tab、Proto method hover、history method 與 keyboard focus；sidebar 品牌區已使用 `post-bubi-ui/src/assets/post-bubi-logo.png`。
 - Light / Dark Theme：左側 sidebar 已新增 Light/Dark segmented control，使用 `data-theme` 與 CSS 變數切換主題，使用者選擇會保存到 `localStorage`。
+- 工作台 UI/UX 基礎升級：已重整 sidebar、全域動作、Collection/Proto 區塊、request toolbar、request meta、response summary、hover/focus/active 狀態與窄版 layout。
 - UI resource JAR 打包清理：`post-bubi-ui` 的 dev/prod resource 目錄會在每次複製前清空，避免舊 hash asset 累積進單一 JAR。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
@@ -549,6 +551,33 @@ curl -s -i http://127.0.0.1:18080/assets/index-CTO8UZA6.css
   - CSS source 與打包產物包含 Dark Theme 變數。
   - 首頁回應 200，載入新版前端 assets。
 
+### 工作台 UI/UX 基礎升級
+
+- 日期：2026-06-29
+- 實作範圍：
+  - Sidebar 拆分為品牌區、Theme 控制、全域動作、Collection tree 與 Proto 區塊。
+  - Sidebar Collection 與 Proto 區塊新增數量標示。
+  - Sidebar 內容區改為可捲動，避免資料多時壓縮主要操作。
+  - Request toolbar 調整為更明確的 request type、method/target、保存與送出工作流。
+  - Request meta 顯示目前 request 名稱、保存位置與狀態 pill。
+  - Response bar 新增目前 tab 與 response summary pill。
+  - 統一 tree item、button、input、select 的 hover、focus、active、disabled 狀態。
+  - 加入中等寬度桌面的 toolbar/request meta layout 保護，避免內容擠壓。
+  - Light/Dark Theme 下維持同一套視覺層級與互動狀態。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+curl -s -i http://127.0.0.1:18080/
+curl -s -i http://127.0.0.1:18080/assets/index--w5qe_Mp.css
+```
+
+- 結果：
+  - `:post-bubi-api:bootJar` 成功。
+  - 前端 CSS 產物 `index--w5qe_Mp.css` 已產生。
+  - 首頁回應 200，載入新版前端 assets。
+  - CSS asset 回應 200，Content-Type 為 `text/css`。
+
 ### Proto Method 套用到 gRPC Editor
 
 - 日期：2026-06-29
@@ -732,7 +761,7 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
 
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor、gRPC TLS 忽略憑證驗證、品牌主色與 Logo 套用、Light / Dark Theme。
+目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor、gRPC TLS 忽略憑證驗證、品牌主色與 Logo 套用、Light / Dark Theme、工作台 UI/UX 基礎升級。
 
 1. 建置：
 
@@ -788,6 +817,11 @@ http://localhost:18080
 - 左側 sidebar 的 Theme 控制可切換 `Light` / `Dark`。
 - 切換到 Dark 後，背景、表單、editor、response、history 與 sidebar 應改為深色且文字可讀。
 - 重新整理頁面後，前一次選擇的 Theme 應保留。
+- 左側 sidebar 應清楚分為品牌、Theme、全域動作、Collections、Protos。
+- Collections 與 Protos 標題右側應顯示數量。
+- Request 名稱下方應顯示目前 Collection / Folder 保存位置。
+- Response 標題列右側應顯示執行摘要 pill。
+- 在較窄桌面寬度下 toolbar 不應溢出或互相遮擋。
 
 ## 本輪開發目標
 
@@ -1089,19 +1123,37 @@ http://localhost:18080
 - 已確認前端 CSS 產物包含品牌色並移除舊青綠主色。
 - 已確認 UI resource JAR 包含最新前端 asset 與 logo 圖片 asset。
 
-本輪目標：
+上一輪目標：
 
 - 新增 Light / Dark Theme 切換。
 - 使用 CSS 變數管理兩套主題色。
 - 主題選擇需保存到瀏覽器本機，重新整理後保留。
 - Dark Theme 必須覆蓋工具主要區塊，不留下明顯白底。
 
-本輪結果：
+上一輪結果：
 
 - 已完成 sidebar Light / Dark segmented control。
 - 已完成 `data-theme` 主題套用與 `localStorage` 保存。
 - 已完成 Light/Dark CSS 變數。
 - 已完成 input、select、textarea、pre、file picker、history list 等區塊暗色樣式。
+- 已完成 `:post-bubi-api:bootJar` 驗證。
+
+本輪目標：
+
+- 大幅優化工作台 UI/UX 的第一階段基礎。
+- 重整 sidebar、toolbar、request meta 與 response 區塊的視覺層級。
+- 讓主要操作流更清楚，降低資訊擁擠感。
+- 保持 Light/Dark Theme 與品牌色一致。
+
+本輪結果：
+
+- 已完成 sidebar 品牌區、Theme、全域動作、Collection、Proto 的區塊化整理。
+- 已完成 Collection/Proto 數量標示。
+- 已完成 request toolbar 的 layout 與焦點狀態優化。
+- 已完成 request meta 保存位置提示與狀態 pill。
+- 已完成 response summary pill 與目前 tab 顯示。
+- 已完成 hover/focus/active/disabled 狀態一致化。
+- 已完成中等寬度桌面的 layout 保護。
 - 已完成 `:post-bubi-api:bootJar` 驗證。
 
 ## 未完成事項
