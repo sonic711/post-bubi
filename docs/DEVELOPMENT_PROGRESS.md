@@ -28,7 +28,7 @@
 | 11 | gRPC unary execute API | 完成 | `bootJar`、API 參數驗證、reflection 失敗格式驗證；實際成功呼叫需可用的 reflection gRPC server |
 | 12 | Vue gRPC request editor 與 response viewer | 完成 | `bootJar`、首頁載入新版 assets、gRPC execute 錯誤路徑驗證 |
 | 12.1 | Proto method 套用到 gRPC editor | 完成 | `bootJar`、首頁載入新版 assets、Proto 上傳與 inspect 驗證 |
-| 13 | 錯誤處理、中文訊息與基本測試 | 進行中 | 已完成 CRUD API 基本錯誤格式驗證，完整測試尚未完成 |
+| 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 
 ## 程式碼比對摘要
 
@@ -57,10 +57,11 @@
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
 - Vue Folder tree UI：已可在 Collection 下新增 Folder/子 Folder、選取 Folder、刪除 Folder，並將 Request 保存到選取的 Folder。
+- 基本後端整合測試：已新增 `WorkspaceApiIntegrationTest`，覆蓋 Workspace CRUD 主要流程與統一錯誤格式。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- 自動化測試：尚未加入單元測試或整合測試，目前以編譯、JAR 啟動與 curl 驗證為主。
+- 更完整的自動化測試覆蓋：HTTP execute、file upload、ZIP import/export、Proto inspect 與 gRPC execute 尚可再補測試。
 
 ## 已完成驗證紀錄
 
@@ -449,6 +450,31 @@ curl -s http://127.0.0.1:18080/api/protos/d8cfce0f-f4a5-4869-ba13-26774bfef7f9/i
   - Proto inspect 可解析出 package `com.bot.fsap.model.grpc.common`、service `Service` 與 method `rpcPeriphery`。
   - UI 可由 inspect 結果套用成 gRPC method `com.bot.fsap.model.grpc.common.Service/rpcPeriphery`。
 
+### 基本後端整合測試
+
+- 日期：2026-06-29
+- 實作範圍：
+  - 新增 `post-bubi-api/src/test/java/com/postbubi/web/WorkspaceApiIntegrationTest.java`。
+  - 使用 Spring Boot Test 與 MockMvc 測試 Workspace REST API。
+  - 測試使用 H2 memory DB 與 `ddl-auto=create-drop`，不污染本機 `./data/post-bubi`。
+  - 覆蓋 Collection 建立。
+  - 覆蓋 Folder 建立。
+  - 覆蓋 Request 保存到 Folder。
+  - 覆蓋刪除 Folder 後一併移除底下 Request。
+  - 覆蓋 Collection 名稱空白時的統一錯誤格式。
+  - 覆蓋查無 Request 時的統一錯誤格式。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+```
+
+- 結果：
+  - `compileTestJava` 成功。
+  - `:post-bubi-api:test` 成功。
+  - Workspace CRUD 整合測試通過。
+  - `REQUIRED_FIELD` 與 `REQUEST_NOT_FOUND` 錯誤格式測試通過。
+
 ## 使用者測試方式
 
 目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
@@ -670,7 +696,20 @@ http://localhost:18080
 - 已完成 service/method、request 名稱與 JSON body 初始化。
 - 已完成 `bootJar`、首頁載入、Proto 上傳與 inspect 驗證。
 
+本輪目標：
+
+- 補上第一批後端自動化測試。
+- 覆蓋 Workspace CRUD 主要流程。
+- 覆蓋統一錯誤格式與中文錯誤訊息。
+
+本輪結果：
+
+- 已新增 `WorkspaceApiIntegrationTest`。
+- 已完成 Collection、Folder、Request 保存到 Folder 與刪除 Folder 的整合測試。
+- 已完成 `REQUIRED_FIELD` 與 `REQUEST_NOT_FOUND` 錯誤格式測試。
+- 已完成 `:post-bubi-api:test` 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。
+- HTTP execute、file upload、ZIP import/export、Proto inspect 與 gRPC execute 尚可再補自動化測試。
