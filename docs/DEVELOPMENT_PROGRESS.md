@@ -31,6 +31,7 @@
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
+| 13.3 | ZIP export / import 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 ZIP 匯出/匯入與 zip slip 防護 |
 
 ## 程式碼比對摘要
 
@@ -62,10 +63,11 @@
 - 基本後端整合測試：已新增 `WorkspaceApiIntegrationTest`，覆蓋 Workspace CRUD 主要流程與統一錯誤格式。
 - HTTP execute 自動化測試：已新增 `HttpExecuteIntegrationTest`，覆蓋實際 HTTP GET、history 保存與 invalid URL 錯誤格式。
 - File upload / form-data 自動化測試：已新增 `FileUploadIntegrationTest`，覆蓋檔案上傳、HTTP execute multipart file 與空 form-data 錯誤格式。
+- ZIP export / import 自動化測試：已新增 `WorkspaceArchiveIntegrationTest`，覆蓋 workspace ZIP 匯出、匯入、file reference 重新對應與 zip slip 防護。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- 更完整的自動化測試覆蓋：ZIP import/export、Proto inspect 與 gRPC execute 尚可再補測試。
+- 更完整的自動化測試覆蓋：Proto inspect 與 gRPC execute 尚可再補測試。
 
 ## 已完成驗證紀錄
 
@@ -529,6 +531,32 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
   - HTTP execute form-data file 測試通過。
   - `HTTP_FORM_DATA_REQUIRED` 錯誤格式測試通過。
 
+### ZIP Export / Import 自動化測試
+
+- 日期：2026-06-29
+- 實作範圍：
+  - 新增 `post-bubi-api/src/test/java/com/postbubi/web/WorkspaceArchiveIntegrationTest.java`。
+  - 使用 Spring Boot random port 與 `TestRestTemplate` 測試 workspace ZIP API。
+  - 測試使用 H2 memory DB 與測試專用 `post-bubi.storage.files-dir`。
+  - 覆蓋 Collection、Folder、Request 與 file reference 建立後匯出 ZIP。
+  - 覆蓋匯出 ZIP 內包含 `collection.json` 與 `files/{fileId}-filename`。
+  - 覆蓋匯入 ZIP 後新增 Collection、Folder、Request。
+  - 覆蓋匯入後 Request 的 `folderId` 重新對應。
+  - 覆蓋匯入後 form-data file `fileId` 重新對應且移除 `archivePath`。
+  - 覆蓋 ZIP 內含不合法路徑時回傳 `WORKSPACE_IMPORT_PATH_INVALID`。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+```
+
+- 結果：
+  - `compileTestJava` 成功。
+  - `:post-bubi-api:test` 成功。
+  - ZIP export/import 整合測試通過。
+  - file reference 重新對應測試通過。
+  - zip slip path traversal 防護測試通過。
+
 ## 使用者測試方式
 
 目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
@@ -791,7 +819,22 @@ http://localhost:18080
 - 已完成 `HTTP_FORM_DATA_REQUIRED` 錯誤格式測試。
 - 已完成 `:post-bubi-api:test` 驗證。
 
+本輪目標：
+
+- 補上 ZIP export/import 自動化測試。
+- 覆蓋含 Folder、Request、file reference 的 workspace 匯出與匯入。
+- 覆蓋 ZIP import 的 path traversal 防護。
+
+本輪結果：
+
+- 已新增 `WorkspaceArchiveIntegrationTest`。
+- 已完成 workspace ZIP 匯出結構測試。
+- 已完成 ZIP 匯入後 Collection、Folder、Request 重建測試。
+- 已完成 form-data file reference 重新對應測試。
+- 已完成 `WORKSPACE_IMPORT_PATH_INVALID` 錯誤格式測試。
+- 已完成 `:post-bubi-api:test` 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- ZIP import/export、Proto inspect 與 gRPC execute 尚可再補自動化測試。
+- Proto inspect 與 gRPC execute 尚可再補自動化測試。
