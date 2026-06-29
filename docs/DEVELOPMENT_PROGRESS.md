@@ -20,6 +20,7 @@
 | 5 | HTTP execute API | 完成 | curl 驗證 GET、POST JSON、錯誤 URL |
 | 6 | Vue HTTP request editor 與 response viewer | 完成 | `bootJar` 後首頁載入新版 assets，可從 UI 送 HTTP request |
 | 6.1 | Vue Collection / Request 保存 UI | 完成 | `bootJar` 後首頁載入新版 assets，CRUD API 驗證保存與刪除流程 |
+| 6.2 | Vue Folder tree UI | 完成 | `bootJar`、首頁載入新版 assets、Folder CRUD 與 Request folderId 驗證 |
 | 7 | File upload 與 multipart form-data | 完成 | `bootJar`、`/api/files` 上傳、`form-data` execute 成功 |
 | 8 | Request history | 完成 | `bootJar`、HTTP execute 後 `/api/http/history` 可查到紀錄 |
 | 9 | ZIP export / import | 完成 | `bootJar`、匯出 ZIP、匯入 ZIP 後 Collection 增加 |
@@ -53,10 +54,10 @@
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
 - Vue Collection / Request 保存流程：已可新增 Collection、保存 HTTP Request、載入、更新與刪除 Request。
+- Vue Folder tree UI：已可在 Collection 下新增 Folder/子 Folder、選取 Folder、刪除 Folder，並將 Request 保存到選取的 Folder。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- Folder tree UI：後端 Folder CRUD 已完成，但前端尚未提供 Folder 新增、顯示階層、選取與管理流程。
 - 自動化測試：尚未加入單元測試或整合測試，目前以編譯、JAR 啟動與 curl 驗證為主。
 
 ## 已完成驗證紀錄
@@ -193,6 +194,44 @@ curl -s -i http://127.0.0.1:18080/api/collections
   - Request 刪除 API 回應 204。
   - Collection 刪除 API 回應 204。
   - 刪除 Collection 後列表回應 `[]`，確認底下 Request 已被連帶移除。
+
+### Vue Folder Tree UI
+
+- 日期：2026-06-28
+- 實作範圍：
+  - Collection row 新增「+F」操作，可在 Collection 下建立 Folder。
+  - Folder row 新增「+F」操作，可建立子 Folder。
+  - Sidebar 以縮排方式顯示 Folder 階層。
+  - 可選取 Folder，新增或更新 Request 時會保存到目前選取的 Folder。
+  - 選取已儲存 Request 時會同步選取其所在 Folder。
+  - 可刪除 Folder；刪除時後端會移除該 Folder 底下 Request。
+  - 若 Folder 仍有子 Folder，刪除會由後端回傳 `FOLDER_HAS_CHILDREN`。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-folder-ui --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -X POST http://127.0.0.1:18080/api/collections -H 'Content-Type: application/json' -d '{"name":"Folder UI 驗證","description":""}'
+curl -s -X POST http://127.0.0.1:18080/api/folders -H 'Content-Type: application/json' -d '{"collectionId":1,"parentFolderId":null,"name":"HTTP APIs","sortOrder":1}'
+curl -s -X POST http://127.0.0.1:18080/api/folders -H 'Content-Type: application/json' -d '{"collectionId":1,"parentFolderId":1,"name":"Health","sortOrder":2}'
+curl -s -X POST http://127.0.0.1:18080/api/requests -H 'Content-Type: application/json' -d '{"collectionId":1,"folderId":2,"type":"HTTP","name":"Folder 內健康檢查","sortOrder":1,"payloadJson":"{\"requestType\":\"HTTP\",\"method\":\"GET\",\"url\":\"http://localhost:18080/api/health\"}"}'
+curl -s http://127.0.0.1:18080/api/collections
+curl -s -i -X DELETE http://127.0.0.1:18080/api/folders/2
+curl -s http://127.0.0.1:18080/api/collections
+curl -s -i -X DELETE http://127.0.0.1:18080/api/folders/1
+```
+
+- 結果：
+  - `bootJar` 成功。
+  - 首頁回應 200，載入新版前端 assets。
+  - Collection 建立 API 回應 201。
+  - Root Folder 建立 API 回應 201。
+  - 子 Folder 建立 API 回應 201。
+  - Request 建立 API 回應 201，且 `folderId` 為子 Folder ID。
+  - Collection 列表可回傳 Folder 階層資料與 Folder 內 Request。
+  - 刪除子 Folder 回應 204，且底下 Request 一併移除。
+  - 刪除空的 root Folder 回應 204。
 
 ### File upload 與 multipart form-data
 
@@ -380,7 +419,7 @@ curl -s -i -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: app
 
 ## 使用者測試方式
 
-目前可測階段：HTTP request editor、Request 保存、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、gRPC unary execute API、Vue gRPC request editor。
+目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、gRPC unary execute API、Vue gRPC request editor。
 
 1. 建置：
 
@@ -404,6 +443,9 @@ http://localhost:18080
 
 - 點「新增 Collection」建立 Collection。
 - 點 Collection 右側「刪除」可刪除 Collection；刪除時會確認，底下 Request 會一起移除。
+- 點 Collection 或 Folder 右側「+F」可新增 Folder 或子 Folder。
+- 點 Folder 可把接下來另存或儲存的 Request 放入該 Folder。
+- 點 Folder 右側「刪除」可刪除 Folder；若 Folder 內有 Request 會一併移除，若仍有子 Folder 則需先刪除子 Folder。
 - 編輯 Request 名稱、method、URL、params、headers、body、settings。
 - 點「另存 Request」把目前 HTTP request 存進左側選取的 Collection。
 - 點左側已儲存 Request，可載入 request 設定。
@@ -567,9 +609,23 @@ http://localhost:18080
 - 已完成 `bootJar`、首頁載入與 gRPC execute 錯誤路徑驗證。
 - 實際成功呼叫需使用有開 server reflection 的 gRPC target server 測試。
 
+本輪目標：
+
+- 實作 Vue Folder tree UI。
+- 支援 Collection 下新增 Folder 與 Folder 下新增子 Folder。
+- Request 保存時可指定目前選取的 Folder。
+- 支援刪除 Folder 並更新 sidebar。
+
+本輪結果：
+
+- 已完成 Folder 新增、子 Folder 新增與縮排顯示。
+- 已完成 Folder 選取與 Request `folderId` 保存。
+- 已完成選取 Request 時同步選取所在 Folder。
+- 已完成 Folder 刪除操作與錯誤訊息串接。
+- 已完成 `bootJar`、首頁載入、Folder CRUD 與 Request folderId 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- 前端已可保存與載入 HTTP request；Folder UI 尚未串接。
 - Vue gRPC editor 已完成第一階段；尚未加入由 Proto inspect 結果自動帶入 service/method。
 - 尚未加入自動化測試，目前本輪以編譯、bootRun 與 curl 驗證。

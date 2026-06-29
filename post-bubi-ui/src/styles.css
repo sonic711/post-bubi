@@ -41,6 +41,7 @@ textarea {
 .primary-button,
 .secondary-button,
 .danger-button,
+.icon-action-button,
 .icon-danger-button,
 .send-button {
   border: 0;
@@ -64,6 +65,19 @@ textarea {
   color: #b42318;
 }
 
+.icon-action-button {
+  width: 36px;
+  height: 28px;
+  border: 1px solid #b9c6cc;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #263238;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 0;
+}
+
 .icon-danger-button {
   width: 46px;
   height: 28px;
@@ -80,6 +94,7 @@ textarea {
 .primary-button:disabled,
 .secondary-button:disabled,
 .danger-button:disabled,
+.icon-action-button:disabled,
 .icon-danger-button:disabled,
 .send-button:disabled,
 .tree-item:disabled {
@@ -148,6 +163,17 @@ textarea {
   gap: 6px;
 }
 
+.folder-group {
+  display: grid;
+  gap: 0;
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tree-item {
   display: block;
   width: 100%;
@@ -171,6 +197,14 @@ textarea {
 .request-item {
   padding-left: 24px;
   font-size: 14px;
+}
+
+.folder-item {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: #40525b;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .proto-item {

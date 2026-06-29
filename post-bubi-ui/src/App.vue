@@ -20,10 +20,18 @@
             <button
               class="tree-item collection-item"
               type="button"
-              :class="{ active: selectedCollectionId === collection.id && !selectedRequestId }"
+              :class="{ active: selectedCollectionId === collection.id && !selectedFolderId && !selectedRequestId }"
               @click="selectCollection(collection.id)"
             >
               {{ collection.name }}
+            </button>
+            <button
+              class="icon-action-button"
+              type="button"
+              :title="`新增 Folder 到 ${collection.name}`"
+              @click="createFolder(collection.id, null)"
+            >
+              +F
             </button>
             <button
               class="icon-danger-button"
@@ -35,8 +43,48 @@
               刪除
             </button>
           </div>
+          <div v-for="folder in folderRows(collection)" :key="folder.id" class="folder-group">
+            <div class="folder-row" :style="{ paddingLeft: `${folder.depth * 14}px` }">
+              <button
+                class="tree-item folder-item"
+                type="button"
+                :class="{ active: selectedFolderId === folder.id && !selectedRequestId }"
+                @click="selectFolder(folder)"
+              >
+                {{ folder.name }}
+              </button>
+              <button
+                class="icon-action-button"
+                type="button"
+                :title="`新增子 Folder 到 ${folder.name}`"
+                @click="createFolder(collection.id, folder.id)"
+              >
+                +F
+              </button>
+              <button
+                class="icon-danger-button"
+                type="button"
+                :disabled="deletingFolder"
+                :title="`刪除 Folder ${folder.name}`"
+                @click="deleteFolder(collection, folder)"
+              >
+                刪除
+              </button>
+            </div>
+            <button
+              v-for="request in requestsInFolder(collection, folder.id)"
+              :key="request.id"
+              class="tree-item request-item"
+              type="button"
+              :style="{ paddingLeft: `${folder.depth * 14 + 38}px` }"
+              :class="{ active: selectedRequestId === request.id }"
+              @click="selectRequest(request)"
+            >
+              {{ request.name }}
+            </button>
+          </div>
           <button
-            v-for="request in collection.requests"
+            v-for="request in requestsInFolder(collection, null)"
             :key="request.id"
             class="tree-item request-item"
             type="button"
@@ -302,6 +350,7 @@ const responseTabs = [
 const collections = ref([])
 const protos = ref([])
 const selectedCollectionId = ref(null)
+const selectedFolderId = ref(null)
 const selectedRequestId = ref(null)
 const selectedProto = ref(null)
 const selectedProtoInspect = ref(null)
@@ -331,6 +380,7 @@ const loadingHistory = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
 const deletingCollection = ref(false)
+const deletingFolder = ref(false)
 const sending = ref(false)
 const response = ref(null)
 const errorText = ref('')
@@ -429,6 +479,9 @@ async function loadCollections() {
     if (!selectedCollectionId.value && collections.value.length) {
       selectedCollectionId.value = collections.value[0].id
     }
+    if (selectedFolderId.value && !folderExists(selectedFolderId.value)) {
+      selectedFolderId.value = null
+    }
     workspaceStatus.value = collections.value.length ? 'Collection 已載入' : '請先新增 Collection'
   } catch (error) {
     workspaceStatus.value = readableError(error)
@@ -449,9 +502,36 @@ async function createCollection() {
       body: JSON.stringify({ name: name.trim(), description: '' }),
     })
     selectedCollectionId.value = collection.id
+    selectedFolderId.value = null
     selectedRequestId.value = null
     await loadCollections()
     workspaceStatus.value = 'Collection 已新增'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function createFolder(collectionId, parentFolderId) {
+  const name = window.prompt('Folder 名稱', parentFolderId ? '子資料夾' : '新資料夾')
+  if (!name || !name.trim()) {
+    return
+  }
+
+  try {
+    const folder = await apiJson('/api/folders', {
+      method: 'POST',
+      body: JSON.stringify({
+        collectionId,
+        parentFolderId,
+        name: name.trim(),
+        sortOrder: nextFolderSortOrder(collectionId),
+      }),
+    })
+    selectedCollectionId.value = collectionId
+    selectedFolderId.value = folder.id
+    selectedRequestId.value = null
+    await loadCollections()
+    workspaceStatus.value = 'Folder 已新增'
   } catch (error) {
     workspaceStatus.value = readableError(error)
   }
@@ -554,8 +634,9 @@ async function importWorkspace(event) {
 }
 
 async function deleteCollection(collection) {
+  const folderCount = collection.folders?.length || 0
   const requestCount = collection.requests?.length || 0
-  const confirmed = window.confirm(`確定刪除 Collection「${collection.name}」？底下 ${requestCount} 個 Request 會一起刪除。`)
+  const confirmed = window.confirm(`確定刪除 Collection「${collection.name}」？底下 ${folderCount} 個 Folder 與 ${requestCount} 個 Request 會一起刪除。`)
   if (!confirmed) {
     return
   }
@@ -565,6 +646,7 @@ async function deleteCollection(collection) {
     await apiJson(`/api/collections/${collection.id}`, { method: 'DELETE' })
     if (selectedCollectionId.value === collection.id) {
       selectedCollectionId.value = null
+      selectedFolderId.value = null
       selectedRequestId.value = null
       newDraftRequest()
     }
@@ -574,6 +656,7 @@ async function deleteCollection(collection) {
       workspaceStatus.value = 'Collection 已刪除，請新增 Collection'
     } else {
       selectedCollectionId.value = collections.value[0].id
+      selectedFolderId.value = null
       workspaceStatus.value = 'Collection 已刪除'
     }
   } catch (error) {
@@ -585,13 +668,47 @@ async function deleteCollection(collection) {
 
 function selectCollection(collectionId) {
   selectedCollectionId.value = collectionId
+  selectedFolderId.value = null
   selectedRequestId.value = null
   newDraftRequest()
   workspaceStatus.value = '已選擇 Collection'
 }
 
+function selectFolder(folder) {
+  selectedCollectionId.value = folder.collectionId
+  selectedFolderId.value = folder.id
+  selectedRequestId.value = null
+  newDraftRequest()
+  workspaceStatus.value = '已選擇 Folder'
+}
+
+async function deleteFolder(collection, folder) {
+  const requestCount = requestsInFolder(collection, folder.id).length
+  const confirmed = window.confirm(`確定刪除 Folder「${folder.name}」？底下 ${requestCount} 個 Request 會一起刪除。若有子 Folder，請先刪除子 Folder。`)
+  if (!confirmed) {
+    return
+  }
+
+  deletingFolder.value = true
+  try {
+    await apiJson(`/api/folders/${folder.id}`, { method: 'DELETE' })
+    if (selectedFolderId.value === folder.id) {
+      selectedFolderId.value = null
+      selectedRequestId.value = null
+      newDraftRequest()
+    }
+    await loadCollections()
+    workspaceStatus.value = 'Folder 已刪除'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    deletingFolder.value = false
+  }
+}
+
 function selectRequest(request) {
   selectedCollectionId.value = request.collectionId
+  selectedFolderId.value = request.folderId || null
   selectedRequestId.value = request.id
   requestName.value = request.name
   const payload = safeJsonParse(request.payloadJson)
@@ -634,7 +751,7 @@ async function saveRequest() {
       await apiJson(`/api/requests/${selectedRequestId.value}`, {
         method: 'PUT',
         body: JSON.stringify({
-          folderId: null,
+          folderId: selectedFolderId.value,
           type: requestType.value,
           name: requestName.value.trim(),
           sortOrder: 0,
@@ -647,7 +764,7 @@ async function saveRequest() {
         method: 'POST',
         body: JSON.stringify({
           collectionId: selectedCollectionId.value,
-          folderId: null,
+          folderId: selectedFolderId.value,
           type: requestType.value,
           name: requestName.value.trim(),
           sortOrder: 0,
@@ -766,6 +883,7 @@ function loadHistoryItem(item) {
 function editorPayload() {
   return {
     requestType: requestType.value,
+    folderId: selectedFolderId.value,
     method: method.value,
     url: url.value,
     paramsText: paramsText.value,
@@ -813,6 +931,57 @@ function executePayload() {
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
   }
+}
+
+function folderRows(collection) {
+  const folders = [...(collection?.folders || [])]
+  const childrenByParent = new Map()
+  for (const folder of folders) {
+    const key = folder.parentFolderId || null
+    const children = childrenByParent.get(key) || []
+    children.push(folder)
+    childrenByParent.set(key, children)
+  }
+
+  for (const children of childrenByParent.values()) {
+    children.sort(compareBySortOrder)
+  }
+
+  const rows = []
+  const append = (parentId, depth) => {
+    for (const folder of childrenByParent.get(parentId) || []) {
+      rows.push({ ...folder, depth })
+      append(folder.id, depth + 1)
+    }
+  }
+  append(null, 0)
+  return rows
+}
+
+function requestsInFolder(collection, folderId) {
+  return [...(collection?.requests || [])]
+    .filter((request) => (request.folderId || null) === (folderId || null))
+    .sort(compareBySortOrder)
+}
+
+function folderExists(folderId) {
+  return collections.value.some((collection) => {
+    return (collection.folders || []).some((folder) => folder.id === folderId)
+  })
+}
+
+function nextFolderSortOrder(collectionId) {
+  const collection = collections.value.find((item) => item.id === collectionId)
+  return (collection?.folders || []).length + 1
+}
+
+function compareBySortOrder(left, right) {
+  const leftSort = Number.isFinite(left.sortOrder) ? left.sortOrder : 0
+  const rightSort = Number.isFinite(right.sortOrder) ? right.sortOrder : 0
+  if (leftSort !== rightSort) {
+    return leftSort - rightSort
+  }
+  return left.id - right.id
 }
 
 function loadPayloadToEditor(payload) {
