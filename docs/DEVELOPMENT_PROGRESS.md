@@ -32,6 +32,7 @@
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
 | 13.3 | ZIP export / import 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 ZIP 匯出/匯入與 zip slip 防護 |
+| 13.4 | Proto upload / inspect 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Proto 上傳、列表、inspect 與副檔名錯誤 |
 
 ## 程式碼比對摘要
 
@@ -64,10 +65,11 @@
 - HTTP execute 自動化測試：已新增 `HttpExecuteIntegrationTest`，覆蓋實際 HTTP GET、history 保存與 invalid URL 錯誤格式。
 - File upload / form-data 自動化測試：已新增 `FileUploadIntegrationTest`，覆蓋檔案上傳、HTTP execute multipart file 與空 form-data 錯誤格式。
 - ZIP export / import 自動化測試：已新增 `WorkspaceArchiveIntegrationTest`，覆蓋 workspace ZIP 匯出、匯入、file reference 重新對應與 zip slip 防護。
+- Proto upload / inspect 自動化測試：已新增 `ProtoIntegrationTest`，覆蓋 Proto 上傳、列表、inspect parsing 與副檔名錯誤格式。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- 更完整的自動化測試覆蓋：Proto inspect 與 gRPC execute 尚可再補測試。
+- 更完整的自動化測試覆蓋：gRPC execute 尚可再補測試。
 
 ## 已完成驗證紀錄
 
@@ -557,6 +559,31 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
   - file reference 重新對應測試通過。
   - zip slip path traversal 防護測試通過。
 
+### Proto Upload / Inspect 自動化測試
+
+- 日期：2026-06-29
+- 實作範圍：
+  - 新增 `post-bubi-api/src/test/java/com/postbubi/web/ProtoIntegrationTest.java`。
+  - 使用 Spring Boot random port 與 `TestRestTemplate` 測試 Proto API。
+  - 測試使用 H2 memory DB 與測試專用 `post-bubi.storage.protos-dir`。
+  - 覆蓋 `POST /api/protos` 上傳 `.proto`。
+  - 覆蓋 `GET /api/protos` 列表。
+  - 覆蓋 `GET /api/protos/{protoId}/inspect` 解析 package、imports、messages、services 與 rpc methods。
+  - 覆蓋 server streaming method 解析。
+  - 覆蓋非 `.proto` 檔案回傳 `PROTO_FILE_EXTENSION_INVALID` 與中文錯誤訊息。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+```
+
+- 結果：
+  - `compileTestJava` 成功。
+  - `:post-bubi-api:test` 成功。
+  - Proto upload/list/inspect 整合測試通過。
+  - streaming method 解析測試通過。
+  - `PROTO_FILE_EXTENSION_INVALID` 錯誤格式測試通過。
+
 ## 使用者測試方式
 
 目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
@@ -834,7 +861,21 @@ http://localhost:18080
 - 已完成 `WORKSPACE_IMPORT_PATH_INVALID` 錯誤格式測試。
 - 已完成 `:post-bubi-api:test` 驗證。
 
+本輪目標：
+
+- 補上 Proto upload / inspect 自動化測試。
+- 覆蓋 package、imports、messages、services 與 rpc methods 解析。
+- 覆蓋副檔名錯誤格式。
+
+本輪結果：
+
+- 已新增 `ProtoIntegrationTest`。
+- 已完成 Proto upload/list/inspect 測試。
+- 已完成 unary 與 server streaming rpc method 解析測試。
+- 已完成 `PROTO_FILE_EXTENSION_INVALID` 錯誤格式測試。
+- 已完成 `:post-bubi-api:test` 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- Proto inspect 與 gRPC execute 尚可再補自動化測試。
+- gRPC execute 尚可再補自動化測試。
