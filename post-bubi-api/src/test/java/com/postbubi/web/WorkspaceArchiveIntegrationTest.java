@@ -5,10 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,17 +33,32 @@ import org.springframework.util.MultiValueMap;
         properties = {
                 "spring.datasource.url=jdbc:h2:mem:postbubi-archive-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
                 "spring.jpa.hibernate.ddl-auto=create-drop",
-                "post-bubi.storage.files-dir=./build/test-files/workspace-archive-integration"
+                "post-bubi.storage.files-dir=./build/test-files/workspace-archive-integration/files",
+                "post-bubi.storage.protos-dir=./build/test-files/workspace-archive-integration/protos"
         }
 )
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class WorkspaceArchiveIntegrationTest {
+
+    private static final Path STORAGE_DIR = Path.of("./build/test-files/workspace-archive-integration");
 
     @Autowired
     private TestRestTemplate restTemplate;
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @BeforeEach
+    void cleanStorage() throws Exception {
+        if (!Files.exists(STORAGE_DIR)) {
+            return;
+        }
+        try (var stream = Files.walk(STORAGE_DIR)) {
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
 
     @Test
     void exportsAndImportsWorkspaceZipWithFolderRequestAndFileReference() throws Exception {
@@ -60,6 +79,17 @@ class WorkspaceArchiveIntegrationTest {
         String fileId = objectMapper.readTree(uploadFile("archive-source.txt", "archive payload").getBody())
                 .path("fileId")
                 .asText();
+        String protoId = objectMapper.readTree(uploadProto("archive.proto", """
+                syntax = "proto3";
+
+                package archive.demo;
+
+                message ArchiveRequest {
+                  string name = 1;
+                }
+                """).getBody())
+                .path("protoId")
+                .asText();
         postJson("/api/requests", """
                 {
                   "collectionId": %d,
@@ -78,12 +108,17 @@ class WorkspaceArchiveIntegrationTest {
         byte[] zipBytes = exportResponse.getBody();
         assertThat(zipBytes).isNotEmpty();
         Set<String> zipEntries = zipEntries(zipBytes);
-        assertThat(zipEntries).contains("collection.json", "files/" + fileId + "-archive-source.txt");
+        assertThat(zipEntries).contains(
+                "collection.json",
+                "files/" + fileId + "-archive-source.txt",
+                "protos/" + protoId + "-archive.proto"
+        );
 
         JsonNode importResult = objectMapper.readTree(importWorkspace(zipBytes).getBody());
         assertThat(importResult.path("collections").asInt()).isEqualTo(1);
         assertThat(importResult.path("folders").asInt()).isEqualTo(1);
         assertThat(importResult.path("requests").asInt()).isEqualTo(1);
+        assertThat(importResult.path("protos").asInt()).isEqualTo(1);
 
         JsonNode collections = objectMapper.readTree(restTemplate.getForEntity("/api/collections", String.class).getBody());
         assertThat(collections).hasSize(2);
@@ -99,6 +134,10 @@ class WorkspaceArchiveIntegrationTest {
         assertThat(importedPart.path("fileId").asText()).isNotBlank();
         assertThat(importedPart.path("fileId").asText()).isNotEqualTo(fileId);
         assertThat(importedPart.has("archivePath")).isFalse();
+
+        JsonNode protos = objectMapper.readTree(restTemplate.getForEntity("/api/protos", String.class).getBody());
+        assertThat(protos).hasSize(2);
+        assertThat(protos.get(1).path("filename").asText()).isEqualTo("archive.proto");
     }
 
     @Test
@@ -129,6 +168,14 @@ class WorkspaceArchiveIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         return restTemplate.exchange("/api/files", HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private ResponseEntity<String> uploadProto(String filename, String content) {
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new NamedByteArrayResource(filename, content.getBytes()));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return restTemplate.exchange("/api/protos", HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }
 
     private ResponseEntity<String> importWorkspace(byte[] zipBytes) {

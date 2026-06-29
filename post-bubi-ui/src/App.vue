@@ -652,7 +652,8 @@ async function importWorkspace(event) {
     selectedCollectionId.value = null
     selectedRequestId.value = null
     await loadCollections()
-    workspaceStatus.value = `匯入完成：${payload.collections} 個 Collection、${payload.requests} 個 Request`
+    await loadProtos()
+    workspaceStatus.value = `匯入完成：${payload.collections} 個 Collection、${payload.requests} 個 Request、${payload.protos || 0} 個 Proto`
   } catch (error) {
     workspaceStatus.value = readableError(error)
   } finally {

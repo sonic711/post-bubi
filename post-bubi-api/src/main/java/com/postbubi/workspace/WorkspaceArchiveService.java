@@ -26,6 +26,7 @@ import com.postbubi.domain.CollectionEntity;
 import com.postbubi.domain.FolderEntity;
 import com.postbubi.domain.RequestEntity;
 import com.postbubi.domain.RequestType;
+import com.postbubi.proto.ProtoStorageService;
 import com.postbubi.repository.CollectionRepository;
 import com.postbubi.repository.FolderRepository;
 import com.postbubi.repository.RequestRepository;
@@ -43,6 +44,7 @@ public class WorkspaceArchiveService {
     private final FolderRepository folderRepository;
     private final RequestRepository requestRepository;
     private final FileStorageService fileStorageService;
+    private final ProtoStorageService protoStorageService;
     private final ObjectMapper objectMapper;
 
     public WorkspaceArchiveService(
@@ -50,12 +52,14 @@ public class WorkspaceArchiveService {
             FolderRepository folderRepository,
             RequestRepository requestRepository,
             FileStorageService fileStorageService,
+            ProtoStorageService protoStorageService,
             ObjectMapper objectMapper
     ) {
         this.collectionRepository = collectionRepository;
         this.folderRepository = folderRepository;
         this.requestRepository = requestRepository;
         this.fileStorageService = fileStorageService;
+        this.protoStorageService = protoStorageService;
         this.objectMapper = objectMapper;
     }
 
@@ -63,6 +67,7 @@ public class WorkspaceArchiveService {
     public byte[] exportWorkspace() {
         Archive archive = buildArchive();
         Map<String, byte[]> fileEntries = collectReferencedFiles(archive.requests());
+        Map<String, byte[]> protoEntries = collectProtoFiles(archive.protos());
 
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream)) {
@@ -71,6 +76,12 @@ public class WorkspaceArchiveService {
             zipOutputStream.closeEntry();
 
             for (Map.Entry<String, byte[]> entry : fileEntries.entrySet()) {
+                zipOutputStream.putNextEntry(new ZipEntry(entry.getKey()));
+                zipOutputStream.write(entry.getValue());
+                zipOutputStream.closeEntry();
+            }
+
+            for (Map.Entry<String, byte[]> entry : protoEntries.entrySet()) {
                 zipOutputStream.putNextEntry(new ZipEntry(entry.getKey()));
                 zipOutputStream.write(entry.getValue());
                 zipOutputStream.closeEntry();
@@ -113,9 +124,10 @@ public class WorkspaceArchiveService {
 
         Map<Long, Long> folderIds = importFolders(archive.folders(), collectionIds);
         Map<String, String> fileIds = importFiles(zipContent.entries(), archive.files());
+        int protoCount = importProtos(zipContent.entries(), archive.protos());
         int requestCount = importRequests(archive.requests(), collectionIds, folderIds, fileIds);
 
-        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount);
+        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount, protoCount);
     }
 
     private Archive buildArchive() {
@@ -143,7 +155,10 @@ public class WorkspaceArchiveService {
                 ))
                 .toList();
         List<FileArchive> files = archiveFilesFromRequests(requests);
-        return new Archive(SCHEMA_VERSION, Instant.now().toString(), collections, folders, requests, files);
+        List<ProtoArchive> protos = protoStorageService.listStoredProtosForArchive().stream()
+                .map(proto -> new ProtoArchive(proto.protoId(), proto.path(), proto.originalFilename()))
+                .toList();
+        return new Archive(SCHEMA_VERSION, Instant.now().toString(), collections, folders, requests, files, protos);
     }
 
     private Map<String, byte[]> collectReferencedFiles(List<RequestArchive> requests) {
@@ -158,6 +173,22 @@ public class WorkspaceArchiveService {
                         "匯出檔案讀取失敗。",
                         Map.of("fileId", file.fileId())
                 );
+            }
+        }
+        return result;
+    }
+
+    private Map<String, byte[]> collectProtoFiles(List<ProtoArchive> protos) {
+        Map<String, byte[]> result = new HashMap<>();
+        List<ProtoStorageService.StoredProtoFile> storedProtos = protoStorageService.listStoredProtosForArchive();
+        Map<String, ProtoStorageService.StoredProtoFile> storedById = new HashMap<>();
+        for (ProtoStorageService.StoredProtoFile storedProto : storedProtos) {
+            storedById.put(storedProto.protoId(), storedProto);
+        }
+        for (ProtoArchive proto : safeList(protos)) {
+            ProtoStorageService.StoredProtoFile storedProto = storedById.get(proto.protoId());
+            if (storedProto != null) {
+                result.put(proto.path(), storedProto.content());
             }
         }
         return result;
@@ -294,7 +325,7 @@ public class WorkspaceArchiveService {
 
     private Map<String, String> importFiles(Map<String, byte[]> entries, List<FileArchive> files) {
         Map<String, String> fileIds = new HashMap<>();
-        for (FileArchive file : files) {
+        for (FileArchive file : safeList(files)) {
             byte[] content = entries.get(file.path());
             if (content == null) {
                 continue;
@@ -307,6 +338,22 @@ public class WorkspaceArchiveService {
             fileIds.put(file.fileId(), imported.fileId());
         }
         return fileIds;
+    }
+
+    private int importProtos(Map<String, byte[]> entries, List<ProtoArchive> protos) {
+        int protoCount = 0;
+        for (ProtoArchive proto : safeList(protos)) {
+            byte[] content = entries.get(proto.path());
+            if (content == null) {
+                continue;
+            }
+            protoStorageService.storeImportedProto(
+                    proto.originalFilename(),
+                    new ByteArrayInputStream(content)
+            );
+            protoCount++;
+        }
+        return protoCount;
     }
 
     private int importRequests(
@@ -338,7 +385,11 @@ public class WorkspaceArchiveService {
         return new ApiException(HttpStatus.BAD_REQUEST, code, message);
     }
 
-    public record ImportResult(int collections, int folders, int requests) {
+    private <T> List<T> safeList(List<T> values) {
+        return values == null ? List.of() : values;
+    }
+
+    public record ImportResult(int collections, int folders, int requests, int protos) {
     }
 
     private record ZipContent(Map<String, byte[]> entries) {
@@ -350,7 +401,8 @@ public class WorkspaceArchiveService {
             List<CollectionArchive> collections,
             List<FolderArchive> folders,
             List<RequestArchive> requests,
-            List<FileArchive> files
+            List<FileArchive> files,
+            List<ProtoArchive> protos
     ) {
     }
 
@@ -372,5 +424,8 @@ public class WorkspaceArchiveService {
     }
 
     private record FileArchive(String fileId, String path, String originalFilename, String contentType) {
+    }
+
+    private record ProtoArchive(String protoId, String path, String originalFilename) {
     }
 }

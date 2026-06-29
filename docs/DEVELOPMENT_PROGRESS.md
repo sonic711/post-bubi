@@ -24,6 +24,7 @@
 | 7 | File upload 與 multipart form-data | 完成 | `bootJar`、`/api/files` 上傳、`form-data` execute 成功 |
 | 8 | Request history | 完成 | `bootJar`、HTTP execute 後 `/api/http/history` 可查到紀錄 |
 | 9 | ZIP export / import | 完成 | `bootJar`、匯出 ZIP、匯入 ZIP 後 Collection 增加 |
+| 9.1 | ZIP proto 檔案匯出 / 匯入 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 ZIP 內 `protos/` 與匯入後 Proto 列表 |
 | 10 | Proto upload 與 inspect | 完成 | `bootJar`、`.proto` 上傳、列表與 inspect API 成功 |
 | 11 | gRPC unary execute API | 完成 | `bootJar`、API 參數驗證、reflection 失敗格式驗證；實際成功呼叫需可用的 reflection gRPC server |
 | 12 | Vue gRPC request editor 與 response viewer | 完成 | `bootJar`、首頁載入新版 assets、gRPC execute 錯誤路徑驗證 |
@@ -53,7 +54,7 @@
 - HTTP execute API：已建立 `POST /api/http/execute`，支援 GET、POST、PUT、PATCH、DELETE、params、headers、JSON/raw/x-www-form-urlencoded/form-data body、timeout、redirect 與忽略 SSL 驗證。
 - File upload：已建立 `POST /api/files`，可將前端選取檔案存到本機 `post-bubi.storage.files-dir`，並回傳 `fileId` 供 form-data request 引用。
 - Request history：已建立 `request_histories` 與 `GET /api/http/history`，HTTP execute 後會保存最近執行紀錄供前端載入。
-- ZIP export / import：已建立 `GET /api/workspace/export` 與 `POST /api/workspace/import`，可匯出/匯入 Collection、Folder、Request 與 file references。
+- ZIP export / import：已建立 `GET /api/workspace/export` 與 `POST /api/workspace/import`，可匯出/匯入 Collection、Folder、Request、file references 與 proto files。
 - Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
 - gRPC unary execute API：已建立 `POST /api/grpc/execute`，第一階段透過 server reflection 取得 descriptor，將 JSON request 轉為 `DynamicMessage` 後呼叫 unary method。
 - Vue gRPC request editor / response viewer：前端已可切換 HTTP/gRPC，填寫 gRPC target、service、method、metadata、JSON body 與 settings，並顯示 gRPC response body、metadata 與 info。
@@ -65,7 +66,7 @@
 - 基本後端整合測試：已新增 `WorkspaceApiIntegrationTest`，覆蓋 Workspace CRUD 主要流程與統一錯誤格式。
 - HTTP execute 自動化測試：已新增 `HttpExecuteIntegrationTest`，覆蓋實際 HTTP GET、history 保存與 invalid URL 錯誤格式。
 - File upload / form-data 自動化測試：已新增 `FileUploadIntegrationTest`，覆蓋檔案上傳、HTTP execute multipart file 與空 form-data 錯誤格式。
-- ZIP export / import 自動化測試：已新增 `WorkspaceArchiveIntegrationTest`，覆蓋 workspace ZIP 匯出、匯入、file reference 重新對應與 zip slip 防護。
+- ZIP export / import 自動化測試：已新增 `WorkspaceArchiveIntegrationTest`，覆蓋 workspace ZIP 匯出、匯入、file/proto reference 重新對應與 zip slip 防護。
 - Proto upload / inspect 自動化測試：已新增 `ProtoIntegrationTest`，覆蓋 Proto 上傳、列表、inspect parsing 與副檔名錯誤格式。
 - gRPC execute 自動化測試：已新增 `GrpcExecuteIntegrationTest`，覆蓋本機 reflection gRPC server 的 unary 成功呼叫與 JSON 錯誤格式。
 
@@ -340,8 +341,33 @@ curl -s -i http://127.0.0.1:18080/api/collections
   - Collection 建立 API 回應 201。
   - Request 建立 API 回應 201。
   - 匯出的 ZIP 可由 `unzip -l` 讀取，包含 `collection.json` 與 `protos/`。
-  - `POST /api/workspace/import` 回應 200，結果為 `{"collections":1,"folders":0,"requests":1}`。
+  - `POST /api/workspace/import` 回應 200，結果為 `{"collections":1,"folders":0,"requests":1,"protos":0}`。
   - 匯入後 `GET /api/collections` 可看到原 Collection 與「匯入」副本，確認未覆蓋既有資料。
+
+### ZIP Proto 檔案匯出 / 匯入
+
+- 日期：2026-06-29
+- 實作範圍：
+  - `GET /api/workspace/export` 會將已上傳 proto 檔案放入 ZIP 的 `protos/` 目錄。
+  - `collection.json` 新增 protos metadata，記錄 `protoId`、相對路徑與原始檔名。
+  - `POST /api/workspace/import` 會將 ZIP 內 proto 檔案寫入本機 `post-bubi.storage.protos-dir`。
+  - 匯入 proto 會重新產生新的 `protoId`，避免與既有檔案衝突。
+  - 匯入結果新增 `protos` 數量。
+  - Vue 匯入完成訊息會顯示 Proto 匯入數量。
+  - 舊版 ZIP 若沒有 protos 欄位仍可匯入。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+```
+
+- 結果：
+  - `compileJava` 成功。
+  - `compileTestJava` 成功。
+  - `:post-bubi-api:test` 成功。
+  - ZIP 內包含 `protos/{protoId}-archive.proto`。
+  - 匯入後 `/api/protos` 可看到匯入的 proto。
+  - 匯入結果 `protos` 數量正確。
 
 ### Proto Upload 與 Inspect
 
@@ -914,6 +940,21 @@ http://localhost:18080
 - 已完成本機 gRPC server reflection 測試。
 - 已完成 `/api/grpc/execute` unary 成功呼叫測試。
 - 已完成 `GRPC_REQUEST_JSON_INVALID` 錯誤格式測試。
+- 已完成 `:post-bubi-api:test` 驗證。
+
+本輪目標：
+
+- 補齊 ZIP export / import 的 proto 檔案處理。
+- 匯出 ZIP 時將已上傳 proto 放入 `protos/`。
+- 匯入 ZIP 時將 proto 寫回本機 proto storage。
+- 匯入完成訊息顯示 proto 數量。
+
+本輪結果：
+
+- 已完成 proto 檔案匯出至 ZIP。
+- 已完成 proto 檔案從 ZIP 匯入。
+- 已完成匯入結果 `protos` 數量回傳與前端顯示。
+- 已更新 `WorkspaceArchiveIntegrationTest` 覆蓋 proto 匯出/匯入。
 - 已完成 `:post-bubi-api:test` 驗證。
 
 ## 未完成事項

@@ -1,6 +1,7 @@
 package com.postbubi.proto;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -91,6 +92,51 @@ public class ProtoStorageService {
         }
     }
 
+    public List<StoredProtoFile> listStoredProtosForArchive() {
+        try {
+            Files.createDirectories(protosDir);
+            try (var stream = Files.list(protosDir)) {
+                return stream
+                        .filter(Files::isRegularFile)
+                        .filter(path -> path.getFileName().toString().endsWith(".proto"))
+                        .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                        .map(this::toStoredProtoFile)
+                        .toList();
+            }
+        } catch (IOException exception) {
+            throw new ApiException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "PROTO_LIST_FAILED",
+                    "Proto 列表讀取失敗。",
+                    java.util.Map.of("reason", exception.getMessage())
+            );
+        }
+    }
+
+    public ProtoUploadResponse storeImportedProto(String originalFilename, InputStream inputStream) {
+        String normalizedFilename = sanitizeFilename(originalFilename);
+        if (!normalizedFilename.endsWith(".proto")) {
+            throw badRequest("PROTO_FILE_EXTENSION_INVALID", "只支援上傳 .proto 檔。");
+        }
+
+        String protoId = UUID.randomUUID().toString();
+        String storedFilename = protoId + "-" + normalizedFilename;
+        Path target = resolveStoredProto(storedFilename);
+
+        try {
+            Files.createDirectories(protosDir);
+            Files.copy(inputStream, target);
+            return new ProtoUploadResponse(protoId, normalizedFilename, storedFilename, Files.size(target));
+        } catch (IOException exception) {
+            throw new ApiException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "PROTO_IMPORT_FAILED",
+                    "匯入 Proto 檔儲存失敗。",
+                    java.util.Map.of("reason", exception.getMessage())
+            );
+        }
+    }
+
     public ProtoInspectResponse inspect(String protoId) {
         Path file = findProto(protoId);
         String content;
@@ -129,6 +175,28 @@ public class ProtoStorageService {
                     "PROTO_STAT_FAILED",
                     "Proto 檔資訊讀取失敗。",
                     java.util.Map.of("filename", path.getFileName().toString())
+            );
+        }
+    }
+
+    private StoredProtoFile toStoredProtoFile(Path path) {
+        String filename = path.getFileName().toString();
+        String protoId = protoIdFromFilename(filename);
+        String originalFilename = originalFilename(filename);
+        String archivePath = "protos/" + protoId + "-" + sanitizeFilename(originalFilename);
+        try {
+            return new StoredProtoFile(
+                    protoId,
+                    originalFilename,
+                    archivePath,
+                    Files.readAllBytes(path)
+            );
+        } catch (IOException exception) {
+            throw new ApiException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "PROTO_READ_FAILED",
+                    "Proto 檔讀取失敗。",
+                    java.util.Map.of("filename", filename)
             );
         }
     }
@@ -224,5 +292,8 @@ public class ProtoStorageService {
 
     private ApiException badRequest(String code, String message) {
         return new ApiException(HttpStatus.BAD_REQUEST, code, message);
+    }
+
+    public record StoredProtoFile(String protoId, String originalFilename, String path, byte[] content) {
     }
 }
