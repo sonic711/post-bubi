@@ -33,6 +33,7 @@
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
 | 13.3 | ZIP export / import 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 ZIP 匯出/匯入與 zip slip 防護 |
 | 13.4 | Proto upload / inspect 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Proto 上傳、列表、inspect 與副檔名錯誤 |
+| 13.5 | gRPC execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 reflection unary 成功呼叫與 JSON 錯誤 |
 
 ## 程式碼比對摘要
 
@@ -66,10 +67,11 @@
 - File upload / form-data 自動化測試：已新增 `FileUploadIntegrationTest`，覆蓋檔案上傳、HTTP execute multipart file 與空 form-data 錯誤格式。
 - ZIP export / import 自動化測試：已新增 `WorkspaceArchiveIntegrationTest`，覆蓋 workspace ZIP 匯出、匯入、file reference 重新對應與 zip slip 防護。
 - Proto upload / inspect 自動化測試：已新增 `ProtoIntegrationTest`，覆蓋 Proto 上傳、列表、inspect parsing 與副檔名錯誤格式。
+- gRPC execute 自動化測試：已新增 `GrpcExecuteIntegrationTest`，覆蓋本機 reflection gRPC server 的 unary 成功呼叫與 JSON 錯誤格式。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- 更完整的自動化測試覆蓋：gRPC execute 尚可再補測試。
+- 更完整的自動化測試覆蓋：後續可持續擴充前端端對端測試與更多錯誤情境。
 
 ## 已完成驗證紀錄
 
@@ -584,6 +586,31 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
   - streaming method 解析測試通過。
   - `PROTO_FILE_EXTENSION_INVALID` 錯誤格式測試通過。
 
+### gRPC Execute 自動化測試
+
+- 日期：2026-06-29
+- 實作範圍：
+  - 新增 `post-bubi-api/src/test/java/com/postbubi/web/GrpcExecuteIntegrationTest.java`。
+  - 測試內啟動本機 gRPC server，不依賴外部服務。
+  - 測試 gRPC server 提供動態建立的 `demo.EchoService/Echo` unary method。
+  - 測試 gRPC server 開啟 server reflection。
+  - 覆蓋 `POST /api/grpc/execute` 透過 reflection 解析 descriptor 並成功呼叫 unary method。
+  - 覆蓋 gRPC JSON body 轉 Protobuf `DynamicMessage`。
+  - 覆蓋 response body 轉 JSON。
+  - 覆蓋 invalid gRPC JSON body 回傳 `GRPC_REQUEST_JSON_INVALID` 與中文錯誤訊息。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+```
+
+- 結果：
+  - `compileTestJava` 成功。
+  - `:post-bubi-api:test` 成功。
+  - gRPC reflection descriptor resolver 成功路徑測試通過。
+  - gRPC unary execute 成功路徑測試通過。
+  - `GRPC_REQUEST_JSON_INVALID` 錯誤格式測試通過。
+
 ## 使用者測試方式
 
 目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
@@ -875,7 +902,21 @@ http://localhost:18080
 - 已完成 `PROTO_FILE_EXTENSION_INVALID` 錯誤格式測試。
 - 已完成 `:post-bubi-api:test` 驗證。
 
+本輪目標：
+
+- 補上 gRPC execute 自動化測試。
+- 使用本機 reflection gRPC server 驗證 unary 成功呼叫。
+- 覆蓋 gRPC JSON request body 錯誤格式。
+
+本輪結果：
+
+- 已新增 `GrpcExecuteIntegrationTest`。
+- 已完成本機 gRPC server reflection 測試。
+- 已完成 `/api/grpc/execute` unary 成功呼叫測試。
+- 已完成 `GRPC_REQUEST_JSON_INVALID` 錯誤格式測試。
+- 已完成 `:post-bubi-api:test` 驗證。
+
 ## 未完成事項
 
-- gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- gRPC execute 尚可再補自動化測試。
+- gRPC unary execute API 已透過本機 reflection gRPC server 自動化測試驗證成功呼叫；若需驗證使用者實際 target server，仍需由使用者提供可連線服務。
+- 後續可持續擴充前端端對端測試與更多錯誤情境。

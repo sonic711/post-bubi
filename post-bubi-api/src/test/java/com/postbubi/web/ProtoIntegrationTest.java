@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,11 +34,25 @@ import org.springframework.util.MultiValueMap;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class ProtoIntegrationTest {
 
+    private static final Path PROTOS_DIR = Path.of("./build/test-files/proto-integration");
+
     @Autowired
     private TestRestTemplate restTemplate;
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @BeforeEach
+    void cleanProtoStorage() throws Exception {
+        if (!Files.exists(PROTOS_DIR)) {
+            return;
+        }
+        try (var stream = Files.walk(PROTOS_DIR)) {
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
 
     @Test
     void uploadsListsAndInspectsProtoDefinition() throws Exception {
