@@ -30,6 +30,7 @@
 | 12.1 | Proto method 套用到 gRPC editor | 完成 | `bootJar`、首頁載入新版 assets、Proto 上傳與 inspect 驗證 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
+| 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
 
 ## 程式碼比對摘要
 
@@ -60,10 +61,11 @@
 - Vue Folder tree UI：已可在 Collection 下新增 Folder/子 Folder、選取 Folder、刪除 Folder，並將 Request 保存到選取的 Folder。
 - 基本後端整合測試：已新增 `WorkspaceApiIntegrationTest`，覆蓋 Workspace CRUD 主要流程與統一錯誤格式。
 - HTTP execute 自動化測試：已新增 `HttpExecuteIntegrationTest`，覆蓋實際 HTTP GET、history 保存與 invalid URL 錯誤格式。
+- File upload / form-data 自動化測試：已新增 `FileUploadIntegrationTest`，覆蓋檔案上傳、HTTP execute multipart file 與空 form-data 錯誤格式。
 
 ### 尚未完成且程式碼尚未完整存在
 
-- 更完整的自動化測試覆蓋：file upload、ZIP import/export、Proto inspect 與 gRPC execute 尚可再補測試。
+- 更完整的自動化測試覆蓋：ZIP import/export、Proto inspect 與 gRPC execute 尚可再補測試。
 
 ## 已完成驗證紀錄
 
@@ -502,6 +504,31 @@ GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
   - Request history 保存測試通過。
   - `HTTP_URL_INVALID` 錯誤格式測試通過。
 
+### File Upload / Form-data 自動化測試
+
+- 日期：2026-06-29
+- 實作範圍：
+  - 新增 `post-bubi-api/src/test/java/com/postbubi/web/FileUploadIntegrationTest.java`。
+  - 使用 Spring Boot random port 與 `TestRestTemplate` 測試 multipart 上傳。
+  - 測試使用 H2 memory DB 與測試專用 `post-bubi.storage.files-dir`。
+  - 覆蓋 `POST /api/files` 直接上傳檔案。
+  - 覆蓋檔案上傳 response 的 `fileId`、`originalFilename`、`contentType` 與 `sizeBytes`。
+  - 覆蓋 `POST /api/http/execute` 的 `bodyType=form-data` 與 file part。
+  - 覆蓋 multipart execute 會略過手動 `Content-Type` header，讓後端自動產生 boundary。
+  - 覆蓋空 form-data 回傳 `HTTP_FORM_DATA_REQUIRED` 與中文錯誤訊息。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+```
+
+- 結果：
+  - `compileTestJava` 成功。
+  - `:post-bubi-api:test` 成功。
+  - `/api/files` multipart 上傳測試通過。
+  - HTTP execute form-data file 測試通過。
+  - `HTTP_FORM_DATA_REQUIRED` 錯誤格式測試通過。
+
 ## 使用者測試方式
 
 目前可測階段：HTTP request editor、Request 保存、Folder tree UI、form-data/file upload、Request history、ZIP 匯出/匯入、Proto upload/inspect、Proto method 套用到 gRPC editor、gRPC unary execute API、Vue gRPC request editor。
@@ -750,7 +777,21 @@ http://localhost:18080
 - 已完成 `HTTP_URL_INVALID` 錯誤格式測試。
 - 已完成 `:post-bubi-api:test` 驗證。
 
+本輪目標：
+
+- 補上 file upload 自動化測試。
+- 覆蓋 `/api/files` multipart upload。
+- 覆蓋 HTTP execute 的 `form-data` file 欄位。
+
+本輪結果：
+
+- 已新增 `FileUploadIntegrationTest`。
+- 已完成 `/api/files` multipart 上傳測試。
+- 已完成 HTTP execute form-data file 測試。
+- 已完成 `HTTP_FORM_DATA_REQUIRED` 錯誤格式測試。
+- 已完成 `:post-bubi-api:test` 驗證。
+
 ## 未完成事項
 
 - gRPC unary execute API 已完成第一階段；尚未使用實際可用的 reflection gRPC server 驗證成功呼叫。
-- File upload、ZIP import/export、Proto inspect 與 gRPC execute 尚可再補自動化測試。
+- ZIP import/export、Proto inspect 與 gRPC execute 尚可再補自動化測試。
