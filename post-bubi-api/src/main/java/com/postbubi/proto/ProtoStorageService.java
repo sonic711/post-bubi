@@ -161,6 +161,14 @@ public class ProtoStorageService {
         );
     }
 
+    public Path resolveProtoFile(String protoId) {
+        return findProto(protoId);
+    }
+
+    public Path protosDir() {
+        return protosDir;
+    }
+
     private ProtoListResponse toListResponse(Path path) {
         try {
             return new ProtoListResponse(

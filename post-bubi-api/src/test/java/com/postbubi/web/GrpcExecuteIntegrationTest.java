@@ -17,10 +17,12 @@ import io.grpc.protobuf.ProtoUtils;
 import io.grpc.protobuf.services.ProtoReflectionService;
 import io.grpc.stub.ServerCalls;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -28,12 +30,19 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.datasource.url=jdbc:h2:mem:postbubi-grpc-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
-                "spring.jpa.hibernate.ddl-auto=create-drop"
+                "spring.jpa.hibernate.ddl-auto=create-drop",
+                "post-bubi.storage.protos-dir=./build/test-files/grpc-execute-protos"
         }
 )
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
@@ -41,6 +50,7 @@ class GrpcExecuteIntegrationTest {
 
     private static final String SERVICE_NAME = "demo.EchoService";
     private static final String METHOD_NAME = "Echo";
+    private static final Path PROTOS_DIR = Path.of("./build/test-files/grpc-execute-protos");
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -49,6 +59,18 @@ class GrpcExecuteIntegrationTest {
     private ObjectMapper objectMapper;
 
     private Server grpcServer;
+
+    @BeforeEach
+    void cleanProtoStorage() throws Exception {
+        if (!Files.exists(PROTOS_DIR)) {
+            return;
+        }
+        try (var stream = Files.walk(PROTOS_DIR)) {
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
 
     @AfterEach
     void stopGrpcServer() {
@@ -116,6 +138,53 @@ class GrpcExecuteIntegrationTest {
         assertThat(error.path("code").asText()).isEqualTo("GRPC_REQUEST_JSON_INVALID");
         assertThat(error.path("message").asText()).isEqualTo("gRPC JSON request body 格式錯誤。");
         assertThat(error.path("details").has("reason")).isTrue();
+    }
+
+    @Test
+    void executesUnaryGrpcMethodThroughUploadedProtoWithoutServerReflection() throws Exception {
+        Descriptors.FileDescriptor fileDescriptor = echoFileDescriptor();
+        Descriptors.ServiceDescriptor serviceDescriptor = fileDescriptor.findServiceByName("EchoService");
+        Descriptors.MethodDescriptor echoMethod = serviceDescriptor.findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0)
+                .addService(echoService(fileDescriptor, echoMethod))
+                .build()
+                .start();
+
+        JsonNode upload = objectMapper.readTree(uploadProto("echo.proto", """
+                syntax = "proto3";
+
+                package demo;
+
+                message EchoRequest {
+                  string text = 1;
+                }
+
+                message EchoResponse {
+                  string text = 1;
+                }
+
+                service EchoService {
+                  rpc Echo (EchoRequest) returns (EchoResponse) {}
+                }
+                """).getBody());
+
+        ResponseEntity<String> response = postJson("/api/grpc/execute", """
+                {
+                  "host": "127.0.0.1",
+                  "port": %d,
+                  "plaintext": true,
+                  "protoId": "%s",
+                  "serviceName": "%s",
+                  "methodName": "%s",
+                  "body": "{\\"text\\":\\"proto\\"}",
+                  "timeoutMillis": 30000
+                }
+                """.formatted(grpcServer.getPort(), upload.path("protoId").asText(), SERVICE_NAME, METHOD_NAME));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode payload = objectMapper.readTree(response.getBody());
+        assertThat(payload.path("statusCode").asText()).isEqualTo("OK");
+        assertThat(payload.path("body").asText()).contains("\"text\": \"echo:proto\"");
     }
 
     private ServerServiceDefinition echoService(
@@ -188,5 +257,28 @@ class GrpcExecuteIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private ResponseEntity<String> uploadProto(String filename, String content) {
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new NamedByteArrayResource(filename, content.getBytes()));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return restTemplate.exchange("/api/protos", HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private static class NamedByteArrayResource extends ByteArrayResource {
+
+        private final String filename;
+
+        NamedByteArrayResource(String filename, byte[] byteArray) {
+            super(byteArray);
+            this.filename = filename;
+        }
+
+        @Override
+        public String getFilename() {
+            return filename;
+        }
     }
 }

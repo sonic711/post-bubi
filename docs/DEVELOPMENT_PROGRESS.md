@@ -33,6 +33,7 @@
 | 12.3 | 品牌主色與 Logo 套用 | 完成 | `:post-bubi-api:bootJar` 通過，前端 CSS 產物包含 `#ab005f`，Logo asset 已打包進 UI JAR |
 | 12.4 | Light / Dark Theme | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，CSS 包含 Light/Dark 變數與本機偏好保存 |
 | 12.5 | 工作台 UI/UX 基礎升級 | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，完成 sidebar、toolbar、request meta、response summary 與窄版 layout 優化 |
+| 12.6 | gRPC 使用本機 Proto 執行 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過；已驗證不開 reflection 的 unary server 可用 `protoId` 呼叫；使用者目標 `127.0.0.1:50115` 已進入實際呼叫並回 `DEADLINE_EXCEEDED` |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
@@ -61,6 +62,7 @@
 - ZIP export / import：已建立 `GET /api/workspace/export` 與 `POST /api/workspace/import`，可匯出/匯入 Collection、Folder、Request、file references 與 proto files。
 - Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
 - gRPC unary execute API：已建立 `POST /api/grpc/execute`，第一階段透過 server reflection 取得 descriptor，將 JSON request 轉為 `DynamicMessage` 後呼叫 unary method。
+- gRPC 使用本機 Proto 執行：`POST /api/grpc/execute` 已支援 request 帶 `protoId`，後端會優先使用本機已匯入 proto 與 import dependencies 建立 descriptor；未提供 `protoId` 時保留 server reflection fallback。
 - Vue gRPC request editor / response viewer：前端已可切換 HTTP/gRPC，填寫 gRPC target、service、method、metadata、JSON body 與 settings，並顯示 gRPC response body、metadata 與 info。
 - gRPC TLS 設定：gRPC editor 已支援 Plaintext / TLS 切換；使用 TLS 時可開啟 Ignore TLS certificate verification，後端會使用不驗證憑證的 TLS channel 執行 request。
 - Proto method 套用到 gRPC editor：前端 Proto inspect 的 rpc method 已可點選，並自動切換到 gRPC、填入完整 service/method 與 JSON body。
@@ -77,11 +79,63 @@
 - File upload / form-data 自動化測試：已新增 `FileUploadIntegrationTest`，覆蓋檔案上傳、HTTP execute multipart file 與空 form-data 錯誤格式。
 - ZIP export / import 自動化測試：已新增 `WorkspaceArchiveIntegrationTest`，覆蓋 workspace ZIP 匯出、匯入、file/proto reference 重新對應與 zip slip 防護。
 - Proto upload / inspect 自動化測試：已新增 `ProtoIntegrationTest`，覆蓋 Proto 上傳、列表、inspect parsing 與副檔名錯誤格式。
-- gRPC execute 自動化測試：已新增 `GrpcExecuteIntegrationTest`，覆蓋本機 reflection gRPC server 的 unary 成功呼叫與 JSON 錯誤格式。
+- gRPC execute 自動化測試：已新增 `GrpcExecuteIntegrationTest`，覆蓋本機 reflection gRPC server 的 unary 成功呼叫、本機 proto descriptor unary 成功呼叫與 JSON 錯誤格式。
 
 ### 尚未完成且程式碼尚未完整存在
 
+- gRPC request body 範本產生：目前套用 proto method 時 body 仍預設 `{}`；後續可依 proto message 產生包含欄位骨架的 JSON 範本，降低目標服務因必要業務欄位缺失而 timeout 或回錯。
 - 更完整的自動化測試覆蓋：後續可持續擴充前端端對端測試與更多錯誤情境。
+
+### gRPC 目標服務 reflection 驗證
+
+- 日期：2026-06-30
+- 目標：使用目前版本測試使用者啟動的 gRPC server `127.0.0.1:50115`
+- 測試 request：
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 50115,
+  "plaintext": true,
+  "serviceName": "com.bot.fsap.model.grpc.common.Service",
+  "methodName": "rpcPeriphery",
+  "body": "{}",
+  "timeoutMillis": 30000
+}
+```
+
+- 結果：
+  - Post Bubi 可連到 `50115`。
+  - 目標 server 回應 `GRPC_REFLECTION_FAILED`。
+  - 錯誤訊息為 `Method not found: grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo`。
+  - 判定目前阻擋點是目標 server 未提供目前版本使用的 server reflection，不是 proto inspect 或 response body 解析問題。
+  - 後續需優先實作使用本機 proto descriptor 執行 gRPC。
+
+### gRPC 使用本機 Proto 執行
+
+- 日期：2026-06-30
+- 實作範圍：
+  - `POST /api/grpc/execute` 新增可選欄位 `protoId`。
+  - 有 `protoId` 時，後端優先使用已匯入 proto 建立 descriptor，不呼叫 target server reflection。
+  - 新增本機 proto resolver，支援 proto3 常見 unary 測試所需的 package、import、message、nested message、enum、scalar、message、repeated、map 與 service rpc。
+  - proto import 解析支援上傳目錄與 `data/proto` / `data` import root，配合目前 `proto/common/...` import path。
+  - 前端套用 Proto method 時會保存並送出 `grpcProtoId`。
+  - Request 保存/載入會保留 `grpcProtoId`。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:test
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-grpc-proto --server.port=18080
+curl -s -i -X POST http://127.0.0.1:18080/api/grpc/execute -H 'Content-Type: application/json' -d '{"host":"127.0.0.1","port":50115,"plaintext":true,"protoId":"d8cfce0f-f4a5-4869-ba13-26774bfef7f9","serviceName":"com.bot.fsap.model.grpc.common.Service","methodName":"rpcPeriphery","body":"{}","timeoutMillis":30000}'
+```
+
+- 結果：
+  - `:post-bubi-api:test` 成功。
+  - `:post-bubi-api:bootJar` 成功。
+  - 新增測試已覆蓋不開 reflection 的 unary gRPC server，透過上傳 proto `protoId` 成功呼叫。
+  - 對使用者目標 `127.0.0.1:50115` 測試時已不再出現 `GRPC_REFLECTION_FAILED`。
+  - 使用 `{}` 呼叫 `rpcPeriphery` 時，target server 在 30 秒內未回應，Post Bubi 回傳 gRPC status `DEADLINE_EXCEEDED`；此結果代表已進入實際 unary 呼叫階段，後續需補正業務 request body 才能確認目標服務成功回應。
 
 ## 已完成驗證紀錄
 

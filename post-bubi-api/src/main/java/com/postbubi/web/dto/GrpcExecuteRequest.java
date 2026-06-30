@@ -8,6 +8,7 @@ public record GrpcExecuteRequest(
         Boolean plaintext,
         Boolean ignoreTlsVerification,
         List<HttpNameValue> metadata,
+        String protoId,
         String serviceName,
         String methodName,
         String body,

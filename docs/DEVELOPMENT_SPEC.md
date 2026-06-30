@@ -217,10 +217,27 @@ Unary RPC 定義：client 傳送一個 request，server 回傳一個 response。
 - 匯入 `.proto` 檔案
 - 使用 server reflection，若目標 gRPC server 有開啟 reflection
 
-若實作順序需要取捨，優先順序為：
+執行 gRPC request 時，descriptor 解析優先順序為：
 
 1. 匯入 `.proto`
 2. Server reflection
+
+若 request 有指定 `protoId`，後端必須優先使用本機已匯入的 `.proto` 與其相依 import 建立 descriptor，不可強制依賴目標 server 開啟 reflection。若 request 沒有指定 `protoId`，才使用 server reflection 作為 fallback。
+
+本機 proto resolver 第一階段需支援 proto3 常見 unary 測試情境：
+
+- `package`
+- `import`
+- `message`
+- nested message
+- `enum`
+- scalar 欄位
+- message 欄位
+- repeated 欄位
+- map 欄位
+- unary `service rpc`
+
+不支援或尚未驗證的進階 proto 語法需回傳結構化錯誤，避免誤判為 gRPC target server 問題。
 
 ### 6.3 Request
 
@@ -439,6 +456,10 @@ History 保存執行當下的 request 與 response snapshot，不應因 request 
 - `POST /api/grpc/execute`
 
 此 API 接收完整 gRPC request 設定，立即執行並回傳 response，不要求 request 已儲存。
+
+Request 可選欄位：
+
+- `protoId`：指定已匯入的 `.proto`。若提供此欄位，後端必須使用本機 proto descriptor 執行，不依賴 server reflection。
 
 ### 10.6 File API
 

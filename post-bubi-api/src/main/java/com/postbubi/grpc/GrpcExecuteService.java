@@ -35,9 +35,14 @@ public class GrpcExecuteService {
     private static final int MAX_TIMEOUT_MILLIS = 300000;
 
     private final GrpcReflectionDescriptorResolver descriptorResolver;
+    private final GrpcProtoDescriptorResolver protoDescriptorResolver;
 
-    public GrpcExecuteService(GrpcReflectionDescriptorResolver descriptorResolver) {
+    public GrpcExecuteService(
+            GrpcReflectionDescriptorResolver descriptorResolver,
+            GrpcProtoDescriptorResolver protoDescriptorResolver
+    ) {
         this.descriptorResolver = descriptorResolver;
+        this.protoDescriptorResolver = protoDescriptorResolver;
     }
 
     public GrpcExecuteResponse execute(GrpcExecuteRequest request) {
@@ -50,7 +55,7 @@ public class GrpcExecuteService {
         ManagedChannel channel = createChannel(host, port, request);
         long startNanos = System.nanoTime();
         try {
-            var grpcMethod = descriptorResolver.resolveMethod(channel, serviceName, methodName);
+            var grpcMethod = resolveMethod(channel, request, serviceName, methodName);
             DynamicMessage requestMessage = toDynamicMessage(grpcMethod.getInputType(), request.body());
             MethodDescriptor<DynamicMessage, DynamicMessage> methodDescriptor = MethodDescriptor
                     .<DynamicMessage, DynamicMessage>newBuilder()
@@ -97,6 +102,18 @@ public class GrpcExecuteService {
         } finally {
             channel.shutdownNow();
         }
+    }
+
+    private com.google.protobuf.Descriptors.MethodDescriptor resolveMethod(
+            ManagedChannel channel,
+            GrpcExecuteRequest request,
+            String serviceName,
+            String methodName
+    ) {
+        if (request.protoId() != null && !request.protoId().isBlank()) {
+            return protoDescriptorResolver.resolveMethod(request.protoId().trim(), serviceName, methodName);
+        }
+        return descriptorResolver.resolveMethod(channel, serviceName, methodName);
     }
 
     private ManagedChannel createChannel(String host, int port, GrpcExecuteRequest request) {

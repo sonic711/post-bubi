@@ -407,6 +407,7 @@ const grpcHost = ref('localhost')
 const grpcPort = ref(50051)
 const grpcServiceName = ref('')
 const grpcMethodName = ref('')
+const grpcProtoId = ref('')
 const grpcMetadataText = ref('')
 const grpcBodyText = ref('{}')
 const grpcPlaintext = ref(true)
@@ -662,6 +663,7 @@ function applyProtoMethod(service, methodDefinition) {
   requestType.value = 'GRPC'
   grpcServiceName.value = serviceName
   grpcMethodName.value = methodDefinition.name
+  grpcProtoId.value = selectedProto.value?.protoId || ''
   grpcBodyText.value = '{}'
   requestName.value = `${serviceName}/${methodDefinition.name}`
   activeRequestTab.value = 'body'
@@ -992,6 +994,7 @@ function editorPayload() {
     grpcPort: grpcPort.value,
     grpcServiceName: grpcServiceName.value,
     grpcMethodName: grpcMethodName.value,
+    grpcProtoId: grpcProtoId.value,
     grpcMetadataText: grpcMetadataText.value,
     grpcBody: grpcBodyText.value,
     grpcPlaintext: grpcPlaintext.value,
@@ -1006,6 +1009,7 @@ function grpcExecutePayload() {
     plaintext: grpcPlaintext.value,
     ignoreTlsVerification: grpcIgnoreTlsVerification.value,
     metadata: parseNameValueLines(grpcMetadataText.value),
+    protoId: grpcProtoId.value || null,
     serviceName: grpcServiceName.value,
     methodName: grpcMethodName.value,
     body: grpcBodyText.value,
@@ -1096,6 +1100,7 @@ function loadPayloadToEditor(payload) {
   grpcPort.value = payload.grpcPort || 50051
   grpcServiceName.value = payload.grpcServiceName || ''
   grpcMethodName.value = payload.grpcMethodName || ''
+  grpcProtoId.value = payload.grpcProtoId || ''
   grpcMetadataText.value = payload.grpcMetadataText || ''
   grpcBodyText.value = payload.grpcBody || '{}'
   grpcPlaintext.value = payload.grpcPlaintext !== false
