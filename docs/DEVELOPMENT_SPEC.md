@@ -40,8 +40,22 @@ java -jar post-bubi.jar
 - H2 database file：`./data/post-bubi.mv.db`
 - 上傳檔案與匯入資源目錄：`./data/files`
 - gRPC proto 資源目錄：`./data/protos`
+- Log file：JAR 同層 `logs/post-bubi.log`
 
 以上路徑與 port 後續應可透過設定檔或啟動參數調整。
+
+檔案 log 預設啟用，方便離線主機與本機開發除錯。必須可用啟動參數或環境變數關閉：
+
+```bash
+java -jar post-bubi.jar --post-bubi.logging.file.enabled=false
+POST_BUBI_LOGGING_FILE_ENABLED=false java -jar post-bubi.jar
+```
+
+也必須可指定自訂 log 檔案：
+
+```bash
+java -jar post-bubi.jar --post-bubi.logging.file.name=/path/to/post-bubi.log
+```
 
 ## 3. 技術選型
 

@@ -35,6 +35,7 @@
 | 12.5 | 工作台 UI/UX 基礎升級 | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，完成 sidebar、toolbar、request meta、response summary 與窄版 layout 優化 |
 | 12.5.1 | 工作台 UI/UX 可用性與窄版優化 | 完成 | `:post-bubi-api:bootJar` 通過；首頁與 `/api/health` 回應 200，已改善 toolbar、狀態回饋、長文字與窄版 layout，未變更 API payload |
 | 12.6 | gRPC 使用本機 Proto 執行 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過；已驗證不開 reflection 的 unary server 可用 `protoId` 呼叫；使用者目標 `127.0.0.1:50115` 已進入實際呼叫並回 `DEADLINE_EXCEEDED` |
+| 12.7 | JAR 同層檔案 Log 與開關 | 完成 | `:post-bubi-api:bootJar` 通過；已驗證預設輸出到 JAR 同層 `logs/post-bubi.log`，且關閉參數不會寫入 file log |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
@@ -64,6 +65,7 @@
 - Proto upload / inspect：已建立 `POST /api/protos`、`GET /api/protos` 與 `GET /api/protos/{protoId}/inspect`，可上傳 `.proto` 並解析 package、imports、messages、services 與 rpc methods。
 - gRPC unary execute API：已建立 `POST /api/grpc/execute`，第一階段透過 server reflection 取得 descriptor，將 JSON request 轉為 `DynamicMessage` 後呼叫 unary method。
 - gRPC 使用本機 Proto 執行：`POST /api/grpc/execute` 已支援 request 帶 `protoId`，後端會優先使用本機已匯入 proto 與 import dependencies 建立 descriptor；未提供 `protoId` 時保留 server reflection fallback。
+- JAR 同層檔案 Log：啟動入口會在 Spring Boot 初始化 logging 前設定預設 `logging.file.name`，讓 `java -jar post-bubi.jar` 預設輸出到 JAR 同層 `logs/post-bubi.log`；可用 `--post-bubi.logging.file.enabled=false`、`-Dpost-bubi.logging.file.enabled=false` 或 `POST_BUBI_LOGGING_FILE_ENABLED=false` 關閉。
 - Vue gRPC request editor / response viewer：前端已可切換 HTTP/gRPC，填寫 gRPC target、service、method、metadata、JSON body 與 settings，並顯示 gRPC response body、metadata 與 info。
 - gRPC TLS 設定：gRPC editor 已支援 Plaintext / TLS 切換；使用 TLS 時可開啟 Ignore TLS certificate verification，後端會使用不驗證憑證的 TLS channel 執行 request。
 - Proto method 套用到 gRPC editor：前端 Proto inspect 的 rpc method 已可點選，並自動切換到 gRPC、填入完整 service/method 與 JSON body。
@@ -662,6 +664,38 @@ curl -s -i http://127.0.0.1:18080/api/health
   - `:post-bubi-api:bootJar` 成功。
   - 首頁回應 200，載入新版 assets：`index-ealYFgae.js`、`index-CSMo2uJ4.css`。
   - `/api/health` 回應 200。
+  - 驗證用服務已關閉。
+
+### JAR 同層檔案 Log 與開關
+
+- 日期：2026-07-08
+- 實作範圍：
+  - `PostBubiApplication` 在 Spring Boot 初始化 logging 前設定預設 `logging.file.name`。
+  - 使用 `java -jar post-bubi.jar` 啟動時，預設寫入 JAR 同層 `logs/post-bubi.log`。
+  - 支援 `--post-bubi.logging.file.enabled=false`、`-Dpost-bubi.logging.file.enabled=false`、`POST_BUBI_LOGGING_FILE_ENABLED=false` 關閉檔案 log。
+  - 支援 `--post-bubi.logging.file.name=/path/to/post-bubi.log`、`-Dpost-bubi.logging.file.name=...`、`POST_BUBI_LOGGING_FILE_NAME=...` 指定 log 檔案。
+  - 若使用者已設定 Spring Boot 原生 `logging.file.name`，系統會尊重既有設定，不覆蓋。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-log-default --server.port=18080
+find post-bubi-api/build/libs -maxdepth 3 -type f -path '*logs*' -print
+stat -f %z post-bubi-api/build/libs/logs/post-bubi.log
+java -jar post-bubi-api/build/libs/post-bubi.jar --post-bubi.logging.file.enabled=false --spring.main.web-application-type=none --spring.datasource.url=jdbc:h2:mem:postbubi-log-disabled
+stat -f %z post-bubi-api/build/libs/logs/post-bubi.log
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-log-web --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i http://127.0.0.1:18080/api/health
+tail -n 5 post-bubi-api/build/libs/logs/post-bubi.log
+```
+
+- 結果：
+  - `:post-bubi-api:bootJar` 成功。
+  - 預設啟動會建立 `post-bubi-api/build/libs/logs/post-bubi.log`。
+  - 關閉參數啟動後，既有 log 檔案大小維持不變，確認未寫入 file log。
+  - Web 模式啟動成功，首頁與 `/api/health` 回應 200。
+  - log 檔可看到 Tomcat 啟動與 Spring Boot started 訊息。
   - 驗證用服務已關閉。
 
 ### Proto Method 套用到 gRPC Editor

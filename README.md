@@ -58,6 +58,32 @@ yarn dev
 ./gradlew --offline -PofflineRepo=/path/to/offline-maven-repo :post-bubi-api:bootJar
 ```
 
+## Log 設定
+
+使用 `java -jar post-bubi.jar` 啟動時，預設會在 JAR 同層建立：
+
+```text
+logs/post-bubi.log
+```
+
+開發時可直接查看該檔案除錯。若要關閉檔案 log：
+
+```bash
+java -jar post-bubi.jar --post-bubi.logging.file.enabled=false
+```
+
+或使用環境變數：
+
+```bash
+POST_BUBI_LOGGING_FILE_ENABLED=false java -jar post-bubi.jar
+```
+
+若要指定其他 log 檔案：
+
+```bash
+java -jar post-bubi.jar --post-bubi.logging.file.name=/path/to/post-bubi.log
+```
+
 ## gRPC proto 注意事項
 
 目前樣本 proto 使用 import path：
