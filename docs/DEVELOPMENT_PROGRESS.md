@@ -33,6 +33,7 @@
 | 12.3 | 品牌主色與 Logo 套用 | 完成 | `:post-bubi-api:bootJar` 通過，前端 CSS 產物包含 `#ab005f`，Logo asset 已打包進 UI JAR |
 | 12.4 | Light / Dark Theme | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，CSS 包含 Light/Dark 變數與本機偏好保存 |
 | 12.5 | 工作台 UI/UX 基礎升級 | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，完成 sidebar、toolbar、request meta、response summary 與窄版 layout 優化 |
+| 12.5.1 | 工作台 UI/UX 可用性與窄版優化 | 完成 | `:post-bubi-api:bootJar` 通過；首頁與 `/api/health` 回應 200，已改善 toolbar、狀態回饋、長文字與窄版 layout，未變更 API payload |
 | 12.6 | gRPC 使用本機 Proto 執行 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過；已驗證不開 reflection 的 unary server 可用 `protoId` 呼叫；使用者目標 `127.0.0.1:50115` 已進入實際呼叫並回 `DEADLINE_EXCEEDED` |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
@@ -69,6 +70,7 @@
 - 品牌主色與 Logo 套用：前端 CSS 已集中定義品牌色變數，將 `#AB005F` 套用到主操作按鈕、送出按鈕、目前選取狀態、active tab、Proto method hover、history method 與 keyboard focus；sidebar 品牌區已使用 `post-bubi-ui/src/assets/post-bubi-logo.png`。
 - Light / Dark Theme：左側 sidebar 已新增 Light/Dark segmented control，使用 `data-theme` 與 CSS 變數切換主題，使用者選擇會保存到 `localStorage`。
 - 工作台 UI/UX 基礎升級：已重整 sidebar、全域動作、Collection/Proto 區塊、request toolbar、request meta、response summary、hover/focus/active 狀態與窄版 layout。
+- 工作台 UI/UX 可用性與窄版優化：依 `agent-skills-main` UI/UX routing 原則，優先改善可用性、維護性、窄版體驗、可及性與一致性；已加入 HTTP/gRPC toolbar 專屬欄位比例、response 成功/錯誤/送出中狀態樣式、長文字 title 與截斷、tab 橫向捲動、disabled body 視覺回饋與 860px 以下單欄 layout。
 - UI resource JAR 打包清理：`post-bubi-ui` 的 dev/prod resource 目錄會在每次複製前清空，避免舊 hash asset 累積進單一 JAR。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
@@ -631,6 +633,36 @@ curl -s -i http://127.0.0.1:18080/assets/index--w5qe_Mp.css
   - 前端 CSS 產物 `index--w5qe_Mp.css` 已產生。
   - 首頁回應 200，載入新版前端 assets。
   - CSS asset 回應 200，Content-Type 為 `text/css`。
+
+### 工作台 UI/UX 可用性與窄版優化
+
+- 日期：2026-07-08
+- 實作依據：
+  - 依 `agent-skills-main/global-uiux-skill-router/SKILL.md` 與 `agent-skills-main/UIUX_SKILL_POLICY.md` 可讀規範，優先順序為可用性、維護性、窄版體驗、可及性與一致性。
+  - `agent-skills-main/ui-ux-pro-max-skill` symlink 指向的 vendor 內容目前不存在，因此本階段採用 router/policy 中可讀到的決策原則。
+- 實作範圍：
+  - Toolbar 依 HTTP / gRPC 模式套用不同 grid 欄位比例，減少 gRPC target 與 full method 欄位擠壓。
+  - Response summary 新增 `ok`、`pending`、`error` 視覺狀態；HTTP 4xx/5xx 與 gRPC 非 `OK` 會標示錯誤。
+  - Workspace status 加上 `aria-live="polite"`，提升輔助技術可讀性。
+  - Collection、Folder、Request、Proto 與 History 長文字加上 `title`，並用 ellipsis 避免撐破容器。
+  - Tabs 支援橫向捲動，避免小寬度下互相擠壓。
+  - Disabled textarea 增加明確視覺狀態。
+  - 860px 以下改為單欄 layout，Sidebar 置頂且限制高度，主要工作區維持可操作。
+  - 本階段未變更 HTTP/gRPC execute payload、request 保存格式與後端 API。
+- 驗證指令：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew :post-bubi-api:bootJar
+java -jar post-bubi-api/build/libs/post-bubi.jar --spring.datasource.url=jdbc:h2:file:./build/verify/post-bubi-uiux-skill --server.port=18080
+curl -s -i http://127.0.0.1:18080/
+curl -s -i http://127.0.0.1:18080/api/health
+```
+
+- 結果：
+  - `:post-bubi-api:bootJar` 成功。
+  - 首頁回應 200，載入新版 assets：`index-ealYFgae.js`、`index-CSMo2uJ4.css`。
+  - `/api/health` 回應 200。
+  - 驗證用服務已關閉。
 
 ### Proto Method 套用到 gRPC Editor
 

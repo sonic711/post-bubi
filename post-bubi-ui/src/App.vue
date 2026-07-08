@@ -46,6 +46,7 @@
               class="tree-item collection-item"
               type="button"
               :class="{ active: selectedCollectionId === collection.id && !selectedFolderId && !selectedRequestId }"
+              :title="collection.name"
               @click="selectCollection(collection.id)"
             >
               {{ collection.name }}
@@ -74,6 +75,7 @@
                 class="tree-item folder-item"
                 type="button"
                 :class="{ active: selectedFolderId === folder.id && !selectedRequestId }"
+                :title="folder.name"
                 @click="selectFolder(folder)"
               >
                 {{ folder.name }}
@@ -103,6 +105,7 @@
               type="button"
               :style="{ paddingLeft: `${folder.depth * 14 + 38}px` }"
               :class="{ active: selectedRequestId === request.id }"
+              :title="request.name"
               @click="selectRequest(request)"
             >
               {{ request.name }}
@@ -114,6 +117,7 @@
             class="tree-item request-item"
             type="button"
             :class="{ active: selectedRequestId === request.id }"
+            :title="request.name"
             @click="selectRequest(request)"
           >
             {{ request.name }}
@@ -136,6 +140,7 @@
           class="tree-item proto-item"
           type="button"
           :class="{ active: selectedProto?.protoId === proto.protoId }"
+          :title="proto.filename"
           @click="inspectProto(proto)"
         >
           {{ proto.filename }}
@@ -162,7 +167,7 @@
     </aside>
 
     <section class="panel">
-      <header class="toolbar">
+      <header class="toolbar" :class="`toolbar-${requestType.toLowerCase()}`">
         <select v-model="requestType" class="type-select" aria-label="Request type">
           <option value="HTTP">HTTP</option>
           <option value="GRPC">gRPC</option>
@@ -205,7 +210,7 @@
             刪除 Request
           </button>
         </div>
-        <span class="status-pill">{{ workspaceStatus || 'Ready' }}</span>
+        <span class="status-pill" aria-live="polite">{{ workspaceStatus || 'Ready' }}</span>
       </section>
 
       <section class="editor">
@@ -330,7 +335,7 @@
             <strong>Response</strong>
             <span>{{ activeResponseTab }}</span>
           </div>
-          <span class="response-summary" :class="{ pending: sending, error: errorText }">{{ responseSummary }}</span>
+          <span class="response-summary" :class="responseSummaryClass">{{ responseSummary }}</span>
         </div>
         <nav class="tabs response-tabs">
           <button
@@ -358,6 +363,7 @@
             :key="item.id"
             class="history-item"
             type="button"
+            :title="`${item.method} ${item.url}`"
             @click="loadHistoryItem(item)"
           >
             <span class="history-method">{{ item.method }}</span>
@@ -479,6 +485,12 @@ const responseSummary = computed(() => {
   }
   return `${response.value.statusCode} ${response.value.reasonPhrase || ''} · ${response.value.durationMillis} ms · ${response.value.sizeBytes} bytes`
 })
+
+const responseSummaryClass = computed(() => ({
+  pending: sending.value,
+  error: Boolean(errorText.value) || isResponseError(response.value),
+  ok: Boolean(response.value) && !errorText.value && !isResponseError(response.value),
+}))
 
 const responseBody = computed(() => {
   if (errorText.value) return errorText.value
@@ -1292,5 +1304,15 @@ function prettyText(text) {
   } catch {
     return text
   }
+}
+
+function isResponseError(payload) {
+  if (!payload) {
+    return false
+  }
+  if (requestType.value === 'GRPC') {
+    return payload.statusCode && payload.statusCode !== 'OK'
+  }
+  return Number(payload.statusCode || 0) >= 400
 }
 </script>
