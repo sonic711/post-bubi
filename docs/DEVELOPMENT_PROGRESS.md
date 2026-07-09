@@ -88,9 +88,9 @@
 - Response Body JSON 語法上色：Response Body tab 使用與 Request Body 相同的 JSON highlighter，讓 key、string、number、boolean、null 更容易辨識。
 - Response base64 欄位解碼頁籤：Response 新增 Decoded tab，可設定多組 JSON path，例如 `data.payload`、`items[0].body`、`items[*].body`，命中欄位會嘗試 base64 decode 並顯示明碼；設定會隨 Request 保存。
 - Response Body 內嵌 decoded 欄位顯示：當 Decoded 設定命中欄位且 base64 解碼成功，Body tab 會直接在該 JSON path 位置顯示解碼後內容，原欄位以品牌色底與 `decoded` badge 標記；hover 可查看原始 base64。
-- Collection 內拖拉排序與 Request 複製：Collections tree 內同層 Folder、同一 Folder 內 Request、Collection 根層 Request 可拖拉排序並更新 `sortOrder`；Request row 的 `⋮` icon menu 可複製 Request，使用既有 `POST /api/requests/{id}/duplicate`。
+- Collection 內拖拉排序與 Request 複製：Collections tree 內同層 Folder、同一 Folder 內 Request、Collection 根層 Request 可拖拉排序並更新 `sortOrder`；Request row 的 `•••` icon menu 可複製 Request，使用既有 `POST /api/requests/{id}/duplicate`。
 - HTTP Headers 拖拉排序：HTTP Headers key/value rows 可拖拉調整順序，送出與保存時依目前 rows 順序產生 headers payload。
-- 左側 Collection icon 操作選單：Collection、Folder、Request rows 改以 `⋮` icon 開啟操作 menu；新增 Request、刪除 Request、複製 Request 移入左側 tree，減少右側 request meta 的文字按鈕。
+- 左側 Collection icon 操作選單：Collection、Folder、Request rows 改以水平三點 `•••` icon 開啟操作 menu；點選畫面其他區域會自動關閉已展開的 menu；新增 Request、刪除 Request、複製 Request 移入左側 tree，減少右側 request meta 的文字按鈕。
 - UI resource JAR 打包清理：`post-bubi-ui` 的 dev/prod resource 目錄會在每次複製前清空，避免舊 hash asset 累積進單一 JAR。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
@@ -922,7 +922,7 @@ http://localhost:18080
 4. 可測項目：
 
 - 點「新增 Collection」建立 Collection。
-- 點 Collection / Folder / Request 右側 `⋮` icon 可開啟操作選單。
+- 點 Collection / Folder / Request 右側水平三點 `•••` icon 可開啟操作選單，點選畫面其他區域可關閉。
 - Collection menu 可新增 Request、新增 Folder、刪除 Collection。
 - Folder menu 可新增 Request、新增子 Folder、刪除 Folder。
 - Request menu 可複製 Request、刪除 Request。

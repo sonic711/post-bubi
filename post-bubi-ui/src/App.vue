@@ -57,7 +57,7 @@
               :title="`${collection.name} 操作`"
               @click.stop="toggleTreeMenu(treeMenuId('collection', collection.id))"
             >
-              ⋮
+              •••
             </button>
             <div v-if="openTreeMenu === treeMenuId('collection', collection.id)" class="tree-action-menu">
               <button type="button" @click="prepareNewRequest(collection.id, null)">＋ 新增 Request</button>
@@ -86,7 +86,7 @@
                 :title="`${folder.name} 操作`"
                 @click.stop="toggleTreeMenu(treeMenuId('folder', folder.id))"
               >
-                ⋮
+                •••
               </button>
               <div v-if="openTreeMenu === treeMenuId('folder', folder.id)" class="tree-action-menu">
                 <button type="button" @click="prepareNewRequest(collection.id, folder.id)">＋ 新增 Request</button>
@@ -114,7 +114,7 @@
                 {{ request.name }}
               </button>
               <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
-                ⋮
+                •••
               </button>
               <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
                 <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
@@ -141,7 +141,7 @@
               {{ request.name }}
             </button>
             <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
-              ⋮
+              •••
             </button>
             <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
               <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
@@ -675,6 +675,7 @@ markEditorSaved()
 
 onMounted(() => {
   window.addEventListener('beforeunload', warnBeforeUnload)
+  document.addEventListener('click', closeTreeMenuOnOutsideClick)
   loadCollections()
   loadHistory()
   loadProtos()
@@ -682,6 +683,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', warnBeforeUnload)
+  document.removeEventListener('click', closeTreeMenuOnOutsideClick)
 })
 
 function initializeTheme() {
@@ -936,6 +938,17 @@ function toggleTreeMenu(menuId) {
 
 function closeTreeMenu() {
   openTreeMenu.value = ''
+}
+
+function closeTreeMenuOnOutsideClick(event) {
+  if (!openTreeMenu.value) {
+    return
+  }
+  const target = event.target
+  if (target instanceof Element && target.closest('.tree-action-menu')) {
+    return
+  }
+  closeTreeMenu()
 }
 
 function prepareNewRequest(collectionId, folderId) {
