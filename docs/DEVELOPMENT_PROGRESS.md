@@ -34,6 +34,15 @@
 | 12.4 | Light / Dark Theme | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，CSS 包含 Light/Dark 變數與本機偏好保存 |
 | 12.5 | 工作台 UI/UX 基礎升級 | 完成 | `:post-bubi-api:bootJar` 通過，首頁載入新版 assets，完成 sidebar、toolbar、request meta、response summary 與窄版 layout 優化 |
 | 12.5.1 | 工作台 UI/UX 可用性與窄版優化 | 完成 | `:post-bubi-api:bootJar` 通過；首頁與 `/api/health` 回應 200，已改善 toolbar、狀態回饋、長文字與窄版 layout，未變更 API payload |
+| 12.5.2 | JSON body editor 語法上色與自動排版 | 完成 | `:post-bubi-api:bootJar` 通過；HTTP JSON 與 gRPC JSON Request 使用同一套語法上色與自動排版，不變更送出 payload |
+| 12.5.3 | HTTP Headers key/value 編輯器 | 完成 | `:post-bubi-api:bootJar` 通過；HTTP Headers 改為多列 key/value table，支援啟用、刪除、新增與舊資料載入相容 |
+| 12.5.4 | Request 未儲存變更提醒 | 完成 | `:post-bubi-api:bootJar` 通過；切換 Collection、Folder、Request、History、Proto method、匯入 workspace 或關閉頁面前會提示未儲存變更 |
+| 12.5.5 | Response Body JSON 語法上色 | 完成 | `:post-bubi-api:bootJar` 通過；Response Body 使用與 Request Body 相同 JSON key/value 語法上色 |
+| 12.5.6 | Response base64 欄位解碼頁籤 | 完成 | `:post-bubi-api:bootJar` 通過；Response 新增 Decoded tab，可設定多組 JSON path 並將命中欄位由 base64 轉明碼 |
+| 12.5.6.1 | Response Body 內嵌 decoded 欄位顯示 | 完成 | `:post-bubi-api:bootJar` 通過；Decoded 設定成功時，Body tab 會在原欄位位置顯示解碼後內容並加上 decoded 標記 |
+| 12.5.7 | Collection 內拖拉排序與 Request 複製 | 完成 | `:post-bubi-api:bootJar` 通過；同層 Folder / Request 可拖拉更新 sortOrder，Request 可複製 |
+| 12.5.8 | HTTP Headers 拖拉排序 | 完成 | `:post-bubi-api:bootJar` 通過；HTTP Headers key/value rows 可拖拉調整送出與保存順序 |
+| 12.5.9 | 左側 Collection icon 操作選單 | 完成 | `:post-bubi-api:bootJar` 通過；新增 Request、刪除 Request、複製 Request 與 Folder/Collection 操作集中到左側 icon menu |
 | 12.6 | gRPC 使用本機 Proto 執行 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過；已驗證不開 reflection 的 unary server 可用 `protoId` 呼叫；使用者目標 `127.0.0.1:50115` 已進入實際呼叫並回 `DEADLINE_EXCEEDED` |
 | 12.7 | JAR 同層檔案 Log 與開關 | 完成 | `:post-bubi-api:bootJar` 通過；已驗證預設輸出到 JAR 同層 `logs/post-bubi.log`，且關閉參數不會寫入 file log |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
@@ -73,6 +82,15 @@
 - Light / Dark Theme：左側 sidebar 已新增 Light/Dark segmented control，使用 `data-theme` 與 CSS 變數切換主題，使用者選擇會保存到 `localStorage`。
 - 工作台 UI/UX 基礎升級：已重整 sidebar、全域動作、Collection/Proto 區塊、request toolbar、request meta、response summary、hover/focus/active 狀態與窄版 layout。
 - 工作台 UI/UX 可用性與窄版優化：依 `agent-skills-main` UI/UX routing 原則，優先改善可用性、維護性、窄版體驗、可及性與一致性；已加入 HTTP/gRPC toolbar 專屬欄位比例、response 成功/錯誤/送出中狀態樣式、長文字 title 與截斷、tab 橫向捲動、disabled body 視覺回饋與 860px 以下單欄 layout。
+- JSON body editor 語法上色與自動排版：HTTP Body Type 為 JSON 與 gRPC JSON Request 會使用 overlay editor 顯示 key、string、number、boolean、null 色彩，並提供「自動排版」按鈕；輸入框仍保留原本文字內容與送出 payload。
+- HTTP Headers key/value 編輯器：HTTP Headers tab 已改為多列 key/value table，支援啟用 checkbox、刪除、新增 Header，保存與送出時仍轉成後端既有 name/value payload；舊版 `headersText` 與 History 內的 headers 會自動轉成 rows。
+- Request 未儲存變更提醒：前端會以目前 editor snapshot 判斷 request 是否有未儲存變更，切換 Collection、Folder、Request、History、Proto method、匯入 workspace 或關閉頁面前會提示，降低忘記保存風險。
+- Response Body JSON 語法上色：Response Body tab 使用與 Request Body 相同的 JSON highlighter，讓 key、string、number、boolean、null 更容易辨識。
+- Response base64 欄位解碼頁籤：Response 新增 Decoded tab，可設定多組 JSON path，例如 `data.payload`、`items[0].body`、`items[*].body`，命中欄位會嘗試 base64 decode 並顯示明碼；設定會隨 Request 保存。
+- Response Body 內嵌 decoded 欄位顯示：當 Decoded 設定命中欄位且 base64 解碼成功，Body tab 會直接在該 JSON path 位置顯示解碼後內容，原欄位以品牌色底與 `decoded` badge 標記；hover 可查看原始 base64。
+- Collection 內拖拉排序與 Request 複製：Collections tree 內同層 Folder、同一 Folder 內 Request、Collection 根層 Request 可拖拉排序並更新 `sortOrder`；Request row 的 `⋮` icon menu 可複製 Request，使用既有 `POST /api/requests/{id}/duplicate`。
+- HTTP Headers 拖拉排序：HTTP Headers key/value rows 可拖拉調整順序，送出與保存時依目前 rows 順序產生 headers payload。
+- 左側 Collection icon 操作選單：Collection、Folder、Request rows 改以 `⋮` icon 開啟操作 menu；新增 Request、刪除 Request、複製 Request 移入左側 tree，減少右側 request meta 的文字按鈕。
 - UI resource JAR 打包清理：`post-bubi-ui` 的 dev/prod resource 目錄會在每次複製前清空，避免舊 hash asset 累積進單一 JAR。
 - Vue HTTP request editor：已可編輯 HTTP method、URL、params、headers、body、settings 並送出 request。
 - Vue response viewer：已可顯示 status、duration、size、headers、body 與 info。
@@ -904,22 +922,32 @@ http://localhost:18080
 4. 可測項目：
 
 - 點「新增 Collection」建立 Collection。
-- 點 Collection 右側「刪除」可刪除 Collection；刪除時會確認，底下 Request 會一起移除。
-- 點 Collection 或 Folder 右側「+F」可新增 Folder 或子 Folder。
+- 點 Collection / Folder / Request 右側 `⋮` icon 可開啟操作選單。
+- Collection menu 可新增 Request、新增 Folder、刪除 Collection。
+- Folder menu 可新增 Request、新增子 Folder、刪除 Folder。
+- Request menu 可複製 Request、刪除 Request。
+- Collections tree 內同層 Folder、同一 Folder 內 Request、Collection 根層 Request 可拖拉調整順序。
 - 點 Folder 可把接下來另存或儲存的 Request 放入該 Folder。
-- 點 Folder 右側「刪除」可刪除 Folder；若 Folder 內有 Request 會一併移除，若仍有子 Folder 則需先刪除子 Folder。
+- 透過 Folder menu 刪除 Folder 時，若 Folder 內有 Request 會一併移除，若仍有子 Folder 則需先刪除子 Folder。
 - 編輯 Request 名稱、method、URL、params、headers、body、settings。
 - 點「另存 Request」把目前 HTTP request 存進左側選取的 Collection。
 - 點左側已儲存 Request，可載入 request 設定。
+- 透過 Request menu 的「複製 Request」可建立該 Request 的複本。
 - 修改已載入 Request 後點「儲存」，重新整理頁面後應仍保留修改內容。
+- 修改已載入 Request 後，在未儲存前切換 Collection、Folder、Request、History、Proto method、匯入 workspace 或關閉頁面，應出現未儲存變更提示。
 - 點「刪除 Request」可刪除目前選取的 Request。
 - 預設 URL 為 `http://localhost:18080/api/health`，按「送出」應看到 response body。
 - Params tab 可用每行 `name=value` 加 query string。
-- Headers tab 可用每行 `name=value` 加 header。
+- Headers tab 在 HTTP 模式可用多列 key/value 設定 header，支援勾選啟用、刪除與新增 Header。
+- HTTP Headers rows 可拖拉調整順序；送出與保存應依拖拉後順序。
 - Body tab 可切換 `none`、`JSON`、`raw text`、`x-www-form-urlencoded`。
+- Body tab 切換 `JSON` 後，JSON key、value、number、boolean 與 null 應顯示不同顏色；點「自動排版」可將合法 JSON 格式化。
 - Body tab 可切換 `form-data`，新增 text 欄位或 file 欄位；file 欄位選檔後會先上傳，送出時會以 multipart form-data 發送。
 - Settings tab 可調整 timeout、follow redirects、ignore SSL certificate verification。
 - Response 區塊的 History tab 可查看最近 50 筆 HTTP execute 紀錄。
+- Response Body tab 應以不同顏色顯示 JSON key、value、number、boolean 與 null。
+- Response 的 Decoded tab 可新增 JSON path，例如 `data.payload` 或 `items[*].payload`；收到 response 後會顯示對應欄位 base64 解碼後的明碼。
+- 當 Decoded 設定成功解碼時，Response Body tab 內對應欄位應直接顯示解碼後內容，並有 `decoded` badge 與特殊底色；滑鼠 hover 可查看原始 base64。
 - 點 History 內任一筆紀錄，可把該筆 request 載回上方 HTTP editor。
 - 左側 sidebar 可點「匯出 ZIP」下載目前 workspace。
 - 左側 sidebar 可點「匯入 ZIP」匯入 Post Bubi ZIP；匯入會新增 Collection，不覆蓋既有資料。
@@ -930,6 +958,7 @@ http://localhost:18080
 - gRPC target server 必須開啟 server reflection，第一階段才能動態解析 descriptor 並呼叫 unary method。
 - Toolbar 左側可切換 `HTTP` / `gRPC`。
 - gRPC 模式可輸入 `host:port`、`package.Service/Method`、Metadata、JSON body、Plaintext，再按「送出」。
+- gRPC Body tab 的 JSON Request 應有語法上色，且點「自動排版」可格式化合法 JSON。
 - gRPC Settings tab 取消勾選 Plaintext 後，會顯示 `Ignore TLS certificate verification`；若目標是自簽憑證 TLS gRPC server，可勾選後測試。
 - gRPC request 可另存為 Collection request，類型會保存為 `GRPC`。
 - 介面主色應為酒紅色 `#AB005F`，可檢查主按鈕、送出按鈕、選取狀態與 active tab。

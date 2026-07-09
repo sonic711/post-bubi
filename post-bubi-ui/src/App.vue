@@ -52,76 +52,102 @@
               {{ collection.name }}
             </button>
             <button
-              class="icon-action-button"
+              class="tree-menu-button"
               type="button"
-              :title="`新增 Folder 到 ${collection.name}`"
-              @click="createFolder(collection.id, null)"
+              :title="`${collection.name} 操作`"
+              @click.stop="toggleTreeMenu(treeMenuId('collection', collection.id))"
             >
-              +F
+              ⋮
             </button>
-            <button
-              class="icon-danger-button compact-danger"
-              type="button"
-              :disabled="deletingCollection"
-              :title="`刪除 Collection ${collection.name}`"
-              @click="deleteCollection(collection)"
-            >
-              刪除
-            </button>
+            <div v-if="openTreeMenu === treeMenuId('collection', collection.id)" class="tree-action-menu">
+              <button type="button" @click="prepareNewRequest(collection.id, null)">＋ 新增 Request</button>
+              <button type="button" @click="createFolderFromMenu(collection.id, null)">▣ 新增 Folder</button>
+              <button type="button" class="danger-menu-item" :disabled="deletingCollection" @click="deleteCollectionFromMenu(collection)">⌫ 刪除 Collection</button>
+            </div>
           </div>
           <div v-for="folder in folderRows(collection)" :key="folder.id" class="folder-group">
             <div class="folder-row" :style="{ paddingLeft: `${folder.depth * 14}px` }">
               <button
                 class="tree-item folder-item"
                 type="button"
+                draggable="true"
                 :class="{ active: selectedFolderId === folder.id && !selectedRequestId }"
                 :title="folder.name"
+                @dragstart="startTreeDrag('folder', folder, collection)"
+                @dragover.prevent
+                @drop="dropTreeItem('folder', folder, collection)"
                 @click="selectFolder(folder)"
               >
                 {{ folder.name }}
               </button>
               <button
-                class="icon-action-button"
+                class="tree-menu-button"
                 type="button"
-                :title="`新增子 Folder 到 ${folder.name}`"
-                @click="createFolder(collection.id, folder.id)"
+                :title="`${folder.name} 操作`"
+                @click.stop="toggleTreeMenu(treeMenuId('folder', folder.id))"
               >
-                +F
+                ⋮
               </button>
-              <button
-                class="icon-danger-button compact-danger"
-                type="button"
-                :disabled="deletingFolder"
-                :title="`刪除 Folder ${folder.name}`"
-                @click="deleteFolder(collection, folder)"
-              >
-                刪除
-              </button>
+              <div v-if="openTreeMenu === treeMenuId('folder', folder.id)" class="tree-action-menu">
+                <button type="button" @click="prepareNewRequest(collection.id, folder.id)">＋ 新增 Request</button>
+                <button type="button" @click="createFolderFromMenu(collection.id, folder.id)">▣ 新增子 Folder</button>
+                <button type="button" class="danger-menu-item" :disabled="deletingFolder" @click="deleteFolderFromMenu(collection, folder)">⌫ 刪除 Folder</button>
+              </div>
             </div>
-            <button
+            <div
               v-for="request in requestsInFolder(collection, folder.id)"
               :key="request.id"
+              :style="{ paddingLeft: `${folder.depth * 14 + 38}px` }"
+              class="request-row"
+            >
+              <button
+                class="tree-item request-item"
+                type="button"
+                draggable="true"
+                :class="{ active: selectedRequestId === request.id }"
+                :title="request.name"
+                @dragstart="startTreeDrag('request', request, collection)"
+                @dragover.prevent
+                @drop="dropTreeItem('request', request, collection)"
+                @click="selectRequest(request)"
+              >
+                {{ request.name }}
+              </button>
+              <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
+                ⋮
+              </button>
+              <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
+                <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
+                <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)">⌫ 刪除 Request</button>
+              </div>
+            </div>
+          </div>
+          <div
+            v-for="request in requestsInFolder(collection, null)"
+            :key="request.id"
+            class="request-row"
+          >
+            <button
               class="tree-item request-item"
               type="button"
-              :style="{ paddingLeft: `${folder.depth * 14 + 38}px` }"
+              draggable="true"
               :class="{ active: selectedRequestId === request.id }"
               :title="request.name"
+              @dragstart="startTreeDrag('request', request, collection)"
+              @dragover.prevent
+              @drop="dropTreeItem('request', request, collection)"
               @click="selectRequest(request)"
             >
               {{ request.name }}
             </button>
+            <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
+              ⋮
+            </button>
+            <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
+              <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
+              <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)">⌫ 刪除 Request</button>
+            </div>
           </div>
-          <button
-            v-for="request in requestsInFolder(collection, null)"
-            :key="request.id"
-            class="tree-item request-item"
-            type="button"
-            :class="{ active: selectedRequestId === request.id }"
-            :title="request.name"
-            @click="selectRequest(request)"
-          >
-            {{ request.name }}
-          </button>
         </div>
       </section>
       <section class="sidebar-section proto-panel">
@@ -202,15 +228,9 @@
           </label>
           <span class="context-text">{{ selectedContextLabel }}</span>
         </div>
-        <div class="meta-actions">
-          <button class="secondary-button" type="button" :disabled="!selectedCollectionId" @click="newDraftRequest">
-            新 Request
-          </button>
-          <button class="danger-button" type="button" :disabled="!selectedRequestId || deleting" @click="deleteSelectedRequest">
-            刪除 Request
-          </button>
-        </div>
-        <span class="status-pill" aria-live="polite">{{ workspaceStatus || 'Ready' }}</span>
+        <span class="status-pill" :class="{ dirty: hasUnsavedChanges }" aria-live="polite">
+          {{ hasUnsavedChanges ? '未儲存變更' : (workspaceStatus || 'Ready') }}
+        </span>
       </section>
 
       <section class="editor">
@@ -253,7 +273,29 @@
 
         <div v-if="activeRequestTab === 'headers'" class="editor-pane">
           <label>{{ requestType === 'GRPC' ? 'Metadata' : 'Headers' }}</label>
-          <textarea v-if="requestType === 'HTTP'" v-model="headersText" spellcheck="false" aria-label="Headers"></textarea>
+          <div v-if="requestType === 'HTTP'" class="key-value-editor">
+            <div class="key-value-header">
+              <span></span>
+              <span>Key</span>
+              <span>Value</span>
+              <span></span>
+            </div>
+            <div
+              v-for="header in headerRows"
+              :key="header.id"
+              class="key-value-row"
+              draggable="true"
+              @dragstart="startHeaderDrag(header.id)"
+              @dragover.prevent
+              @drop="dropHeaderRow(header.id)"
+            >
+              <input v-model="header.enabled" type="checkbox" aria-label="啟用 Header" />
+              <input v-model="header.name" aria-label="Header key" placeholder="Header name" />
+              <input v-model="header.value" aria-label="Header value" placeholder="Value" />
+              <button class="icon-danger-button" type="button" @click="removeHeaderRow(header.id)">刪除</button>
+            </div>
+            <button class="secondary-button add-row-button" type="button" @click="addHeaderRow">新增 Header</button>
+          </div>
           <textarea v-else v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
         </div>
 
@@ -267,6 +309,14 @@
               <option value="x-www-form-urlencoded">x-www-form-urlencoded</option>
               <option value="form-data">form-data</option>
             </select>
+            <button
+              v-if="bodyType === 'json'"
+              class="secondary-button compact-button"
+              type="button"
+              @click="formatActiveJson"
+            >
+              自動排版
+            </button>
           </div>
           <div v-if="requestType === 'HTTP' && bodyType === 'form-data'" class="form-data-editor">
             <div class="form-data-header">
@@ -295,9 +345,25 @@
             </div>
             <button class="secondary-button add-row-button" type="button" @click="addFormDataPart">新增欄位</button>
           </div>
-          <label v-if="requestType === 'GRPC'" class="grpc-body-label">JSON Request</label>
+          <div v-if="requestType === 'GRPC'" class="json-editor-header">
+            <label class="grpc-body-label">JSON Request</label>
+            <button class="secondary-button compact-button" type="button" @click="formatActiveJson">
+              自動排版
+            </button>
+          </div>
+          <div v-if="isJsonBodyEditor" class="json-editor">
+            <pre class="json-highlight" aria-hidden="true" v-html="highlightedBodyText"></pre>
+            <textarea
+              v-model="activeBodyText"
+              class="json-input"
+              spellcheck="false"
+              aria-label="JSON Body"
+              @blur="formatActiveJson({ silent: true })"
+              @scroll="syncJsonScroll"
+            ></textarea>
+          </div>
           <textarea
-            v-if="requestType === 'GRPC' || bodyType !== 'form-data'"
+            v-else-if="bodyType !== 'form-data'"
             v-model="activeBodyText"
             spellcheck="false"
             aria-label="Body"
@@ -349,8 +415,43 @@
             {{ tab.label }}
           </button>
         </nav>
-        <pre v-if="activeResponseTab === 'body'">{{ responseBody }}</pre>
+        <pre v-if="activeResponseTab === 'body'" class="json-viewer" v-html="highlightedResponseBody"></pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
+        <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response">
+          <div class="decode-config">
+            <div class="decode-help">
+              使用 JSON path 指定 base64 欄位，例如 <code>data.payload</code>、<code>items[0].body</code>、<code>items[*].body</code>。
+            </div>
+            <div class="key-value-header decode-header">
+              <span></span>
+              <span>JSON Path</span>
+              <span>Label</span>
+              <span></span>
+            </div>
+            <div v-for="row in responseDecodeRows" :key="row.id" class="key-value-row decode-row">
+              <input v-model="row.enabled" type="checkbox" aria-label="啟用解碼欄位" />
+              <input v-model="row.name" aria-label="Response JSON path" placeholder="data.payload" />
+              <input v-model="row.value" aria-label="Decoded label" placeholder="顯示名稱，可留空" />
+              <button class="icon-danger-button" type="button" @click="removeResponseDecodeRow(row.id)">刪除</button>
+            </div>
+            <button class="secondary-button add-row-button" type="button" @click="addResponseDecodeRow">新增欄位</button>
+          </div>
+          <div class="decoded-result-list">
+            <p v-if="!decodedResponseResults.length" class="empty-text">尚無解碼結果</p>
+            <article
+              v-for="result in decodedResponseResults"
+              :key="`${result.configPath}-${result.matchPath}`"
+              class="decoded-result"
+              :class="{ failed: result.error }"
+            >
+              <div class="decoded-result-head">
+                <strong>{{ result.label }}</strong>
+                <span>{{ result.matchPath }}</span>
+              </div>
+              <pre>{{ result.error || result.decoded }}</pre>
+            </article>
+          </div>
+        </div>
         <div v-else-if="activeResponseTab === 'history'" class="history-list">
           <div class="history-actions">
             <button class="secondary-button" type="button" :disabled="loadingHistory" @click="loadHistory">
@@ -381,7 +482,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import postBubiLogo from './assets/post-bubi-logo.png'
 
 const requestTabs = [
@@ -394,6 +495,7 @@ const requestTabs = [
 const responseTabs = [
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
+  { key: 'decoded', label: 'Decoded' },
   { key: 'info', label: 'Info' },
   { key: 'history', label: 'History' },
 ]
@@ -420,9 +522,11 @@ const grpcPlaintext = ref(true)
 const grpcIgnoreTlsVerification = ref(false)
 const paramsText = ref('')
 const headersText = ref('Accept=application/json')
+const headerRows = ref([newNameValueRow('Accept', 'application/json')])
 const bodyType = ref('none')
 const bodyText = ref('{\n  "name": "Post Bubi"\n}')
 const formDataParts = ref([newFormDataPart()])
+const responseDecodeRows = ref([newNameValueRow()])
 const timeoutMillis = ref(30000)
 const followRedirects = ref(true)
 const ignoreSslVerification = ref(false)
@@ -440,6 +544,10 @@ const errorText = ref('')
 const workspaceStatus = ref('')
 const historyItems = ref([])
 const themeMode = ref('light')
+const savedEditorState = ref('')
+const draggingTreeItem = ref(null)
+const draggingHeaderRowId = ref('')
+const openTreeMenu = ref('')
 
 const grpcTarget = computed({
   get() {
@@ -475,6 +583,21 @@ const activeBodyText = computed({
     }
   },
 })
+
+const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || bodyType.value === 'json')
+
+const highlightedBodyText = computed(() => highlightJson(activeBodyText.value))
+
+const decodedResponseMap = computed(() => {
+  const entries = decodedResponseResults.value
+    .filter((result) => !result.error)
+    .map((result) => [result.matchPath, result])
+  return new Map(entries)
+})
+
+const highlightedResponseBody = computed(() => highlightResponseBody())
+
+const hasUnsavedChanges = computed(() => savedEditorState.value !== snapshotEditorState())
 
 const responseSummary = computed(() => {
   if (sending.value) return '送出中'
@@ -526,6 +649,15 @@ const responseInfo = computed(() => {
   }, null, 2)
 })
 
+const rawResponseBody = computed(() => {
+  if (errorText.value || !response.value) {
+    return ''
+  }
+  return requestType.value === 'GRPC' ? response.value.body || '' : response.value.body || ''
+})
+
+const decodedResponseResults = computed(() => decodeResponseFields())
+
 const selectedContextLabel = computed(() => {
   const collection = collections.value.find((item) => item.id === selectedCollectionId.value)
   if (!collection) {
@@ -539,11 +671,17 @@ const selectedContextLabel = computed(() => {
 })
 
 initializeTheme()
+markEditorSaved()
 
 onMounted(() => {
+  window.addEventListener('beforeunload', warnBeforeUnload)
   loadCollections()
   loadHistory()
   loadProtos()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', warnBeforeUnload)
 })
 
 function initializeTheme() {
@@ -557,17 +695,183 @@ function setTheme(theme) {
   window.localStorage.setItem('post-bubi-theme', themeMode.value)
 }
 
+function formatActiveJson(options = {}) {
+  if (!isJsonBodyEditor.value) {
+    return
+  }
+  const value = activeBodyText.value.trim()
+  if (!value) {
+    activeBodyText.value = ''
+    return
+  }
+  try {
+    activeBodyText.value = `${JSON.stringify(JSON.parse(value), null, 2)}\n`
+    if (!options.silent) {
+      workspaceStatus.value = 'JSON 已自動排版'
+    }
+  } catch (error) {
+    if (!options.silent) {
+      workspaceStatus.value = 'JSON 格式錯誤，無法自動排版'
+    }
+  }
+}
+
+function syncJsonScroll(event) {
+  const highlight = event.target.previousElementSibling
+  if (!highlight) {
+    return
+  }
+  highlight.scrollTop = event.target.scrollTop
+  highlight.scrollLeft = event.target.scrollLeft
+}
+
+function highlightJson(value) {
+  const escaped = escapeHtml(value || '')
+  const highlighted = escaped.replace(
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?\b|\btrue\b|\bfalse\b|\bnull\b)/g,
+    (match) => {
+      let className = 'json-number'
+      if (match.endsWith(':')) {
+        className = 'json-key'
+      } else if (match.startsWith('"')) {
+        className = 'json-string'
+      } else if (match === 'true' || match === 'false') {
+        className = 'json-boolean'
+      } else if (match === 'null') {
+        className = 'json-null'
+      }
+      return `<span class="${className}">${match}</span>`
+    },
+  )
+  return highlighted || '<span class="json-placeholder">{}</span>'
+}
+
+function highlightResponseBody() {
+  if (errorText.value || !response.value || !rawResponseBody.value) {
+    return highlightJson(responseBody.value)
+  }
+  const parsed = tryJsonParse(rawResponseBody.value)
+  if (!parsed || typeof parsed !== 'object') {
+    return highlightJson(responseBody.value)
+  }
+  return renderJsonValue(parsed, '$', 0, decodedResponseMap.value)
+}
+
+function renderJsonValue(value, path, depth, decodedMap) {
+  const decoded = decodedMap.get(path)
+  if (decoded) {
+    return renderDecodedJsonValue(decoded, depth)
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return '[]'
+    }
+    const childDepth = depth + 1
+    const rows = value.map((item, index) => {
+      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap)}`
+    })
+    return `[\n${rows.join(',\n')}\n${indent(depth)}]`
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+    if (!entries.length) {
+      return '{}'
+    }
+    const childDepth = depth + 1
+    const rows = entries.map(([key, item]) => {
+      const keyPath = `${path}.${key}`
+      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap)}`
+    })
+    return `{\n${rows.join(',\n')}\n${indent(depth)}}`
+  }
+  return renderJsonPrimitive(value)
+}
+
+function renderDecodedJsonValue(decoded, depth) {
+  const parsed = tryJsonParse(decoded.decoded)
+  const rendered = parsed && typeof parsed === 'object'
+    ? renderJsonValue(parsed, decoded.matchPath, depth, new Map())
+    : renderJsonPrimitive(decoded.decoded)
+  return `<span class="json-decoded-field" title="原始 base64: ${escapeAttribute(decoded.original || '')}">${rendered}</span><span class="json-decoded-badge">decoded</span>`
+}
+
+function renderJsonPrimitive(value) {
+  if (value === null) {
+    return '<span class="json-null">null</span>'
+  }
+  if (typeof value === 'string') {
+    return `<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`
+  }
+  if (typeof value === 'number') {
+    return `<span class="json-number">${escapeHtml(String(value))}</span>`
+  }
+  if (typeof value === 'boolean') {
+    return `<span class="json-boolean">${value}</span>`
+  }
+  return `<span class="json-string">${escapeHtml(JSON.stringify(String(value)))}</span>`
+}
+
+function indent(depth) {
+  return '  '.repeat(depth)
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll('"', '&quot;')
+}
+
+function warnBeforeUnload(event) {
+  if (!hasUnsavedChanges.value) {
+    return
+  }
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+function confirmDiscardUnsavedChanges() {
+  if (!hasUnsavedChanges.value) {
+    return true
+  }
+  return window.confirm('目前 Request 有未儲存變更，切換後會遺失。是否繼續？')
+}
+
+function snapshotEditorState() {
+  return JSON.stringify({
+    selectedRequestId: selectedRequestId.value,
+    selectedCollectionId: selectedCollectionId.value,
+    selectedFolderId: selectedFolderId.value,
+    requestName: requestName.value,
+    payload: editorPayload(),
+  })
+}
+
+function markEditorSaved() {
+  savedEditorState.value = snapshotEditorState()
+}
+
 async function loadCollections() {
   loadingCollections.value = true
+  const wasDirty = hasUnsavedChanges.value
+  let autoSelectedCollection = false
   try {
     collections.value = await apiJson('/api/collections')
     if (!selectedCollectionId.value && collections.value.length) {
       selectedCollectionId.value = collections.value[0].id
+      autoSelectedCollection = true
     }
     if (selectedFolderId.value && !folderExists(selectedFolderId.value)) {
       selectedFolderId.value = null
     }
     workspaceStatus.value = collections.value.length ? 'Collection 已載入' : '請先新增 Collection'
+    if (autoSelectedCollection && !wasDirty) {
+      markEditorSaved()
+    }
   } catch (error) {
     workspaceStatus.value = readableError(error)
   } finally {
@@ -622,6 +926,45 @@ async function createFolder(collectionId, parentFolderId) {
   }
 }
 
+function treeMenuId(kind, id) {
+  return `${kind}:${id}`
+}
+
+function toggleTreeMenu(menuId) {
+  openTreeMenu.value = openTreeMenu.value === menuId ? '' : menuId
+}
+
+function closeTreeMenu() {
+  openTreeMenu.value = ''
+}
+
+function prepareNewRequest(collectionId, folderId) {
+  closeTreeMenu()
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
+  selectedCollectionId.value = collectionId
+  selectedFolderId.value = folderId || null
+  newDraftRequest({ force: true })
+  activeRequestTab.value = 'params'
+  workspaceStatus.value = '已建立新 Request 草稿'
+}
+
+async function createFolderFromMenu(collectionId, parentFolderId) {
+  closeTreeMenu()
+  await createFolder(collectionId, parentFolderId)
+}
+
+async function deleteCollectionFromMenu(collection) {
+  closeTreeMenu()
+  await deleteCollection(collection)
+}
+
+async function deleteFolderFromMenu(collection, folder) {
+  closeTreeMenu()
+  await deleteFolder(collection, folder)
+}
+
 async function loadProtos() {
   try {
     protos.value = await apiJson('/api/protos')
@@ -671,6 +1014,9 @@ async function inspectProto(proto) {
 }
 
 function applyProtoMethod(service, methodDefinition) {
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
   const serviceName = fullProtoServiceName(service.name)
   requestType.value = 'GRPC'
   grpcServiceName.value = serviceName
@@ -717,6 +1063,10 @@ async function importWorkspace(event) {
   if (!file) {
     return
   }
+  if (!confirmDiscardUnsavedChanges()) {
+    event.target.value = ''
+    return
+  }
 
   try {
     const formData = new FormData()
@@ -732,6 +1082,7 @@ async function importWorkspace(event) {
     selectedCollectionId.value = null
     selectedRequestId.value = null
     await loadCollections()
+    newDraftRequest({ force: true })
     await loadProtos()
     workspaceStatus.value = `匯入完成：${payload.collections} 個 Collection、${payload.requests} 個 Request、${payload.protos || 0} 個 Proto`
   } catch (error) {
@@ -756,7 +1107,7 @@ async function deleteCollection(collection) {
       selectedCollectionId.value = null
       selectedFolderId.value = null
       selectedRequestId.value = null
-      newDraftRequest()
+      newDraftRequest({ force: true })
     }
     await loadCollections()
     if (!collections.value.length) {
@@ -774,19 +1125,145 @@ async function deleteCollection(collection) {
   }
 }
 
+async function duplicateRequest(request) {
+  try {
+    const duplicated = await apiJson(`/api/requests/${request.id}/duplicate`, { method: 'POST' })
+    await loadCollections()
+    workspaceStatus.value = `Request 已複製：${duplicated.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function duplicateRequestFromMenu(request) {
+  closeTreeMenu()
+  await duplicateRequest(request)
+}
+
+async function deleteRequestFromMenu(request) {
+  closeTreeMenu()
+  const confirmed = window.confirm(`確定刪除 Request「${request.name}」？`)
+  if (!confirmed) {
+    return
+  }
+
+  deleting.value = true
+  try {
+    await apiJson(`/api/requests/${request.id}`, { method: 'DELETE' })
+    if (selectedRequestId.value === request.id) {
+      selectedRequestId.value = null
+      newDraftRequest({ force: true })
+    }
+    await loadCollections()
+    workspaceStatus.value = 'Request 已刪除'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    deleting.value = false
+  }
+}
+
+function startTreeDrag(kind, item, collection) {
+  draggingTreeItem.value = {
+    kind,
+    id: item.id,
+    collectionId: collection.id,
+    parentId: kind === 'folder' ? item.parentFolderId || null : item.folderId || null,
+  }
+}
+
+async function dropTreeItem(kind, target, collection) {
+  const dragged = draggingTreeItem.value
+  draggingTreeItem.value = null
+  if (!dragged || dragged.kind !== kind || dragged.id === target.id || dragged.collectionId !== collection.id) {
+    return
+  }
+  const targetParentId = kind === 'folder' ? target.parentFolderId || null : target.folderId || null
+  if (dragged.parentId !== targetParentId) {
+    workspaceStatus.value = '目前僅支援同層排序'
+    return
+  }
+
+  try {
+    if (kind === 'folder') {
+      const siblings = (collection.folders || [])
+        .filter((folder) => (folder.parentFolderId || null) === targetParentId)
+        .sort(compareBySortOrder)
+      const ordered = reorderItems(siblings, dragged.id, target.id)
+      await Promise.all(ordered.map((folder, index) => updateFolderSortOrder(folder, index + 1)))
+    } else {
+      const siblings = requestsInFolder(collection, targetParentId)
+      const ordered = reorderItems(siblings, dragged.id, target.id)
+      await Promise.all(ordered.map((request, index) => updateRequestSortOrder(request, index + 1)))
+    }
+    await loadCollections()
+    workspaceStatus.value = '排序已更新'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+function reorderItems(items, draggedId, targetId) {
+  const ordered = [...items]
+  const draggedIndex = ordered.findIndex((item) => item.id === draggedId)
+  const targetIndex = ordered.findIndex((item) => item.id === targetId)
+  if (draggedIndex < 0 || targetIndex < 0) {
+    return ordered
+  }
+  const [dragged] = ordered.splice(draggedIndex, 1)
+  ordered.splice(targetIndex, 0, dragged)
+  return ordered
+}
+
+function updateFolderSortOrder(folder, sortOrder) {
+  return apiJson(`/api/folders/${folder.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      parentFolderId: folder.parentFolderId || null,
+      name: folder.name,
+      sortOrder,
+    }),
+  })
+}
+
+function updateRequestSortOrder(request, sortOrder) {
+  return apiJson(`/api/requests/${request.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      folderId: request.folderId || null,
+      type: request.type,
+      name: request.name,
+      sortOrder,
+      payloadJson: request.payloadJson,
+    }),
+  })
+}
+
 function selectCollection(collectionId) {
+  if (selectedCollectionId.value === collectionId && !selectedFolderId.value && !selectedRequestId.value) {
+    return
+  }
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
   selectedCollectionId.value = collectionId
   selectedFolderId.value = null
   selectedRequestId.value = null
-  newDraftRequest()
+  newDraftRequest({ force: true })
   workspaceStatus.value = '已選擇 Collection'
 }
 
 function selectFolder(folder) {
+  if (selectedFolderId.value === folder.id && !selectedRequestId.value) {
+    return
+  }
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
   selectedCollectionId.value = folder.collectionId
   selectedFolderId.value = folder.id
   selectedRequestId.value = null
-  newDraftRequest()
+  newDraftRequest({ force: true })
   workspaceStatus.value = '已選擇 Folder'
 }
 
@@ -803,7 +1280,7 @@ async function deleteFolder(collection, folder) {
     if (selectedFolderId.value === folder.id) {
       selectedFolderId.value = null
       selectedRequestId.value = null
-      newDraftRequest()
+      newDraftRequest({ force: true })
     }
     await loadCollections()
     workspaceStatus.value = 'Folder 已刪除'
@@ -815,6 +1292,12 @@ async function deleteFolder(collection, folder) {
 }
 
 function selectRequest(request) {
+  if (selectedRequestId.value === request.id) {
+    return
+  }
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
   selectedCollectionId.value = request.collectionId
   selectedFolderId.value = request.folderId || null
   selectedRequestId.value = request.id
@@ -822,24 +1305,31 @@ function selectRequest(request) {
   const payload = safeJsonParse(request.payloadJson)
   payload.requestType = payload.requestType || request.type || 'HTTP'
   loadPayloadToEditor(payload)
+  markEditorSaved()
   workspaceStatus.value = '已載入 Request'
 }
 
-function newDraftRequest() {
+function newDraftRequest(options = {}) {
+  if (options?.force !== true && !confirmDiscardUnsavedChanges()) {
+    return
+  }
   selectedRequestId.value = null
   requestName.value = requestType.value === 'GRPC' ? '未命名 gRPC Request' : '未命名 HTTP Request'
   method.value = 'GET'
   url.value = 'http://localhost:18080/api/health'
   paramsText.value = ''
   headersText.value = 'Accept=application/json'
+  headerRows.value = [newNameValueRow('Accept', 'application/json')]
   bodyType.value = 'none'
   bodyText.value = '{\n  "name": "Post Bubi"\n}'
   formDataParts.value = [newFormDataPart()]
+  responseDecodeRows.value = [newNameValueRow()]
   timeoutMillis.value = 30000
   followRedirects.value = true
   ignoreSslVerification.value = false
   response.value = null
   errorText.value = ''
+  markEditorSaved()
 }
 
 async function saveRequest() {
@@ -883,6 +1373,7 @@ async function saveRequest() {
       workspaceStatus.value = 'Request 已新增'
     }
     await loadCollections()
+    markEditorSaved()
   } catch (error) {
     workspaceStatus.value = readableError(error)
   } finally {
@@ -903,7 +1394,7 @@ async function deleteSelectedRequest() {
   try {
     await apiJson(`/api/requests/${selectedRequestId.value}`, { method: 'DELETE' })
     selectedRequestId.value = null
-    newDraftRequest()
+    newDraftRequest({ force: true })
     await loadCollections()
     workspaceStatus.value = 'Request 已刪除'
   } catch (error) {
@@ -969,6 +1460,9 @@ async function loadHistory() {
 }
 
 function loadHistoryItem(item) {
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
   const payload = safeJsonParse(item.requestJson)
   selectedRequestId.value = payload.requestId || null
   requestName.value = item.method && item.url ? `${item.method} ${item.url}` : '歷史紀錄'
@@ -976,14 +1470,17 @@ function loadHistoryItem(item) {
   url.value = payload.url || item.url || 'http://localhost:18080/api/health'
   paramsText.value = nameValueToText(payload.params)
   headersText.value = nameValueToText(payload.headers)
+  headerRows.value = restoreNameValueRows(payload.headers)
   bodyType.value = payload.bodyType || 'none'
   bodyText.value = payload.body || ''
   formDataParts.value = restoreFormDataParts(payload.formData)
+  responseDecodeRows.value = restoreNameValueRows(payload.responseDecodeRows)
   timeoutMillis.value = payload.timeoutMillis || 30000
   followRedirects.value = payload.followRedirects !== false
   ignoreSslVerification.value = payload.ignoreSslVerification === true
   response.value = null
   errorText.value = ''
+  markEditorSaved()
   activeRequestTab.value = 'params'
   workspaceStatus.value = '已載入 History request'
 }
@@ -995,10 +1492,12 @@ function editorPayload() {
     method: method.value,
     url: url.value,
     paramsText: paramsText.value,
-    headersText: headersText.value,
+    headersText: nameValueRowsToText(headerRows.value),
+    headers: serializeNameValueRows(headerRows.value),
     bodyType: bodyType.value,
     body: bodyText.value,
     formData: cleanFormDataParts(),
+    responseDecodeRows: serializeNameValueRows(responseDecodeRows.value),
     timeoutMillis: timeoutMillis.value,
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
@@ -1035,7 +1534,7 @@ function executePayload() {
     method: method.value,
     url: url.value,
     params: parseNameValueLines(paramsText.value),
-    headers: parseNameValueLines(headersText.value),
+    headers: cleanNameValueRows(headerRows.value),
     bodyType: bodyType.value,
     body: bodyType.value === 'none' ? '' : bodyText.value,
     formData: bodyType.value === 'form-data' ? cleanFormDataParts() : [],
@@ -1102,9 +1601,11 @@ function loadPayloadToEditor(payload) {
   url.value = payload.url || 'http://localhost:18080/api/health'
   paramsText.value = payload.paramsText || ''
   headersText.value = payload.headersText || ''
+  headerRows.value = restoreNameValueRows(payload.headers || parseNameValueLines(payload.headersText || ''))
   bodyType.value = payload.bodyType || 'none'
   bodyText.value = payload.body || ''
   formDataParts.value = restoreFormDataParts(payload.formData)
+  responseDecodeRows.value = restoreNameValueRows(payload.responseDecodeRows)
   timeoutMillis.value = payload.timeoutMillis || 30000
   followRedirects.value = payload.followRedirects !== false
   ignoreSslVerification.value = payload.ignoreSslVerification === true
@@ -1243,6 +1744,243 @@ function nextFormDataId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function addHeaderRow() {
+  headerRows.value.push(newNameValueRow())
+}
+
+function removeHeaderRow(id) {
+  headerRows.value = headerRows.value.filter((row) => row.id !== id)
+  if (!headerRows.value.length) {
+    addHeaderRow()
+  }
+}
+
+function startHeaderDrag(id) {
+  draggingHeaderRowId.value = id
+}
+
+function dropHeaderRow(targetId) {
+  const draggedId = draggingHeaderRowId.value
+  draggingHeaderRowId.value = ''
+  if (!draggedId || draggedId === targetId) {
+    return
+  }
+  headerRows.value = reorderRowsById(headerRows.value, draggedId, targetId)
+}
+
+function reorderRowsById(rows, draggedId, targetId) {
+  const ordered = [...rows]
+  const draggedIndex = ordered.findIndex((row) => row.id === draggedId)
+  const targetIndex = ordered.findIndex((row) => row.id === targetId)
+  if (draggedIndex < 0 || targetIndex < 0) {
+    return ordered
+  }
+  const [dragged] = ordered.splice(draggedIndex, 1)
+  ordered.splice(targetIndex, 0, dragged)
+  return ordered
+}
+
+function newNameValueRow(name = '', value = '', enabled = true) {
+  return {
+    id: nextFormDataId(),
+    enabled,
+    name,
+    value,
+  }
+}
+
+function restoreNameValueRows(entries) {
+  if (!Array.isArray(entries) || !entries.length) {
+    return [newNameValueRow()]
+  }
+  const rows = entries.map((entry) => newNameValueRow(
+    entry?.name || '',
+    entry?.value || '',
+    entry?.enabled !== false,
+  ))
+  return rows.length ? rows : [newNameValueRow()]
+}
+
+function cleanNameValueRows(rows) {
+  return rows
+    .map((row) => ({
+      name: (row.name || '').trim(),
+      value: row.value || '',
+      enabled: row.enabled !== false,
+    }))
+    .filter((row) => row.name)
+    .filter((row) => row.enabled)
+}
+
+function serializeNameValueRows(rows) {
+  return rows
+    .map((row) => ({
+      name: (row.name || '').trim(),
+      value: row.value || '',
+      enabled: row.enabled !== false,
+    }))
+    .filter((row) => row.name)
+}
+
+function nameValueRowsToText(rows) {
+  return cleanNameValueRows(rows)
+    .map((row) => `${row.name}=${row.value || ''}`)
+    .join('\n')
+}
+
+function addResponseDecodeRow() {
+  responseDecodeRows.value.push(newNameValueRow())
+}
+
+function removeResponseDecodeRow(id) {
+  responseDecodeRows.value = responseDecodeRows.value.filter((row) => row.id !== id)
+  if (!responseDecodeRows.value.length) {
+    addResponseDecodeRow()
+  }
+}
+
+function cleanResponseDecodeRows() {
+  return responseDecodeRows.value
+    .map((row) => ({
+      name: (row.name || '').trim(),
+      value: row.value || '',
+      enabled: row.enabled !== false,
+    }))
+    .filter((row) => row.name)
+    .filter((row) => row.enabled)
+}
+
+function decodeResponseFields() {
+  const configs = cleanResponseDecodeRows()
+  if (!configs.length || !rawResponseBody.value) {
+    return []
+  }
+  const parsed = tryJsonParse(rawResponseBody.value)
+  const source = parsed && typeof parsed === 'object' ? parsed : rawResponseBody.value
+  return configs.flatMap((config) => {
+    const matches = resolveJsonPath(source, config.name)
+    if (!matches.length) {
+      return [{
+        configPath: config.name,
+        matchPath: config.name,
+        label: config.value || config.name,
+        decoded: '',
+        original: '',
+        error: '找不到指定欄位',
+      }]
+    }
+    return matches.map((match) => {
+      const decoded = decodeBase64Text(match.value)
+      return {
+        configPath: config.name,
+        matchPath: match.path,
+        label: config.value || config.name,
+        decoded: decoded.error ? '' : prettyText(decoded.value),
+        original: typeof match.value === 'string' ? match.value : JSON.stringify(match.value),
+        error: decoded.error,
+      }
+    })
+  })
+}
+
+function resolveJsonPath(source, path) {
+  const normalizedPath = path.trim()
+  if (!normalizedPath) {
+    return []
+  }
+  if (normalizedPath === '$') {
+    return [{ path: '$', value: source }]
+  }
+  const tokens = parseJsonPath(normalizedPath)
+  if (!tokens.length) {
+    return []
+  }
+  let matches = [{ path: '$', value: source }]
+  for (const token of tokens) {
+    matches = matches.flatMap((match) => resolveJsonPathToken(match, token))
+  }
+  return matches
+}
+
+function parseJsonPath(path) {
+  const normalized = path.startsWith('$.') ? path.slice(2) : path.startsWith('$') ? path.slice(1) : path
+  const tokens = []
+  let buffer = ''
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index]
+    if (char === '.') {
+      if (buffer) {
+        tokens.push({ type: 'key', value: buffer })
+        buffer = ''
+      }
+      continue
+    }
+    if (char === '[') {
+      if (buffer) {
+        tokens.push({ type: 'key', value: buffer })
+        buffer = ''
+      }
+      const endIndex = normalized.indexOf(']', index)
+      if (endIndex < 0) {
+        return []
+      }
+      const rawToken = normalized.slice(index + 1, endIndex).trim()
+      if (rawToken === '*') {
+        tokens.push({ type: 'wildcard' })
+      } else if (/^\d+$/.test(rawToken)) {
+        tokens.push({ type: 'index', value: Number(rawToken) })
+      } else {
+        tokens.push({ type: 'key', value: rawToken.replace(/^['"]|['"]$/g, '') })
+      }
+      index = endIndex
+      continue
+    }
+    buffer += char
+  }
+  if (buffer) {
+    tokens.push({ type: 'key', value: buffer })
+  }
+  return tokens
+}
+
+function resolveJsonPathToken(match, token) {
+  const value = match.value
+  if (token.type === 'key') {
+    if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, token.value)) {
+      return [{ path: `${match.path}.${token.value}`, value: value[token.value] }]
+    }
+    return []
+  }
+  if (token.type === 'index') {
+    if (Array.isArray(value) && token.value < value.length) {
+      return [{ path: `${match.path}[${token.value}]`, value: value[token.value] }]
+    }
+    return []
+  }
+  if (token.type === 'wildcard') {
+    if (Array.isArray(value)) {
+      return value.map((item, index) => ({ path: `${match.path}[${index}]`, value: item }))
+    }
+    if (value && typeof value === 'object') {
+      return Object.entries(value).map(([key, item]) => ({ path: `${match.path}.${key}`, value: item }))
+    }
+  }
+  return []
+}
+
+function decodeBase64Text(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return { error: '欄位不是可解碼的 base64 字串' }
+  }
+  try {
+    const binary = window.atob(value.trim())
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return { value: new TextDecoder('utf-8', { fatal: false }).decode(bytes) }
+  } catch (error) {
+    return { error: 'base64 解碼失敗' }
+  }
+}
+
 function nameValueToText(entries) {
   if (!Array.isArray(entries)) {
     return ''
@@ -1290,6 +2028,14 @@ function safeJsonParse(text) {
     return JSON.parse(text || '{}')
   } catch {
     return {}
+  }
+}
+
+function tryJsonParse(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
   }
 }
 
