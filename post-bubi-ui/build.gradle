@@ -48,11 +48,16 @@ yarn_install {
 }
 
 def isTestTask = gradle.startParameter.taskNames.any { it.toLowerCase().contains('test') }
+def requiresUiBuild = gradle.startParameter.taskNames.any {
+    def taskName = it.toLowerCase()
+    taskName.contains('bootjar') || taskName.contains('build_prod') || taskName.contains('prodjar') || taskName == 'build'
+}
+def skipUiBuildForTestOnly = isTestTask && !requiresUiBuild
 def yarnMirrorPath = project.findProperty('yarnMirrorPath') ?: ''
 
 yarn_check_config {
     yarnCommand = ['config', 'list']
-    onlyIf { !isTestTask }
+    onlyIf { !skipUiBuildForTestOnly }
 }
 
 if (yarnMirrorPath) {
@@ -80,7 +85,7 @@ yarn_build_dev {
         }
     }
     yarnCommand = ['build:dev']
-    onlyIf { !isTestTask }
+    onlyIf { !skipUiBuildForTestOnly }
 }
 
 yarn_build_prod {
@@ -97,7 +102,7 @@ yarn_build_prod {
         }
     }
     yarnCommand = ['build:prod']
-    onlyIf { !isTestTask }
+    onlyIf { !skipUiBuildForTestOnly }
 }
 
 tasks.register('build_dev') {

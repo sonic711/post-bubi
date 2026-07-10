@@ -1,151 +1,94 @@
-# gRPC BUR 組包請求功能設計
+# gRPC BUR 組包功能
 
-本文根據 `data/[SIT]FAS_MOCK_NM001_S00.ipynb` 的腳本內容整理，作為後續開發與驗收依據。
+最後整理日期：2026-07-10
 
-目前狀態：第一階段已完成 `GRPC_BUR` request type、payload preview、`/api/grpc-bur/execute` 與前端 UI；後端 `BurCodecService` 已接入 `TBConvert.jar` 與 CodeTable，使用 `TB_UCS2_BUR.bin`、`TB_BUR_UCS2.bin` 執行 UTF-8 / BUR 雙向轉碼。CodeTable 已包入 JAR，部署時不需要額外攜帶 `data/CodeTable`。
+本功能已完成第一個可用版本。設計源自原始驗證 notebook 的組包流程；notebook 已不再是建置或執行必要檔案，實際行為以目前 Java 實作與本文件為準。
 
-## 1. 功能目標
+## 使用目的
 
-新增一種 gRPC 請求模式，讓使用者不需要理解 Notebook 內的 Java 腳本、hex 串接、BUR 轉碼與 protobuf 組裝細節，只需要填寫：
+一般使用者只需要處理：
 
-- 目標系統 IP
-- 目標系統 port
-- `## 請輸入GRPC input 參數` 對應的業務輸入內容
+- 目標系統 host 與 port
+- Basic Label
+- Text Area
+- 必要的 metadata、TLS 與 timeout
 
-系統會自動完成：
+Post Bubi 會負責 TCPIP Header、MCS Header、固定長度補空白、BUR 轉碼、payload 串接、protobuf JSON request 與 response 解碼。
 
-- 固定 TCPIP header 串接
-- MCS header 補空白
-- Basic Label 與 Text Area 欄位串接
-- UTF-8 文字轉 BUR bytes
-- hex / bytes 組合
-- 建立 `RqPayload`
-- 建立 `PeripheryRequest`
-- 呼叫 `com.bot.fsap.model.grpc.common.Service/rpcPeriphery`
-- 將 response payload 的 BUR bytes 轉回 UTF-8 明碼顯示
-
-## 2. Notebook 行為摘要
-
-Notebook 目前執行流程如下：
-
-1. 載入 gRPC proto 產生的 Java classes。
-2. 載入 `TBConvert.jar` 與 code table。
-3. 建立 UTF-8 與 BUR 雙向轉碼函式。
-4. 設定目標 `HOST` 與 `PORT`。
-5. 設定三段 request payload：
-   - TCPIP Header：固定 hex，長度 12 bytes。
-   - MCS Header：固定 72 個空白字元。
-   - Basic Label：固定長度 158 的文字區塊。
-   - Text Area：固定長度業務資料文字區塊。
-6. 將 MCS Header 用一般 bytes 轉 hex。
-7. 將 Basic Label 與 Text Area 從 UTF-8 轉 BUR，再轉 hex。
-8. 依序串接 `TCPIP Header + MCS Header + Basic Label + Text Area`。
-9. 將 hex decode 成 bytes，放入 `RqPayload.data`。
-10. 設定 `RqPayload.charsets = BUR`、`RqPayload.format = TEXT`。
-11. 建立 `PeripheryRequest` 並呼叫 `rpcPeriphery`。
-12. 顯示 request / response 的 payload bytes 與 BUR 轉 UTF-8 後的明碼內容。
-
-## 3. 使用者操作設計
-
-### 3.1 建議入口
-
-在 Request Type 增加一個模式：
+固定呼叫目標預設為：
 
 ```text
-HTTP | gRPC | gRPC BUR
+com.bot.fsap.model.grpc.common.Service/rpcPeriphery
 ```
 
-`gRPC BUR` 是針對此類固定格式 FSAP / FAS mock 呼叫的高階模式，不取代既有 gRPC JSON request。
+## 使用流程
 
-### 3.2 使用者主要畫面
+1. 在 Request Type 選擇 `gRPC BUR`。
+2. 填寫 target `host:port`。
+3. 在 Body 編輯 Basic Label 與 Text Area。
+4. 使用「產生預覽」檢查各段長度、最終 hex 與 decoded text。
+5. 必要時在 Settings 指定 protoId、TLS、TCPIP Header 與固定長度。
+6. 送出後在 Body 查看 protobuf JSON，在 Decoded 查看各 payload 的 BUR 明碼。
 
-畫面分成三個區塊。
+Request 可以保存到 Collection，載入後會還原所有 gRPC BUR 欄位。
 
-#### Target
+## Payload 組成
 
-使用者填寫：
-
-- Host：例如 `10.1.11.34`
-- Port：例如 `50003`
-- Timeout：預設 `60000 ms`
-- Plaintext / TLS：第一版先預設 plaintext，保留後續擴充
-
-#### Input
-
-使用者只需填寫 Notebook 標題 `## 請輸入GRPC input 參數` 下方真正需要變動的內容。
-
-第一版建議使用「表單 + 原始文字預覽」：
-
-- Basic Label：多行文字或固定長度欄位表單。
-- Text Area：多行文字。
-- 顯示每段目前 byte / char 長度。
-- 若長度不足，依規則右補空白。
-- 若長度超過，阻止送出並提示超出的段落。
-
-為了降低使用者負擔，初版可以先提供 Notebook 內的預設值：
+最終 bytes 順序：
 
 ```text
-Basic Label 預設：
-983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000          
-
-Text Area 預設：
-yoman   00000000000000123         4000000
+TCPIP Header + MCS Header + Basic Label + Text Area
 ```
 
-使用者可直接修改這兩段，不需要接觸 TCPIP Header、MCS Header、BUR 轉碼與 protobuf。
+預設值：
 
-#### Preview
+| 欄位 | 預設 |
+| --- | --- |
+| TCPIP Header | `0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F` |
+| MCS Header 長度 | 72 字元 |
+| Basic Label 長度 | 158 字元 |
+| Text Area 長度 | `0`，代表不限制 |
+| Timeout | 60000 ms |
+| Plaintext | true |
 
-送出前提供可展開的預覽：
+處理規則：
 
-- TCPIP Header hex
-- MCS Header 長度
-- Basic Label UTF-8 原文
-- Basic Label BUR hex
-- Text Area UTF-8 原文
-- Text Area BUR hex
-- 最終 payload bytes 長度
-- 最終 payload hex
-- BUR decode 後的 request 明碼
+- TCPIP Header 由 hex 轉 bytes，格式錯誤時拒絕送出。
+- MCS Header 使用 UTF-8 bytes，長度不足時右補空白。
+- Basic Label 使用 TBConvert 從 UTF-8 轉 BUR，長度不足時右補空白。
+- Text Area 使用 TBConvert 從 UTF-8 轉 BUR；設定正整數長度時依設定右補空白。
+- 任一固定欄位超過設定長度時拒絕送出，不自動截斷。
+- 串接結果放入 protobuf JSON 的 `payload.data`，使用 base64 表示。
 
-Preview 預設收合，避免干擾一般使用者；除錯時可展開。
+傳給共用 gRPC executor 的 body：
 
-### 3.3 Response 顯示
-
-Response 建議沿用目前 response viewer，但針對 gRPC BUR 增加更直接的顯示：
-
-- Summary：gRPC status、duration、payload 數量。
-- Body：protobuf response JSON。
-- Decoded：每個 `payloadMap` entry 的 decoded 結果。
-
-Decoded 內容包含：
-
-- payload key
-- charsets
-- format
-- data bytes 長度
-- data hex
-- BUR 轉 UTF-8 明碼
-
-若 BUR decode 失敗，Body 仍顯示原始 protobuf JSON，Decoded 顯示錯誤原因。
-
-## 4. 技術實作設計
-
-### 4.1 後端 API
-
-新增 API：
-
-```http
-POST /api/grpc-bur/execute
+```json
+{
+  "payload": {
+    "charsets": "BUR",
+    "format": "TEXT",
+    "data": "<base64>"
+  }
+}
 ```
 
-另提供送出前預覽 API：
+## API
+
+### Preview
 
 ```http
 POST /api/grpc-bur/preview
 ```
 
-Request payload：
+只執行驗證、補空白、轉碼與組包，不呼叫 target server。
+
+### Execute
+
+```http
+POST /api/grpc-bur/execute
+```
+
+Request 主要欄位：
 
 ```json
 {
@@ -153,154 +96,113 @@ Request payload：
   "port": 50003,
   "timeoutMillis": 60000,
   "plaintext": true,
+  "ignoreTlsVerification": false,
+  "metadataText": "",
+  "protoId": "",
+  "serviceName": "com.bot.fsap.model.grpc.common.Service",
+  "methodName": "rpcPeriphery",
   "tcpipHeaderHex": "0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F",
-  "mcsHeader": "                                                                        ",
-  "basicLabel": "983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000          ",
-  "textArea": "yoman   00000000000000123         4000000",
+  "mcsHeader": "",
+  "basicLabel": "...",
+  "textArea": "...",
   "settings": {
-    "basicLabelLength": 158,
     "mcsHeaderLength": 72,
+    "basicLabelLength": 158,
+    "textAreaLength": 0,
     "padTextAreaRight": true
   }
 }
 ```
 
-Response payload：
+Response 包含：
 
-```json
-{
-  "grpcStatus": "OK",
-  "durationMillis": 123,
-  "requestPreview": {
-    "payloadLength": 309,
-    "payloadHex": "0F 0F ...",
-    "decodedText": "..."
-  },
-  "response": {
-    "json": "{...}",
-    "decodedPayloads": [
-      {
-        "key": "0",
-        "charsets": "BUR",
-        "format": "TEXT",
-        "length": 123,
-        "hex": "....",
-        "text": "..."
-      }
-    ]
-  }
-}
-```
+- gRPC status 與 description
+- duration
+- response metadata
+- 原始 protobuf JSON body
+- request preview
+- decoded payload list
 
-### 4.2 後端元件
+## Proto 解析
 
-建議拆成下列元件：
+執行順序：
 
-- `BurCodecService`
-  - 封裝 UTF-8 -> BUR 與 BUR -> UTF-8。
-  - 負責載入 `TBConvert.jar` 所需 code table。
-- `GrpcBurPayloadComposer`
-  - 驗證與補齊 header / label / text area。
-  - 組合最終 bytes。
-  - 產生 preview。
-- `GrpcBurExecuteService`
-  - 建立 channel。
-  - 建立 `RqPayload` / `PeripheryRequest`。
-  - 呼叫 `ServiceGrpc.ServiceBlockingStub.rpcPeriphery`。
-  - 解碼 `PeripheryResponse.payloadMap`。
-- `GrpcBurController`
-  - 提供前端 API。
-  - 回傳統一錯誤格式。
+1. Request 有 `protoId` 時直接使用指定 proto。
+2. 未指定時掃描 UI 已上傳到 `data/protos/` 的 proto，尋找相符 service/method。
+3. 找不到相符 proto 時，回退到 target server reflection。
 
-### 4.3 依賴與離線打包
+使用 UI 上傳 proto 是正式操作方式。Repository 內的 `data/proto/` 用於開發、範例與 import dependency 解析。
 
-此功能依賴 Notebook 目前使用的外部資源：
+## TBConvert 與 CodeTable
 
-- `TBConvert.jar`，已包入 executable JAR 的 `BOOT-INF/lib/`
-- CodeTable：
-  - `TB_UCS2_BUR.bin`
-  - `TB_BUR_UCS2.bin`
-- CodeTable 會包入 executable JAR 的 `BOOT-INF/classes/bur/CodeTable/`；若部署主機同時存在外部 `post-bubi.bur.code-table-dir`，會優先使用外部檔案，否則自動從 JAR 內建 resource 解出到暫存目錄供 `TBConvert.jar` 載入。
-- `commons-codec`
-- `com.bot.fsap.model.grpc.common.*` protobuf / grpc classes
-
-後續實作前必須先確認：
-
-- `TBConvert.jar` 需保留在 build 可讀的位置，供 Gradle 打入 executable JAR。
-- CodeTable 已由 Gradle `processResources` 從 `data/CodeTable` 打入 JAR。
-- 若需要覆蓋 JAR 內建 CodeTable，可用啟動參數指定外部目錄，例如：
-
-```bash
-java -jar post-bubi.jar --post-bubi.bur.code-table-dir=./data/CodeTable
-```
-
-## 5. Collection 保存設計
-
-Request 保存時新增 type：
+建置輸入：
 
 ```text
-GRPC_BUR
+data/TBConvert.jar
+data/CodeTable/TB_UCS2_BUR.bin
+data/CodeTable/TB_BUR_UCS2.bin
 ```
 
-保存內容放在既有 `payloadJson`，包含：
+Gradle 會產生：
 
-- host
-- port
-- timeoutMillis
-- plaintext
-- tcpipHeaderHex
-- mcsHeader
-- basicLabel
-- textArea
-- composer settings
+```text
+BOOT-INF/lib/TBConvert.jar
+BOOT-INF/classes/bur/CodeTable/TB_UCS2_BUR.bin
+BOOT-INF/classes/bur/CodeTable/TB_BUR_UCS2.bin
+```
 
-匯出 ZIP / 匯入 ZIP 必須保留 `GRPC_BUR` request。
+Runtime 載入順序：
 
-若 CodeTable 或 TBConvert jar 不隨 workspace export 匯出，匯入到其他環境後仍需該環境已安裝相同轉碼資源。
+1. 若 `post-bubi.bur.code-table-dir` 指向完整外部 CodeTable，優先使用外部檔案。
+2. 否則從 JAR resource 解出 `TB_UCS2_BUR.bin` 與 `TB_BUR_UCS2.bin` 到暫存目錄。
 
-## 6. 初版範圍建議
+因此部署主機只需要 executable JAR，不需要另外攜帶 CodeTable 或 TBConvert.jar。
 
-第一階段只做 Notebook 等價功能的操作流程：
+外部覆寫範例：
 
-- 固定呼叫 `com.bot.fsap.model.grpc.common.Service/rpcPeriphery`。
-- 固定 `Charsets.BUR`。
-- 固定 `Format.TEXT`。
-- TCPIP Header、MCS Header、Basic Label、Text Area 組包。
-- 使用者可填 host、port、Basic Label、Text Area。
-- 顯示 request preview 與 response decoded text。
-- Request 可保存、載入、匯出、匯入。
+```bash
+java -jar post-bubi.jar \
+  --post-bubi.bur.code-table-dir=./data/CodeTable
+```
 
-注意：目前第一階段已完成上述 UI/API 骨架、preview 與正式 BUR byte 轉碼；部署使用時只需攜帶 `post-bubi.jar`。建置此 JAR 的環境仍需保留 `data/TBConvert.jar` 與 `data/CodeTable`，讓 Gradle 能把資源包入 JAR。
+## Response 解碼
 
-第一階段先不做：
+若 response body 是 `PeripheryResponse` JSON 且包含 `payload` map，系統會：
 
-- 多種交易格式模板。
-- Basic Label 欄位級拆解表單。
-- 自動解析不同 proto service / method。
-- Streaming gRPC。
-- 多 CodeTable 切換。
+1. 讀取每個 entry 的 `data` base64。
+2. 轉為 bytes。
+3. 使用 BUR CodeTable 轉成 UTF-8。
+4. 回傳 key、charsets、format、length、hex、text 與 error。
 
-## 7. 待確認事項
+單一 payload 解碼失敗不會丟棄整個 response；原始 Body 仍可查看，Decoded 顯示該 entry 的錯誤原因。
 
-實作前需要使用者確認：
+## 錯誤代碼
 
-1. `Text Area` 是否有固定長度限制？Notebook 註解寫「長度 67」，但實際字串後方包含大量空白，需確認真實規格。
-2. `Basic Label` 是否永遠固定 158 字元？超長時應阻止送出，還是截斷？
-3. `MCS Header` 是否永遠 72 個空白？是否需要使用者可修改？
-4. `TCPIP Header hex` 是否固定為 `0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F`？是否需要依交易自動變化？
-5. `Service/rpcPeriphery` 是否所有此類交易都固定使用同一個 service 與 method？
-6. CodeTable 與 `TBConvert.jar` 是否可以放入專案並隨 JAR 發布？
-7. Response decoded 後是否只需顯示整段明碼，還是也要依欄位規格切欄顯示？
+| Code | 說明 |
+| --- | --- |
+| `GRPC_BUR_LENGTH_INVALID` | 固定長度設定不合法 |
+| `GRPC_BUR_TEXT_TOO_LONG` | 輸入超過設定長度 |
+| `GRPC_BUR_HEX_INVALID` | TCPIP Header hex 格式錯誤 |
+| `GRPC_BUR_CONVERT_FAILED` | UTF-8/BUR 轉碼失敗 |
+| `GRPC_BUR_CODE_TABLE_MISSING` | 外部與 JAR 內建 CodeTable 都不可用 |
+| `GRPC_BUR_CODE_TABLE_LOAD_FAILED` | TBConvert 載入 CodeTable 失敗 |
 
-## 8. 驗收標準
+共用 gRPC 連線、proto、JSON 與 TLS 錯誤沿用一般 gRPC executor 的統一錯誤格式。
 
-第一階段完成時，至少需驗證：
+## 驗證
 
-- `:post-bubi-api:test` 通過。
-- `:post-bubi-api:bootJar` 通過。
-- UI 可建立 `gRPC BUR` request。
-- 使用者只填 host、port、Basic Label、Text Area 即可送出。
-- 後端產生的 request payload bytes 與 Notebook 同輸入時一致。
-- Response payload 可顯示 raw JSON、hex 與 BUR 轉 UTF-8 明碼。
-- Request 可保存、重新載入、匯出 ZIP、匯入 ZIP。
-- 缺少 CodeTable 或轉碼失敗時，錯誤訊息需為繁體中文且能指出缺少的資源。
+自動化測試：
+
+```bash
+./gradlew :post-bubi-api:test --tests com.postbubi.web.GrpcBurExecuteIntegrationTest
+./gradlew :post-bubi-api:bootJar
+```
+
+測試涵蓋：
+
+- 無外部 CodeTable 時從 JAR resource 載入。
+- TCPIP、MCS、Basic Label、Text Area 串接結果。
+- Basic Label 超長錯誤。
+- TBConvert 與 CodeTable 打入 executable JAR。
+
+實際 target server 驗收仍需要正確業務資料、可連線環境與相符 proto。

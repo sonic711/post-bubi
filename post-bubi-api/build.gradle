@@ -41,6 +41,7 @@ processResources {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from("${rootProject.projectDir}/data/CodeTable") {
         into 'bur/CodeTable'
+        include 'TB_UCS2_BUR.bin', 'TB_BUR_UCS2.bin'
     }
     filesMatching(['application.yml']) {
         filter(ReplaceTokens, tokens: [
