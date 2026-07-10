@@ -4,6 +4,10 @@
       <div class="sidebar-head">
         <div class="brand" aria-label="Post Bubi">
           <img :src="postBubiLogo" alt="Post Bubi" />
+          <div class="brand-copy">
+            <strong>Post Bubi</strong>
+            <span>API Workspace</span>
+          </div>
         </div>
         <div class="theme-switch" role="group" aria-label="Theme">
           <button
@@ -11,6 +15,7 @@
             :class="{ active: themeMode === 'light' }"
             @click="setTheme('light')"
           >
+            <span aria-hidden="true">☀</span>
             Light
           </button>
           <button
@@ -18,18 +23,24 @@
             :class="{ active: themeMode === 'dark' }"
             @click="setTheme('dark')"
           >
+            <span aria-hidden="true">☾</span>
             Dark
           </button>
         </div>
       </div>
       <div class="sidebar-actions">
         <button class="primary-button full-button" type="button" :disabled="loadingCollections" @click="createCollection">
+          <span class="button-icon" aria-hidden="true">＋</span>
           新增 Collection
         </button>
         <div class="archive-actions">
-          <button class="secondary-button" type="button" @click="exportWorkspace">匯出 ZIP</button>
+          <button class="secondary-button" type="button" title="匯出工作區 ZIP" @click="exportWorkspace">
+            <span class="button-icon" aria-hidden="true">↓</span>
+            匯出
+          </button>
           <label class="secondary-button import-button">
-            匯入 ZIP
+            <span class="button-icon" aria-hidden="true">↑</span>
+            匯入
             <input type="file" accept=".zip,application/zip" @change="importWorkspace" />
           </label>
         </div>
@@ -57,7 +68,7 @@
               :title="`${collection.name} 操作`"
               @click.stop="toggleTreeMenu(treeMenuId('collection', collection.id))"
             >
-              •••
+              ⋯
             </button>
             <div v-if="openTreeMenu === treeMenuId('collection', collection.id)" class="tree-action-menu">
               <button type="button" @click="prepareNewRequest(collection.id, null)">＋ 新增 Request</button>
@@ -86,7 +97,7 @@
                 :title="`${folder.name} 操作`"
                 @click.stop="toggleTreeMenu(treeMenuId('folder', folder.id))"
               >
-                •••
+                ⋯
               </button>
               <div v-if="openTreeMenu === treeMenuId('folder', folder.id)" class="tree-action-menu">
                 <button type="button" @click="prepareNewRequest(collection.id, folder.id)">＋ 新增 Request</button>
@@ -114,7 +125,7 @@
                 {{ request.name }}
               </button>
               <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
-                •••
+                ⋯
               </button>
               <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
                 <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
@@ -141,7 +152,7 @@
               {{ request.name }}
             </button>
             <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
-              •••
+              ⋯
             </button>
             <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
               <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
@@ -156,6 +167,7 @@
           <span class="section-count">{{ protos.length }}</span>
         </div>
         <label class="secondary-button proto-upload-button">
+          <span class="button-icon" aria-hidden="true">↑</span>
           上傳 Proto
           <input type="file" accept=".proto" @change="uploadProto" />
         </label>
@@ -197,9 +209,10 @@
         <select v-model="requestType" class="type-select" aria-label="Request type">
           <option value="HTTP">HTTP</option>
           <option value="GRPC">gRPC</option>
+          <option value="GRPC_BUR">gRPC BUR</option>
         </select>
         <template v-if="requestType === 'HTTP'">
-          <select v-model="method" class="method-select" aria-label="HTTP method">
+          <select v-model="method" class="method-select" :class="`method-${method.toLowerCase()}`" aria-label="HTTP method">
             <option>GET</option>
             <option>POST</option>
             <option>PUT</option>
@@ -208,14 +221,20 @@
           </select>
           <input v-model="url" class="target-input" aria-label="URL" />
         </template>
-        <template v-else>
+        <template v-else-if="requestType === 'GRPC'">
           <input v-model="grpcTarget" class="target-input" aria-label="gRPC target" placeholder="localhost:50051" />
           <input v-model="grpcFullMethod" class="target-input" aria-label="gRPC method" placeholder="package.Service/Method" />
         </template>
+        <template v-else>
+          <input v-model="grpcBurTarget" class="target-input" aria-label="gRPC BUR target" placeholder="10.1.11.34:50003" />
+          <input class="target-input fixed-method-input" aria-label="gRPC BUR method" value="Service/rpcPeriphery" disabled />
+        </template>
         <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
+          <span class="button-icon" aria-hidden="true">◇</span>
           {{ selectedRequestId ? '儲存' : '另存 Request' }}
         </button>
         <button class="send-button" type="button" :disabled="sending" @click="sendCurrentRequest">
+          <span class="button-icon send-icon" aria-hidden="true">→</span>
           {{ sending ? '送出中' : '送出' }}
         </button>
       </header>
@@ -271,8 +290,27 @@
           </label>
         </div>
 
+        <div v-if="activeRequestTab === 'params' && requestType === 'GRPC_BUR'" class="grpc-pane">
+          <label>
+            Host
+            <input v-model="grpcBurHost" placeholder="10.1.11.34" />
+          </label>
+          <label>
+            Port
+            <input v-model.number="grpcBurPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            Service
+            <input value="com.bot.fsap.model.grpc.common.Service" disabled />
+          </label>
+          <label>
+            Method
+            <input value="rpcPeriphery" disabled />
+          </label>
+        </div>
+
         <div v-if="activeRequestTab === 'headers'" class="editor-pane">
-          <label>{{ requestType === 'GRPC' ? 'Metadata' : 'Headers' }}</label>
+          <label>{{ requestType === 'HTTP' ? 'Headers' : 'Metadata' }}</label>
           <div v-if="requestType === 'HTTP'" class="key-value-editor">
             <div class="key-value-header">
               <span></span>
@@ -292,11 +330,12 @@
               <input v-model="header.enabled" type="checkbox" aria-label="啟用 Header" />
               <input v-model="header.name" aria-label="Header key" placeholder="Header name" />
               <input v-model="header.value" aria-label="Header value" placeholder="Value" />
-              <button class="icon-danger-button" type="button" @click="removeHeaderRow(header.id)">刪除</button>
+              <button class="icon-danger-button" type="button" title="刪除 Header" aria-label="刪除 Header" @click="removeHeaderRow(header.id)">×</button>
             </div>
-            <button class="secondary-button add-row-button" type="button" @click="addHeaderRow">新增 Header</button>
+            <button class="secondary-button add-row-button" type="button" @click="addHeaderRow"><span aria-hidden="true">＋</span>新增 Header</button>
           </div>
-          <textarea v-else v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
+          <textarea v-else-if="requestType === 'GRPC'" v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
+          <textarea v-else v-model="grpcBurMetadataText" spellcheck="false" aria-label="gRPC BUR Metadata"></textarea>
         </div>
 
         <div v-if="activeRequestTab === 'body'" class="editor-pane body-pane">
@@ -315,6 +354,7 @@
               type="button"
               @click="formatActiveJson"
             >
+              <span aria-hidden="true">{ }</span>
               自動排版
             </button>
           </div>
@@ -341,15 +381,39 @@
                 <input type="file" @change="uploadFormDataFile(part, $event)" />
                 <span>{{ part.fileName || '選擇檔案' }}</span>
               </label>
-              <button class="icon-danger-button" type="button" @click="removeFormDataPart(part.id)">刪除</button>
+              <button class="icon-danger-button" type="button" title="刪除欄位" aria-label="刪除欄位" @click="removeFormDataPart(part.id)">×</button>
             </div>
-            <button class="secondary-button add-row-button" type="button" @click="addFormDataPart">新增欄位</button>
+            <button class="secondary-button add-row-button" type="button" @click="addFormDataPart"><span aria-hidden="true">＋</span>新增欄位</button>
           </div>
           <div v-if="requestType === 'GRPC'" class="json-editor-header">
             <label class="grpc-body-label">JSON Request</label>
             <button class="secondary-button compact-button" type="button" @click="formatActiveJson">
+              <span aria-hidden="true">{ }</span>
               自動排版
             </button>
+          </div>
+          <div v-if="requestType === 'GRPC_BUR'" class="bur-composer">
+            <div class="bur-body-header">
+              <label>GRPC input 參數</label>
+              <button class="secondary-button compact-button" type="button" :disabled="sending" @click="previewGrpcBurRequest">
+                <span aria-hidden="true">◉</span>
+                產生預覽
+              </button>
+            </div>
+            <label>
+              Basic Label
+              <textarea v-model="grpcBurBasicLabel" spellcheck="false" aria-label="Basic Label"></textarea>
+              <span class="field-hint">{{ grpcBurBasicLabel.length }} / {{ grpcBurBasicLabelLength }} chars</span>
+            </label>
+            <label>
+              Text Area
+              <textarea v-model="grpcBurTextArea" spellcheck="false" aria-label="Text Area"></textarea>
+              <span class="field-hint">{{ grpcBurTextAreaLength || '不限' }} chars limit</span>
+            </label>
+            <details class="bur-preview" :open="Boolean(grpcBurPreview)">
+              <summary>Payload Preview</summary>
+              <pre>{{ grpcBurPreviewText }}</pre>
+            </details>
           </div>
           <div v-if="isJsonBodyEditor" class="json-editor">
             <pre class="json-highlight" aria-hidden="true" v-html="highlightedBodyText"></pre>
@@ -363,7 +427,7 @@
             ></textarea>
           </div>
           <textarea
-            v-else-if="bodyType !== 'form-data'"
+            v-else-if="requestType !== 'GRPC_BUR' && bodyType !== 'form-data'"
             v-model="activeBodyText"
             spellcheck="false"
             aria-label="Body"
@@ -392,6 +456,30 @@
             <input v-model="grpcIgnoreTlsVerification" type="checkbox" />
             Ignore TLS certificate verification
           </label>
+          <label v-if="requestType === 'GRPC_BUR'" class="check-line">
+            <input v-model="grpcBurPlaintext" type="checkbox" />
+            Plaintext
+          </label>
+          <label v-if="requestType === 'GRPC_BUR' && !grpcBurPlaintext" class="check-line">
+            <input v-model="grpcBurIgnoreTlsVerification" type="checkbox" />
+            Ignore TLS certificate verification
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'">
+            Proto ID
+            <input v-model="grpcBurProtoId" placeholder="可留空；若 server 無 reflection 則需填入 protoId" />
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'">
+            TCPIP Header Hex
+            <input v-model="grpcBurTcpipHeaderHex" />
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'">
+            Basic Label Length
+            <input v-model.number="grpcBurBasicLabelLength" type="number" min="1" />
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'">
+            Text Area Length
+            <input v-model.number="grpcBurTextAreaLength" type="number" min="0" />
+          </label>
         </div>
       </section>
 
@@ -415,41 +503,63 @@
             {{ tab.label }}
           </button>
         </nav>
-        <pre v-if="activeResponseTab === 'body'" class="json-viewer" v-html="highlightedResponseBody"></pre>
+        <pre
+          v-if="activeResponseTab === 'body'"
+          class="json-viewer"
+          :class="{ 'is-empty': !response && !errorText }"
+          v-html="highlightedResponseBody"
+        ></pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
         <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response">
-          <div class="decode-config">
-            <div class="decode-help">
-              使用 JSON path 指定 base64 欄位，例如 <code>data.payload</code>、<code>items[0].body</code>、<code>items[*].body</code>。
-            </div>
-            <div class="key-value-header decode-header">
-              <span></span>
-              <span>JSON Path</span>
-              <span>Label</span>
-              <span></span>
-            </div>
-            <div v-for="row in responseDecodeRows" :key="row.id" class="key-value-row decode-row">
-              <input v-model="row.enabled" type="checkbox" aria-label="啟用解碼欄位" />
-              <input v-model="row.name" aria-label="Response JSON path" placeholder="data.payload" />
-              <input v-model="row.value" aria-label="Decoded label" placeholder="顯示名稱，可留空" />
-              <button class="icon-danger-button" type="button" @click="removeResponseDecodeRow(row.id)">刪除</button>
-            </div>
-            <button class="secondary-button add-row-button" type="button" @click="addResponseDecodeRow">新增欄位</button>
-          </div>
-          <div class="decoded-result-list">
-            <p v-if="!decodedResponseResults.length" class="empty-text">尚無解碼結果</p>
+          <div v-if="requestType === 'GRPC_BUR'" class="decoded-result-list">
+            <p v-if="!grpcBurDecodedPayloads.length" class="empty-text">尚無 gRPC BUR 解碼結果</p>
             <article
-              v-for="result in decodedResponseResults"
-              :key="`${result.configPath}-${result.matchPath}`"
+              v-for="payload in grpcBurDecodedPayloads"
+              :key="payload.key"
               class="decoded-result"
-              :class="{ failed: result.error }"
+              :class="{ failed: payload.error }"
             >
               <div class="decoded-result-head">
-                <strong>{{ result.label }}</strong>
-                <span>{{ result.matchPath }}</span>
+                <strong>payload {{ payload.key }}</strong>
+                <span>{{ payload.charsets }} / {{ payload.format }} / {{ payload.length }} bytes</span>
               </div>
-              <pre>{{ result.error || result.decoded }}</pre>
+              <pre>{{ payload.error || payload.text }}</pre>
             </article>
+          </div>
+          <div v-else>
+            <div class="decode-config">
+              <div class="decode-help">
+                使用 JSON path 指定 base64 欄位，例如 <code>data.payload</code>、<code>items[0].body</code>、<code>items[*].body</code>。
+              </div>
+              <div class="key-value-header decode-header">
+                <span></span>
+                <span>JSON Path</span>
+                <span>Label</span>
+                <span></span>
+              </div>
+              <div v-for="row in responseDecodeRows" :key="row.id" class="key-value-row decode-row">
+                <input v-model="row.enabled" type="checkbox" aria-label="啟用解碼欄位" />
+                <input v-model="row.name" aria-label="Response JSON path" placeholder="data.payload" />
+                <input v-model="row.value" aria-label="Decoded label" placeholder="顯示名稱，可留空" />
+                <button class="icon-danger-button" type="button" title="刪除解碼欄位" aria-label="刪除解碼欄位" @click="removeResponseDecodeRow(row.id)">×</button>
+              </div>
+              <button class="secondary-button add-row-button" type="button" @click="addResponseDecodeRow"><span aria-hidden="true">＋</span>新增欄位</button>
+            </div>
+            <div class="decoded-result-list">
+              <p v-if="!decodedResponseResults.length" class="empty-text">尚無解碼結果</p>
+              <article
+                v-for="result in decodedResponseResults"
+                :key="`${result.configPath}-${result.matchPath}`"
+                class="decoded-result"
+                :class="{ failed: result.error }"
+              >
+                <div class="decoded-result-head">
+                  <strong>{{ result.label }}</strong>
+                  <span>{{ result.matchPath }}</span>
+                </div>
+                <pre>{{ result.error || result.decoded }}</pre>
+              </article>
+            </div>
           </div>
         </div>
         <div v-else-if="activeResponseTab === 'history'" class="history-list">
@@ -520,6 +630,20 @@ const grpcMetadataText = ref('')
 const grpcBodyText = ref('{}')
 const grpcPlaintext = ref(true)
 const grpcIgnoreTlsVerification = ref(false)
+const grpcBurHost = ref('10.1.11.34')
+const grpcBurPort = ref(50003)
+const grpcBurMetadataText = ref('')
+const grpcBurProtoId = ref('')
+const grpcBurTcpipHeaderHex = ref('0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F')
+const grpcBurMcsHeader = ref('')
+const grpcBurBasicLabel = ref('983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000          ')
+const grpcBurTextArea = ref('yoman   00000000000000123         4000000')
+const grpcBurBasicLabelLength = ref(158)
+const grpcBurTextAreaLength = ref(0)
+const grpcBurPadTextAreaRight = ref(true)
+const grpcBurPlaintext = ref(true)
+const grpcBurIgnoreTlsVerification = ref(false)
+const grpcBurPreview = ref(null)
 const paramsText = ref('')
 const headersText = ref('Accept=application/json')
 const headerRows = ref([newNameValueRow('Accept', 'application/json')])
@@ -571,6 +695,17 @@ const grpcFullMethod = computed({
   },
 })
 
+const grpcBurTarget = computed({
+  get() {
+    return `${grpcBurHost.value}:${grpcBurPort.value}`
+  },
+  set(value) {
+    const [host, port] = value.split(':')
+    grpcBurHost.value = host || ''
+    grpcBurPort.value = Number(port || 50003)
+  },
+})
+
 const activeBodyText = computed({
   get() {
     return requestType.value === 'GRPC' ? grpcBodyText.value : bodyText.value
@@ -597,13 +732,22 @@ const decodedResponseMap = computed(() => {
 
 const highlightedResponseBody = computed(() => highlightResponseBody())
 
+const grpcBurPreviewText = computed(() => {
+  if (!grpcBurPreview.value) {
+    return '尚未產生 preview。'
+  }
+  return JSON.stringify(grpcBurPreview.value, null, 2)
+})
+
+const grpcBurDecodedPayloads = computed(() => response.value?.decodedPayloads || [])
+
 const hasUnsavedChanges = computed(() => savedEditorState.value !== snapshotEditorState())
 
 const responseSummary = computed(() => {
   if (sending.value) return '送出中'
   if (errorText.value) return '錯誤'
   if (!response.value) return '尚未送出'
-  if (requestType.value === 'GRPC') {
+  if (requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR') {
     return `${response.value.statusCode} · ${response.value.durationMillis} ms`
   }
   return `${response.value.statusCode} ${response.value.reasonPhrase || ''} · ${response.value.durationMillis} ms · ${response.value.sizeBytes} bytes`
@@ -618,13 +762,13 @@ const responseSummaryClass = computed(() => ({
 const responseBody = computed(() => {
   if (errorText.value) return errorText.value
   if (!response.value) return '尚未送出 request。'
-  if (requestType.value === 'GRPC') return prettyText(response.value.body || response.value.errorMessage)
+  if (requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR') return prettyText(response.value.body || response.value.errorMessage)
   return prettyText(response.value.body)
 })
 
 const responseHeaders = computed(() => {
   if (!response.value) return ''
-  const entries = requestType.value === 'GRPC' ? response.value.metadata || [] : response.value.headers
+  const entries = requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR' ? response.value.metadata || [] : response.value.headers
   return entries
     .map((entry) => `${entry.name}: ${entry.value}`)
     .join('\n')
@@ -632,12 +776,13 @@ const responseHeaders = computed(() => {
 
 const responseInfo = computed(() => {
   if (!response.value) return ''
-  if (requestType.value === 'GRPC') {
+  if (requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR') {
     return JSON.stringify({
       statusCode: response.value.statusCode,
       statusDescription: response.value.statusDescription,
       durationMillis: response.value.durationMillis,
       errorMessage: response.value.errorMessage,
+      requestPreview: response.value.requestPreview || null,
     }, null, 2)
   }
   return JSON.stringify({
@@ -653,7 +798,7 @@ const rawResponseBody = computed(() => {
   if (errorText.value || !response.value) {
     return ''
   }
-  return requestType.value === 'GRPC' ? response.value.body || '' : response.value.body || ''
+  return requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR' ? response.value.body || '' : response.value.body || ''
 })
 
 const decodedResponseResults = computed(() => decodeResponseFields())
@@ -1327,7 +1472,7 @@ function newDraftRequest(options = {}) {
     return
   }
   selectedRequestId.value = null
-  requestName.value = requestType.value === 'GRPC' ? '未命名 gRPC Request' : '未命名 HTTP Request'
+  requestName.value = defaultRequestName()
   method.value = 'GET'
   url.value = 'http://localhost:18080/api/health'
   paramsText.value = ''
@@ -1340,9 +1485,17 @@ function newDraftRequest(options = {}) {
   timeoutMillis.value = 30000
   followRedirects.value = true
   ignoreSslVerification.value = false
+  grpcBurPreview.value = null
   response.value = null
   errorText.value = ''
   markEditorSaved()
+}
+
+function defaultRequestName() {
+  if (requestType.value === 'GRPC_BUR') {
+    return '未命名 gRPC BUR Request'
+  }
+  return requestType.value === 'GRPC' ? '未命名 gRPC Request' : '未命名 HTTP Request'
 }
 
 async function saveRequest() {
@@ -1418,7 +1571,9 @@ async function deleteSelectedRequest() {
 }
 
 async function sendCurrentRequest() {
-  if (requestType.value === 'GRPC') {
+  if (requestType.value === 'GRPC_BUR') {
+    await sendGrpcBurRequest()
+  } else if (requestType.value === 'GRPC') {
     await sendGrpcRequest()
   } else {
     await sendHttpRequest()
@@ -1454,6 +1609,37 @@ async function sendGrpcRequest() {
       method: 'POST',
       body: JSON.stringify(grpcExecutePayload()),
     })
+  } catch (error) {
+    errorText.value = readableError(error)
+  } finally {
+    sending.value = false
+  }
+}
+
+async function previewGrpcBurRequest() {
+  errorText.value = ''
+  try {
+    grpcBurPreview.value = await apiJson('/api/grpc-bur/preview', {
+      method: 'POST',
+      body: JSON.stringify(grpcBurExecutePayload()),
+    })
+    workspaceStatus.value = 'gRPC BUR payload preview 已產生'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function sendGrpcBurRequest() {
+  sending.value = true
+  errorText.value = ''
+  response.value = null
+
+  try {
+    response.value = await apiJson('/api/grpc-bur/execute', {
+      method: 'POST',
+      body: JSON.stringify(grpcBurExecutePayload()),
+    })
+    grpcBurPreview.value = response.value.requestPreview || null
   } catch (error) {
     errorText.value = readableError(error)
   } finally {
@@ -1523,6 +1709,19 @@ function editorPayload() {
     grpcBody: grpcBodyText.value,
     grpcPlaintext: grpcPlaintext.value,
     grpcIgnoreTlsVerification: grpcIgnoreTlsVerification.value,
+    grpcBurHost: grpcBurHost.value,
+    grpcBurPort: grpcBurPort.value,
+    grpcBurMetadataText: grpcBurMetadataText.value,
+    grpcBurProtoId: grpcBurProtoId.value,
+    grpcBurTcpipHeaderHex: grpcBurTcpipHeaderHex.value,
+    grpcBurMcsHeader: grpcBurMcsHeader.value,
+    grpcBurBasicLabel: grpcBurBasicLabel.value,
+    grpcBurTextArea: grpcBurTextArea.value,
+    grpcBurBasicLabelLength: grpcBurBasicLabelLength.value,
+    grpcBurTextAreaLength: grpcBurTextAreaLength.value,
+    grpcBurPadTextAreaRight: grpcBurPadTextAreaRight.value,
+    grpcBurPlaintext: grpcBurPlaintext.value,
+    grpcBurIgnoreTlsVerification: grpcBurIgnoreTlsVerification.value,
   }
 }
 
@@ -1538,6 +1737,28 @@ function grpcExecutePayload() {
     methodName: grpcMethodName.value,
     body: grpcBodyText.value,
     timeoutMillis: timeoutMillis.value,
+  }
+}
+
+function grpcBurExecutePayload() {
+  return {
+    host: grpcBurHost.value,
+    port: grpcBurPort.value,
+    plaintext: grpcBurPlaintext.value,
+    ignoreTlsVerification: grpcBurIgnoreTlsVerification.value,
+    metadataText: grpcBurMetadataText.value,
+    protoId: grpcBurProtoId.value || null,
+    tcpipHeaderHex: grpcBurTcpipHeaderHex.value,
+    mcsHeader: grpcBurMcsHeader.value,
+    basicLabel: grpcBurBasicLabel.value,
+    textArea: grpcBurTextArea.value,
+    timeoutMillis: timeoutMillis.value,
+    settings: {
+      mcsHeaderLength: 72,
+      basicLabelLength: grpcBurBasicLabelLength.value,
+      textAreaLength: grpcBurTextAreaLength.value || null,
+      padTextAreaRight: grpcBurPadTextAreaRight.value,
+    },
   }
 }
 
@@ -1631,6 +1852,20 @@ function loadPayloadToEditor(payload) {
   grpcBodyText.value = payload.grpcBody || '{}'
   grpcPlaintext.value = payload.grpcPlaintext !== false
   grpcIgnoreTlsVerification.value = payload.grpcIgnoreTlsVerification === true
+  grpcBurHost.value = payload.grpcBurHost || '10.1.11.34'
+  grpcBurPort.value = payload.grpcBurPort || 50003
+  grpcBurMetadataText.value = payload.grpcBurMetadataText || ''
+  grpcBurProtoId.value = payload.grpcBurProtoId || ''
+  grpcBurTcpipHeaderHex.value = payload.grpcBurTcpipHeaderHex || '0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F'
+  grpcBurMcsHeader.value = payload.grpcBurMcsHeader || ''
+  grpcBurBasicLabel.value = payload.grpcBurBasicLabel || '983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000          '
+  grpcBurTextArea.value = payload.grpcBurTextArea || 'yoman   00000000000000123         4000000'
+  grpcBurBasicLabelLength.value = payload.grpcBurBasicLabelLength || 158
+  grpcBurTextAreaLength.value = payload.grpcBurTextAreaLength || 0
+  grpcBurPadTextAreaRight.value = payload.grpcBurPadTextAreaRight !== false
+  grpcBurPlaintext.value = payload.grpcBurPlaintext !== false
+  grpcBurIgnoreTlsVerification.value = payload.grpcBurIgnoreTlsVerification === true
+  grpcBurPreview.value = null
   response.value = null
   errorText.value = ''
 }
@@ -2069,7 +2304,7 @@ function isResponseError(payload) {
   if (!payload) {
     return false
   }
-  if (requestType.value === 'GRPC') {
+  if (requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR') {
     return payload.statusCode && payload.statusCode !== 'OK'
   }
   return Number(payload.statusCode || 0) >= 400

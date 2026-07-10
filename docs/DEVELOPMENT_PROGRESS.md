@@ -43,8 +43,12 @@
 | 12.5.7 | Collection 內拖拉排序與 Request 複製 | 完成 | `:post-bubi-api:bootJar` 通過；同層 Folder / Request 可拖拉更新 sortOrder，Request 可複製 |
 | 12.5.8 | HTTP Headers 拖拉排序 | 完成 | `:post-bubi-api:bootJar` 通過；HTTP Headers key/value rows 可拖拉調整送出與保存順序 |
 | 12.5.9 | 左側 Collection icon 操作選單 | 完成 | `:post-bubi-api:bootJar` 通過；新增 Request、刪除 Request、複製 Request 與 Folder/Collection 操作集中到左側 icon menu |
+| 12.5.10 | 工作台 UI/UX 全面視覺升級 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過；瀏覽器驗證 Light/Dark、HTTP/gRPC/gRPC BUR 與 1280/620/390px layout，未變更 API payload |
 | 12.6 | gRPC 使用本機 Proto 執行 | 完成 | `:post-bubi-api:test`、`:post-bubi-api:bootJar` 通過；已驗證不開 reflection 的 unary server 可用 `protoId` 呼叫；使用者目標 `127.0.0.1:50115` 已進入實際呼叫並回 `DEADLINE_EXCEEDED` |
 | 12.7 | JAR 同層檔案 Log 與開關 | 完成 | `:post-bubi-api:bootJar` 通過；已驗證預設輸出到 JAR 同層 `logs/post-bubi.log`，且關閉參數不會寫入 file log |
+| 12.8 | gRPC BUR 組包請求 | 進行中 | 已建立設計文件 `docs/GRPC_BUR_COMPOSER_FEATURE.md`；第一階段 API/UI 與 TBConvert BUR codec 已完成，仍需確認 proto include root 與目標系統實測 |
+| 12.8.1 | gRPC BUR 第一階段 API/UI | 完成 | `:post-bubi-api:test`、`:post-bubi-api:compileJava` 通過；已支援 `GRPC_BUR` request type、payload preview、固定長度補空白、`/api/grpc-bur/execute` 與前端保存/載入 |
+| 12.8.2 | gRPC BUR TBConvert 轉碼 | 完成 | `:post-bubi-api:test`、`bootJar` 通過；`TBConvert.jar` 已打入 `BOOT-INF/lib/`，CodeTable 已打入 `BOOT-INF/classes/bur/CodeTable/`，無外部 CodeTable 時可從 JAR 內建 resource 載入 |
 | 13 | 錯誤處理、中文訊息與基本測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 Workspace CRUD 與統一錯誤格式 |
 | 13.1 | HTTP execute 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 HTTP GET、History 與 invalid URL |
 | 13.2 | File upload / form-data 自動化測試 | 完成 | `:post-bubi-api:test` 通過，已覆蓋 `/api/files` 與 HTTP execute form-data file |
@@ -106,6 +110,7 @@
 ### 尚未完成且程式碼尚未完整存在
 
 - gRPC request body 範本產生：目前套用 proto method 時 body 仍預設 `{}`；後續可依 proto message 產生包含欄位骨架的 JSON 範本，降低目標服務因必要業務欄位缺失而 timeout 或回錯。
+- gRPC BUR proto include root：第一階段已完成 API/UI、payload preview 與正式 BUR 轉碼，部署使用只需攜帶 JAR；目前 `GRPC_BUR` 會自動掃描已上傳到 `data/protos` 的 proto 以尋找 `Service/rpcPeriphery`，仍需確認是否要額外支援直接讀取 `data/proto` 作為 include root。
 - 更完整的自動化測試覆蓋：後續可持續擴充前端端對端測試與更多錯誤情境。
 
 ### gRPC 目標服務 reflection 驗證
@@ -683,6 +688,27 @@ curl -s -i http://127.0.0.1:18080/api/health
   - 首頁回應 200，載入新版 assets：`index-ealYFgae.js`、`index-CSMo2uJ4.css`。
   - `/api/health` 回應 200。
   - 驗證用服務已關閉。
+
+### 工作台 UI/UX 全面視覺升級
+
+- 日期：2026-07-10
+- 實作範圍：
+  - 重新整理 Light/Dark 設計 token，補齊品牌、成功、錯誤、資訊、警告、surface、border 與 shadow 層級，避免介面只依賴單一酒紅色。
+  - 品牌區改為緊湊 logo、產品名稱與 workspace 識別；Theme、匯入、匯出與新增 Collection 維持第一視窗可操作。
+  - Collection、Folder、Request tree 加入一致的類型提示、active 狀態與水平三點選單樣式。
+  - Request toolbar、名稱、保存位置、未儲存狀態、tabs 與編輯器重新建立清楚的主次層級。
+  - HTTP method 加入 GET/POST/PUT/PATCH/DELETE 語意色；保存與送出按鈕補上可掃描圖示，並修正長文字欄寬。
+  - Headers、form-data、decoded 設定列統一輸入高度、間距、拖拉列與 icon delete 操作。
+  - Response 區塊改為獨立工作面板，成功/錯誤摘要、空白狀態、JSON viewer 與 decoded results 使用一致樣式。
+  - 補上全域 focus、selection、scrollbar、reduced motion 與 1180/860/620px 響應式規則。
+  - 本階段未變更 HTTP、gRPC、gRPC BUR execute payload、request 保存格式或後端 API。
+- 驗證結果：
+  - `:post-bubi-ui:yarn_build_prod`、`:post-bubi-api:test`、`:post-bubi-api:bootJar` 全部成功。
+  - 最新 executable JAR 已於 `http://127.0.0.1:18080` 啟動。
+  - 瀏覽器驗證 Light/Dark Theme 切換正常，HTTP、gRPC、gRPC BUR toolbar 均無截字。
+  - 1280px、620px、390px viewport 的 `scrollWidth` 均等於 viewport width，沒有水平溢位或按鈕文字重疊。
+  - 從新版 UI 送出 `GET /api/health` 成功，Response 顯示 `200`、耗時、bytes 與 JSON 語法上色。
+  - 瀏覽器 console 無 warning 或 error。
 
 ### JAR 同層檔案 Log 與開關
 

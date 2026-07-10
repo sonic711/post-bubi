@@ -30,3 +30,5 @@ post-bubi:
   storage:
     files-dir: ./data/files
     protos-dir: ./data/protos
+  bur:
+    code-table-dir: ./data/CodeTable
