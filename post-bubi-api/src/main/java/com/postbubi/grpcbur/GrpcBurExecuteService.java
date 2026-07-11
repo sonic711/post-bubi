@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.grpc.GrpcExecuteService;
 import com.postbubi.proto.ProtoStorageService;
 import com.postbubi.web.dto.GrpcBurExecuteRequest;
@@ -49,9 +50,10 @@ public class GrpcBurExecuteService {
         this.objectMapper = objectMapper;
     }
 
-    public GrpcBurExecuteResponse execute(GrpcBurExecuteRequest request) {
+    public GrpcBurExecuteResponse execute(GrpcBurExecuteRequest request, ExecutionHandle execution) {
         ComposedPayload composedPayload = compose(request);
         GrpcExecuteRequest grpcRequest = new GrpcExecuteRequest(
+                request.executionId(),
                 request.host(),
                 request.port(),
                 request.plaintext() == null ? Boolean.TRUE : request.plaintext(),
@@ -63,7 +65,7 @@ public class GrpcBurExecuteService {
                 requestBody(composedPayload.payload()),
                 normalizeTimeout(request.timeoutMillis())
         );
-        GrpcExecuteResponse grpcResponse = grpcExecuteService.execute(grpcRequest);
+        GrpcExecuteResponse grpcResponse = grpcExecuteService.execute(grpcRequest, execution);
         return new GrpcBurExecuteResponse(
                 grpcResponse.statusCode(),
                 grpcResponse.statusDescription(),

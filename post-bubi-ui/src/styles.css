@@ -208,7 +208,8 @@ textarea:focus-visible {
 .danger-button,
 .icon-action-button,
 .icon-danger-button,
-.send-button {
+.send-button,
+.cancel-button {
   border: 0;
   align-items: center;
   border-radius: var(--radius-md);
@@ -233,6 +234,16 @@ textarea:focus-visible {
 .primary-button:active:not(:disabled),
 .send-button:active:not(:disabled) {
   transform: translateY(1px);
+}
+
+.cancel-button {
+  border: 1px solid var(--danger-border);
+  background: var(--surface);
+  color: var(--danger);
+}
+
+.cancel-button:hover:not(:disabled) {
+  background: var(--danger-soft);
 }
 
 .full-button {
@@ -728,15 +739,15 @@ textarea:focus-visible {
 }
 
 .toolbar-http {
-  grid-template-columns: 88px 118px minmax(0, 1fr) 136px 92px;
+  grid-template-columns: 88px 118px minmax(0, 1fr) 136px 92px 92px;
 }
 
 .toolbar-grpc {
-  grid-template-columns: 88px minmax(180px, 0.55fr) minmax(260px, 1fr) 136px 92px;
+  grid-template-columns: 88px minmax(180px, 0.55fr) minmax(260px, 1fr) 136px 92px 92px;
 }
 
 .toolbar-grpc_bur {
-  grid-template-columns: 100px minmax(190px, 0.7fr) minmax(220px, 1fr) 136px 92px;
+  grid-template-columns: 100px minmax(190px, 0.7fr) minmax(220px, 1fr) 136px 92px 92px;
 }
 
 .fixed-method-input {
@@ -1287,6 +1298,12 @@ textarea:disabled {
   gap: 8px;
 }
 
+.settings-pane .field-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .response {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1333,6 +1350,12 @@ textarea:disabled {
 
 .response-summary.pending {
   color: var(--brand-primary);
+}
+
+.response-summary.cancelled {
+  background: var(--warning-soft);
+  border-color: var(--warning);
+  color: var(--warning);
 }
 
 .response-summary.error {
@@ -1640,11 +1663,12 @@ pre {
   .toolbar-http,
   .toolbar-grpc,
   .toolbar-grpc_bur {
-    grid-template-columns: 82px minmax(108px, 0.42fr) minmax(180px, 1fr) 132px 84px;
+    grid-template-columns: 82px minmax(108px, 0.42fr) minmax(180px, 1fr) 132px 84px 84px;
   }
 
   .toolbar .secondary-button,
-  .toolbar .send-button {
+  .toolbar .send-button,
+  .toolbar .cancel-button {
     min-width: 0;
   }
 
@@ -1685,7 +1709,8 @@ pre {
   }
 
   .toolbar .secondary-button,
-  .toolbar .send-button {
+  .toolbar .send-button,
+  .toolbar .cancel-button {
     grid-column: span 1;
   }
 

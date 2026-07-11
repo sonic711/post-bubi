@@ -23,6 +23,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactor
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.web.dto.GrpcExecuteRequest;
 import com.postbubi.web.dto.GrpcExecuteResponse;
 import com.postbubi.web.dto.HttpNameValue;
@@ -45,7 +46,7 @@ public class GrpcExecuteService {
         this.protoDescriptorResolver = protoDescriptorResolver;
     }
 
-    public GrpcExecuteResponse execute(GrpcExecuteRequest request) {
+    public GrpcExecuteResponse execute(GrpcExecuteRequest request, ExecutionHandle execution) {
         String host = requiredText(request.host(), "GRPC_HOST_REQUIRED", "Host 不可空白。");
         int port = normalizePort(request.port());
         int timeoutMillis = normalizeTimeout(request.timeoutMillis());
@@ -55,6 +56,10 @@ public class GrpcExecuteService {
         ManagedChannel channel = createChannel(host, port, request);
         long startNanos = System.nanoTime();
         try {
+            execution.registerCancellationAction(channel::shutdownNow);
+            if (execution.isCancelled()) {
+                return cancelledResponse(startNanos);
+            }
             var grpcMethod = resolveMethod(channel, request, serviceName, methodName);
             DynamicMessage requestMessage = toDynamicMessage(grpcMethod.getInputType(), request.body());
             MethodDescriptor<DynamicMessage, DynamicMessage> methodDescriptor = MethodDescriptor
@@ -81,8 +86,14 @@ public class GrpcExecuteService {
                     ""
             );
         } catch (ApiException exception) {
+            if (execution.isCancelled()) {
+                return cancelledResponse(startNanos);
+            }
             throw exception;
         } catch (StatusRuntimeException exception) {
+            if (execution.isCancelled()) {
+                return cancelledResponse(startNanos);
+            }
             long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
             return new GrpcExecuteResponse(
                     exception.getStatus().getCode().name(),
@@ -93,6 +104,9 @@ public class GrpcExecuteService {
                     exception.getMessage()
             );
         } catch (Exception exception) {
+            if (execution.isCancelled()) {
+                return cancelledResponse(startNanos);
+            }
             throw new ApiException(
                     HttpStatus.BAD_GATEWAY,
                     "GRPC_EXECUTE_FAILED",
@@ -100,8 +114,21 @@ public class GrpcExecuteService {
                     java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
             );
         } finally {
+            execution.clearCancellationAction();
             channel.shutdownNow();
         }
+    }
+
+    private GrpcExecuteResponse cancelledResponse(long startNanos) {
+        long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
+        return new GrpcExecuteResponse(
+                Status.Code.CANCELLED.name(),
+                "請求已由使用者取消。",
+                durationMillis,
+                List.of(),
+                "",
+                "gRPC 請求已取消。"
+        );
     }
 
     private com.google.protobuf.Descriptors.MethodDescriptor resolveMethod(

@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.postbubi.execution.ExecutionCancellationService;
+import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.http.HttpExecuteService;
 import com.postbubi.http.RequestHistoryService;
 import com.postbubi.web.dto.HttpExecuteRequest;
@@ -20,15 +22,26 @@ public class HttpExecuteController {
 
     private final HttpExecuteService httpExecuteService;
     private final RequestHistoryService requestHistoryService;
+    private final ExecutionCancellationService executionCancellationService;
 
-    public HttpExecuteController(HttpExecuteService httpExecuteService, RequestHistoryService requestHistoryService) {
+    public HttpExecuteController(
+            HttpExecuteService httpExecuteService,
+            RequestHistoryService requestHistoryService,
+            ExecutionCancellationService executionCancellationService
+    ) {
         this.httpExecuteService = httpExecuteService;
         this.requestHistoryService = requestHistoryService;
+        this.executionCancellationService = executionCancellationService;
     }
 
     @PostMapping("/execute")
     public HttpExecuteResponse execute(@RequestBody HttpExecuteRequest request) {
-        return httpExecuteService.execute(request);
+        ExecutionHandle execution = executionCancellationService.start(request.executionId());
+        try {
+            return httpExecuteService.execute(request, execution);
+        } finally {
+            executionCancellationService.finish(execution);
+        }
     }
 
     @GetMapping("/history")

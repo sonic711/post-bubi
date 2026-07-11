@@ -257,6 +257,10 @@
           <span class="button-icon send-icon" aria-hidden="true">→</span>
           {{ sending ? '送出中' : '送出' }}
         </button>
+        <button v-if="sending" class="cancel-button" type="button" :disabled="cancelling" @click="cancelCurrentRequest">
+          <span class="button-icon" aria-hidden="true">×</span>
+          {{ cancelling ? '取消中' : '取消' }}
+        </button>
       </header>
 
       <section class="request-meta">
@@ -457,8 +461,9 @@
 
         <div v-if="activeRequestTab === 'settings'" class="settings-pane">
           <label>
-            Timeout
+            Timeout (ms)
             <input v-model.number="timeoutMillis" type="number" min="1" max="300000" />
+            <span class="field-hint">預設 30,000 ms（30 秒），最長 300,000 ms</span>
           </label>
           <label class="check-line">
             <input v-model="followRedirects" type="checkbox" />
@@ -526,7 +531,7 @@
         <pre
           v-if="activeResponseTab === 'body'"
           class="json-viewer"
-          :class="{ 'is-empty': !response && !errorText }"
+          :class="{ 'is-empty': !response && !errorText && !cancellationText }"
           v-html="highlightedResponseBody"
         ></pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
@@ -729,8 +734,11 @@ const deleting = ref(false)
 const deletingCollection = ref(false)
 const deletingFolder = ref(false)
 const sending = ref(false)
+const cancelling = ref(false)
+const activeExecution = ref(null)
 const response = ref(null)
 const errorText = ref('')
+const cancellationText = ref('')
 const workspaceStatus = ref('')
 const historyItems = ref([])
 const themeMode = ref('light')
@@ -811,6 +819,7 @@ const hasUnsavedChanges = computed(() => savedEditorState.value !== snapshotEdit
 
 const responseSummary = computed(() => {
   if (sending.value) return '送出中'
+  if (cancellationText.value) return '已取消'
   if (errorText.value) return '錯誤'
   if (!response.value) return '尚未送出'
   if (requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR') {
@@ -821,11 +830,13 @@ const responseSummary = computed(() => {
 
 const responseSummaryClass = computed(() => ({
   pending: sending.value,
+  cancelled: Boolean(cancellationText.value),
   error: Boolean(errorText.value) || isResponseError(response.value),
   ok: Boolean(response.value) && !errorText.value && !isResponseError(response.value),
 }))
 
 const responseBody = computed(() => {
+  if (cancellationText.value) return cancellationText.value
   if (errorText.value) return errorText.value
   if (!response.value) return '尚未送出 request。'
   if (requestType.value === 'GRPC' || requestType.value === 'GRPC_BUR') return prettyText(response.value.body || response.value.errorMessage)
@@ -902,6 +913,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  activeExecution.value?.controller.abort()
   window.removeEventListener('beforeunload', warnBeforeUnload)
   document.removeEventListener('click', closeTreeMenuOnOutsideClick)
 })
@@ -1382,6 +1394,7 @@ function applyProtoMethod(service, methodDefinition) {
   activeRequestTab.value = 'body'
   response.value = null
   errorText.value = ''
+  cancellationText.value = ''
   workspaceStatus.value = '已套用 Proto method 到 gRPC request'
 }
 
@@ -1686,6 +1699,7 @@ function newDraftRequest(options = {}) {
   grpcBurPreview.value = null
   response.value = null
   errorText.value = ''
+  cancellationText.value = ''
   markEditorSaved()
 }
 
@@ -1782,36 +1796,46 @@ async function sendCurrentRequest() {
 async function sendHttpRequest() {
   sending.value = true
   errorText.value = ''
+  cancellationText.value = ''
   response.value = null
+  const execution = startExecution()
 
   try {
     response.value = await apiJson('/api/http/execute', {
       method: 'POST',
-      body: JSON.stringify(resolveExecutionPayload(executePayload())),
+      signal: execution.controller.signal,
+      body: JSON.stringify(withExecutionId(resolveExecutionPayload(executePayload()), execution.id)),
     })
     await loadHistory()
   } catch (error) {
-    errorText.value = readableError(error)
-    await loadHistory()
+    if (!isExecutionCancelled(error, execution)) {
+      errorText.value = readableError(error)
+      await loadHistory()
+    }
   } finally {
-    sending.value = false
+    finishExecution(execution)
   }
 }
 
 async function sendGrpcRequest() {
   sending.value = true
   errorText.value = ''
+  cancellationText.value = ''
   response.value = null
+  const execution = startExecution()
 
   try {
     response.value = await apiJson('/api/grpc/execute', {
       method: 'POST',
-      body: JSON.stringify(resolveExecutionPayload(grpcExecutePayload())),
+      signal: execution.controller.signal,
+      body: JSON.stringify(withExecutionId(resolveExecutionPayload(grpcExecutePayload()), execution.id)),
     })
   } catch (error) {
-    errorText.value = readableError(error)
+    if (!isExecutionCancelled(error, execution)) {
+      errorText.value = readableError(error)
+    }
   } finally {
-    sending.value = false
+    finishExecution(execution)
   }
 }
 
@@ -1831,19 +1855,77 @@ async function previewGrpcBurRequest() {
 async function sendGrpcBurRequest() {
   sending.value = true
   errorText.value = ''
+  cancellationText.value = ''
   response.value = null
+  const execution = startExecution()
 
   try {
     response.value = await apiJson('/api/grpc-bur/execute', {
       method: 'POST',
-      body: JSON.stringify(resolveExecutionPayload(grpcBurExecutePayload())),
+      signal: execution.controller.signal,
+      body: JSON.stringify(withExecutionId(resolveExecutionPayload(grpcBurExecutePayload()), execution.id)),
     })
     grpcBurPreview.value = response.value.requestPreview || null
   } catch (error) {
-    errorText.value = readableError(error)
+    if (!isExecutionCancelled(error, execution)) {
+      errorText.value = readableError(error)
+    }
   } finally {
+    finishExecution(execution)
+  }
+}
+
+function startExecution() {
+  const execution = {
+    id: window.crypto?.randomUUID?.() || `execution-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    controller: new AbortController(),
+  }
+  activeExecution.value = execution
+  return execution
+}
+
+function withExecutionId(payload, executionId) {
+  return {
+    ...payload,
+    executionId,
+  }
+}
+
+function finishExecution(execution) {
+  if (activeExecution.value?.id === execution.id) {
+    activeExecution.value = null
+    cancelling.value = false
     sending.value = false
   }
+}
+
+async function cancelCurrentRequest() {
+  const execution = activeExecution.value
+  if (!execution || cancelling.value) {
+    return
+  }
+
+  cancelling.value = true
+  try {
+    const result = await apiJson(`/api/executions/${encodeURIComponent(execution.id)}/cancel`, { method: 'POST' })
+    if (result?.cancelled) {
+      cancellationText.value = '請求已由使用者取消。'
+      execution.controller.abort()
+      workspaceStatus.value = '已取消送出中的請求'
+    } else {
+      workspaceStatus.value = '請求已完成，無需取消'
+    }
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    if (activeExecution.value?.id === execution.id) {
+      cancelling.value = false
+    }
+  }
+}
+
+function isExecutionCancelled(error, execution) {
+  return execution.controller.signal.aborted || error?.name === 'AbortError'
 }
 
 function resolveExecutionPayload(payload) {
@@ -1926,6 +2008,7 @@ function loadHistoryItem(item) {
   ignoreSslVerification.value = payload.ignoreSslVerification !== false
   response.value = null
   errorText.value = ''
+  cancellationText.value = ''
   markEditorSaved()
   activeRequestTab.value = 'params'
   workspaceStatus.value = '已載入 History request'
@@ -2115,6 +2198,7 @@ function loadPayloadToEditor(payload) {
   grpcBurPreview.value = null
   response.value = null
   errorText.value = ''
+  cancellationText.value = ''
 }
 
 async function apiJson(path, options = {}) {

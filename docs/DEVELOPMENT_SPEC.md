@@ -193,7 +193,8 @@ HTTP 第一版必須支援：
   - x-www-form-urlencoded
   - form-data
   - file upload
-- Timeout 設定
+- Timeout 設定，預設 `30000` 毫秒（30 秒），可調整範圍為 `1` 至 `300000` 毫秒
+- 送出中的 HTTP、gRPC unary 與 gRPC BUR request 必須提供取消操作；取消時前端停止等待，後端同時關閉對應 HTTP client 或 gRPC channel，避免長時間等待阻塞後續操作，並在 Response Body 保留已取消結果
 - Follow redirects 開關
 - Ignore SSL certificate verification 開關
 - HTTP 新建 Request 預設勾選 Ignore SSL certificate verification；已保存 Request 仍保留各自設定。
@@ -284,6 +285,8 @@ gRPC unary request editor 必須支援：
 - Service 選擇
 - Method 選擇
 - JSON 格式 request body
+- Timeout 設定，預設 `30000` 毫秒（30 秒），可調整範圍為 `1` 至 `300000` 毫秒
+- 送出期間可取消 request
 
 ### 6.4 Response
 
@@ -498,6 +501,9 @@ Environment 變數名稱需符合 `[A-Za-z_][A-Za-z0-9_.-]*`，同一 Environmen
 
 此 API 接收完整 HTTP request 設定，立即執行並回傳 response，不要求 request 已儲存。
 
+- `timeoutMillis` 未提供時預設為 `30000`。
+- 可選 `executionId` 可搭配取消 API 中止進行中的 request。
+
 ### 10.5 gRPC Execute API
 
 - `POST /api/grpc/execute`
@@ -507,6 +513,14 @@ Environment 變數名稱需符合 `[A-Za-z_][A-Za-z0-9_.-]*`，同一 Environmen
 Request 可選欄位：
 
 - `protoId`：指定已匯入的 `.proto`。若提供此欄位，後端必須使用本機 proto descriptor 執行，不依賴 server reflection。
+- `timeoutMillis` 未提供時預設為 `30000`。
+- `executionId` 可搭配取消 API 中止進行中的 request。
+
+### 10.5.1 Execution Cancel API
+
+- `POST /api/executions/{executionId}/cancel`
+
+執行中的 HTTP、gRPC unary 與 gRPC BUR request 會以 `executionId` 註冊。API 回傳 `cancelled: true` 時，後端已要求關閉對應執行資源；若 request 已完成，則回傳 `cancelled: false`。
 
 ### 10.6 File API
 

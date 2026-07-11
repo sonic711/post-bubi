@@ -2,6 +2,14 @@ package com.postbubi.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -98,6 +106,44 @@ class HttpExecuteIntegrationTest {
         assertThat(error.path("code").asText()).isEqualTo("HTTP_URL_INVALID");
         assertThat(error.path("message").asText()).isEqualTo("URL 必須包含 scheme 與 host，例如 http://localhost:18080/api/health。");
         assertThat(error.path("details").isEmpty()).isTrue();
+    }
+
+    @Test
+    void cancelsRunningHttpRequestBeforeConfiguredTimeout() throws Exception {
+        CountDownLatch requestStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try (ServerSocket targetServer = new ServerSocket(0)) {
+            executor.submit(() -> {
+                try (Socket socket = targetServer.accept()) {
+                    requestStarted.countDown();
+                    socket.getInputStream().read();
+                    Thread.sleep(TimeUnit.SECONDS.toMillis(10));
+                }
+                return null;
+            });
+
+            String executionId = "http-cancel-test";
+            Future<ResponseEntity<String>> execution = executor.submit(() -> postJson("/api/http/execute", """
+                    {
+                      "executionId": "%s",
+                      "method": "GET",
+                      "url": "http://127.0.0.1:%d/slow",
+                      "bodyType": "none",
+                      "timeoutMillis": 30000
+                    }
+                    """.formatted(executionId, targetServer.getLocalPort())));
+
+            assertThat(requestStarted.await(3, TimeUnit.SECONDS)).isTrue();
+            ResponseEntity<String> cancelResponse = postJson("/api/executions/" + executionId + "/cancel", "");
+            assertThat(cancelResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(cancelResponse.getBody()).path("cancelled").asBoolean()).isTrue();
+
+            ResponseEntity<String> response = execution.get(5, TimeUnit.SECONDS);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(objectMapper.readTree(response.getBody()).path("code").asText()).isEqualTo("HTTP_REQUEST_CANCELLED");
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private ResponseEntity<String> postJson(String path, String body) {

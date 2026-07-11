@@ -1,6 +1,7 @@
 package com.postbubi.web.dto;
 
 public record GrpcBurExecuteRequest(
+        String executionId,
         String host,
         Integer port,
         Integer timeoutMillis,

@@ -36,6 +36,11 @@ import org.springframework.util.MultiValueMap;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -187,6 +192,47 @@ class GrpcExecuteIntegrationTest {
         assertThat(payload.path("body").asText()).contains("\"text\": \"echo:proto\"");
     }
 
+    @Test
+    void cancelsRunningUnaryGrpcMethodBeforeConfiguredTimeout() throws Exception {
+        Descriptors.FileDescriptor fileDescriptor = echoFileDescriptor();
+        Descriptors.ServiceDescriptor serviceDescriptor = fileDescriptor.findServiceByName("EchoService");
+        Descriptors.MethodDescriptor echoMethod = serviceDescriptor.findMethodByName(METHOD_NAME);
+        CountDownLatch invocationStarted = new CountDownLatch(1);
+        grpcServer = NettyServerBuilder.forPort(0)
+                .addService(waitingEchoService(fileDescriptor, echoMethod, invocationStarted))
+                .addService(ProtoReflectionService.newInstance())
+                .build()
+                .start();
+
+        String executionId = "grpc-cancel-test";
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ResponseEntity<String>> execution = executor.submit(() -> postJson("/api/grpc/execute", """
+                    {
+                      "executionId": "%s",
+                      "host": "127.0.0.1",
+                      "port": %d,
+                      "plaintext": true,
+                      "serviceName": "%s",
+                      "methodName": "%s",
+                      "body": "{\\"text\\":\\"wait\\"}",
+                      "timeoutMillis": 30000
+                    }
+                    """.formatted(executionId, grpcServer.getPort(), SERVICE_NAME, METHOD_NAME)));
+
+            assertThat(invocationStarted.await(3, TimeUnit.SECONDS)).isTrue();
+            ResponseEntity<String> cancelResponse = postJson("/api/executions/" + executionId + "/cancel", "");
+            assertThat(cancelResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(cancelResponse.getBody()).path("cancelled").asBoolean()).isTrue();
+
+            ResponseEntity<String> response = execution.get(5, TimeUnit.SECONDS);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(response.getBody()).path("statusCode").asText()).isEqualTo("CANCELLED");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private ServerServiceDefinition echoService(
             Descriptors.FileDescriptor fileDescriptor,
             Descriptors.MethodDescriptor echoMethod
@@ -213,6 +259,27 @@ class GrpcExecuteIntegrationTest {
                     observer.onNext(response);
                     observer.onCompleted();
                 }))
+                .build();
+    }
+
+    private ServerServiceDefinition waitingEchoService(
+            Descriptors.FileDescriptor fileDescriptor,
+            Descriptors.MethodDescriptor echoMethod,
+            CountDownLatch invocationStarted
+    ) {
+        MethodDescriptor<DynamicMessage, DynamicMessage> grpcMethod = MethodDescriptor
+                .<DynamicMessage, DynamicMessage>newBuilder()
+                .setType(MethodDescriptor.MethodType.UNARY)
+                .setFullMethodName(MethodDescriptor.generateFullMethodName(SERVICE_NAME, METHOD_NAME))
+                .setRequestMarshaller(ProtoUtils.marshaller(DynamicMessage.getDefaultInstance(echoMethod.getInputType())))
+                .setResponseMarshaller(ProtoUtils.marshaller(DynamicMessage.getDefaultInstance(echoMethod.getOutputType())))
+                .build();
+        ServiceDescriptor grpcService = ServiceDescriptor.newBuilder(SERVICE_NAME)
+                .setSchemaDescriptor((ProtoFileDescriptorSupplier) () -> fileDescriptor)
+                .addMethod(grpcMethod)
+                .build();
+        return ServerServiceDefinition.builder(grpcService)
+                .addMethod(grpcMethod, ServerCalls.asyncUnaryCall((request, observer) -> invocationStarted.countDown()))
                 .build();
     }
 

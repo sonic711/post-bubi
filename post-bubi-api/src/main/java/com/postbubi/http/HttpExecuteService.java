@@ -33,6 +33,7 @@ import org.apache.hc.core5.util.Timeout;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.storage.FileStorageService;
 import com.postbubi.web.dto.HttpExecuteRequest;
 import com.postbubi.web.dto.HttpExecuteResponse;
@@ -55,7 +56,7 @@ public class HttpExecuteService {
         this.requestHistoryService = requestHistoryService;
     }
 
-    public HttpExecuteResponse execute(HttpExecuteRequest request) {
+    public HttpExecuteResponse execute(HttpExecuteRequest request, ExecutionHandle execution) {
         String method = normalizeMethod(request.method());
         URI uri = buildUri(request.url(), request.params());
         int timeoutMillis = normalizeTimeout(request.timeoutMillis());
@@ -72,6 +73,8 @@ public class HttpExecuteService {
 
         long startNanos = System.nanoTime();
         try (CloseableHttpClient client = createClient(Boolean.TRUE.equals(request.ignoreSslVerification()), requestConfig)) {
+            execution.registerCancellationAction(() -> closeQuietly(client));
+            throwIfCancelled(execution);
             HttpExecuteResponse executeResponse = client.execute(httpRequest, response -> {
                 byte[] bodyBytes = readBody(response.getEntity());
                 long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
@@ -88,8 +91,13 @@ public class HttpExecuteService {
             requestHistoryService.record(request, executeResponse, null);
             return executeResponse;
         } catch (ApiException exception) {
+            recordCancellationIfNeeded(request, execution);
             throw exception;
         } catch (Exception exception) {
+            if (execution.isCancelled()) {
+                requestHistoryService.record(request, null, "HTTP 請求已由使用者取消。");
+                throw cancellationException();
+            }
             requestHistoryService.record(request, null, exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage());
             throw new ApiException(
                     HttpStatus.BAD_GATEWAY,
@@ -98,6 +106,30 @@ public class HttpExecuteService {
                     java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
             );
         }
+    }
+
+    private void throwIfCancelled(ExecutionHandle execution) {
+        if (execution.isCancelled()) {
+            throw cancellationException();
+        }
+    }
+
+    private void recordCancellationIfNeeded(HttpExecuteRequest request, ExecutionHandle execution) {
+        if (execution.isCancelled()) {
+            requestHistoryService.record(request, null, "HTTP 請求已由使用者取消。");
+        }
+    }
+
+    private void closeQuietly(CloseableHttpClient client) {
+        try {
+            client.close();
+        } catch (IOException ignored) {
+            // The execution thread will handle the original cancellation result.
+        }
+    }
+
+    private ApiException cancellationException() {
+        return new ApiException(HttpStatus.CONFLICT, "HTTP_REQUEST_CANCELLED", "HTTP 請求已取消。");
     }
 
     private String normalizeMethod(String method) {
@@ -186,6 +218,7 @@ public class HttpExecuteService {
     private CloseableHttpClient createClient(boolean ignoreSslVerification, RequestConfig requestConfig) throws Exception {
         if (!ignoreSslVerification) {
             return HttpClients.custom()
+                    .disableAutomaticRetries()
                     .setDefaultRequestConfig(requestConfig)
                     .build();
         }
@@ -202,6 +235,7 @@ public class HttpExecuteService {
                 .build();
 
         return HttpClients.custom()
+                .disableAutomaticRetries()
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig)
                 .build();

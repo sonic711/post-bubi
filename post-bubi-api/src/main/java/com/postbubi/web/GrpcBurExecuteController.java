@@ -5,6 +5,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.postbubi.execution.ExecutionCancellationService;
+import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.grpcbur.GrpcBurExecuteService;
 import com.postbubi.web.dto.GrpcBurExecuteRequest;
 import com.postbubi.web.dto.GrpcBurExecuteResponse;
@@ -14,14 +16,24 @@ import com.postbubi.web.dto.GrpcBurExecuteResponse;
 public class GrpcBurExecuteController {
 
     private final GrpcBurExecuteService grpcBurExecuteService;
+    private final ExecutionCancellationService executionCancellationService;
 
-    public GrpcBurExecuteController(GrpcBurExecuteService grpcBurExecuteService) {
+    public GrpcBurExecuteController(
+            GrpcBurExecuteService grpcBurExecuteService,
+            ExecutionCancellationService executionCancellationService
+    ) {
         this.grpcBurExecuteService = grpcBurExecuteService;
+        this.executionCancellationService = executionCancellationService;
     }
 
     @PostMapping("/execute")
     public GrpcBurExecuteResponse execute(@RequestBody GrpcBurExecuteRequest request) {
-        return grpcBurExecuteService.execute(request);
+        ExecutionHandle execution = executionCancellationService.start(request.executionId());
+        try {
+            return grpcBurExecuteService.execute(request, execution);
+        } finally {
+            executionCancellationService.finish(execution);
+        }
     }
 
     @PostMapping("/preview")
