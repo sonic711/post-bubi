@@ -144,7 +144,7 @@ textarea:focus-visible {
   border-right: 1px solid var(--border);
   background: var(--surface);
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   height: 100vh;
   overflow: hidden;
   padding: 14px;
@@ -374,6 +374,51 @@ textarea:focus-visible {
 
 .import-button input {
   display: none;
+}
+
+.environment-panel {
+  border-bottom: 1px solid var(--border-subtle);
+  margin: 0 -14px;
+  padding: 12px 14px 14px;
+}
+
+.environment-panel .section-title {
+  margin-bottom: 7px;
+}
+
+.environment-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  gap: 6px;
+}
+
+.environment-controls select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 0 7px;
+}
+
+.environment-controls .icon-action-button {
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+}
+
+.environment-summary {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.environment-summary code,
+.environment-modal code {
+  color: var(--brand-primary);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 .sidebar-section {
@@ -1336,6 +1381,105 @@ textarea:disabled {
   text-align: left;
 }
 
+.modal-backdrop {
+  align-items: center;
+  background: rgba(15, 18, 20, 0.48);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 100;
+}
+
+.environment-modal {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 16px;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 36px));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-medium);
+  padding: 20px;
+}
+
+.environment-modal-head {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.environment-modal-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.environment-modal-head p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.environment-modal-head .icon-action-button {
+  width: 30px;
+  height: 30px;
+  font-size: 20px;
+}
+
+.environment-name-field {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.environment-name-field input,
+.environment-variable-row input {
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+}
+
+.environment-variable-editor {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.environment-variable-header,
+.environment-variable-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.42fr) minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.environment-variable-header {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.environment-modal-actions {
+  align-items: center;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 14px;
+}
+
 .history-item:hover {
   background: var(--surface-hover);
 }
@@ -1521,7 +1665,7 @@ pre {
   }
 
   .sidebar {
-    grid-template-rows: auto auto minmax(120px, 26vh) auto;
+    grid-template-rows: auto auto auto minmax(120px, 26vh) auto;
     height: auto;
     max-height: 52vh;
     border-right: 0;
@@ -1570,11 +1714,15 @@ pre {
     grid-column: 2 / -1;
     text-align: left;
   }
+
+  .environment-modal {
+    max-height: calc(100vh - 28px);
+  }
 }
 
 @media (max-width: 620px) {
   .sidebar {
-    max-height: 58vh;
+    max-height: none;
   }
 
   .sidebar-head {
@@ -1642,6 +1790,38 @@ pre {
 
   .icon-danger-button {
     justify-self: end;
+  }
+
+  .environment-variable-header {
+    display: none;
+  }
+
+  .environment-variable-row {
+    grid-template-columns: 1fr;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 10px;
+  }
+
+  .environment-variable-row .icon-danger-button {
+    justify-self: end;
+  }
+
+  .environment-modal {
+    gap: 14px;
+    max-height: calc(100vh - 16px);
+    padding: 16px;
+  }
+
+  .environment-modal-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .environment-modal-actions > span {
+    display: none;
+  }
+
+  .environment-modal-actions .danger-button {
+    grid-column: 1 / -1;
   }
 
   .history-item {

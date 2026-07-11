@@ -62,6 +62,12 @@ class WorkspaceArchiveIntegrationTest {
 
     @Test
     void exportsAndImportsWorkspaceZipWithFolderRequestAndFileReference() throws Exception {
+        postJson("/api/environments", """
+                {
+                  "name": "SIT",
+                  "variables": [{"key": "baseUrl", "value": "https://sit.example.internal"}]
+                }
+                """);
         long collectionId = postJson("/api/collections", """
                 {
                   "name": "匯出測試 Collection",
@@ -113,12 +119,17 @@ class WorkspaceArchiveIntegrationTest {
                 "files/" + fileId + "-archive-source.txt",
                 "protos/" + protoId + "-archive.proto"
         );
+        JsonNode archive = collectionJson(zipBytes);
+        assertThat(archive.path("schemaVersion").asInt()).isEqualTo(2);
+        assertThat(archive.path("environments")).hasSize(1);
+        assertThat(archive.path("environments").get(0).path("name").asText()).isEqualTo("SIT");
 
         JsonNode importResult = objectMapper.readTree(importWorkspace(zipBytes).getBody());
         assertThat(importResult.path("collections").asInt()).isEqualTo(1);
         assertThat(importResult.path("folders").asInt()).isEqualTo(1);
         assertThat(importResult.path("requests").asInt()).isEqualTo(1);
         assertThat(importResult.path("protos").asInt()).isEqualTo(1);
+        assertThat(importResult.path("environments").asInt()).isEqualTo(1);
 
         JsonNode collections = objectMapper.readTree(restTemplate.getForEntity("/api/collections", String.class).getBody());
         assertThat(collections).hasSize(2);
@@ -138,6 +149,10 @@ class WorkspaceArchiveIntegrationTest {
         JsonNode protos = objectMapper.readTree(restTemplate.getForEntity("/api/protos", String.class).getBody());
         assertThat(protos).hasSize(2);
         assertThat(protos.get(1).path("filename").asText()).isEqualTo("archive.proto");
+
+        JsonNode environments = objectMapper.readTree(restTemplate.getForEntity("/api/environments", String.class).getBody());
+        assertThat(environments).hasSize(2);
+        assertThat(environments.get(1).path("name").asText()).isEqualTo("SIT 匯入 2");
     }
 
     @Test
@@ -149,6 +164,25 @@ class WorkspaceArchiveIntegrationTest {
         JsonNode error = objectMapper.readTree(response.getBody());
         assertThat(error.path("code").asText()).isEqualTo("WORKSPACE_IMPORT_PATH_INVALID");
         assertThat(error.path("message").asText()).isEqualTo("ZIP 內含不合法路徑。");
+    }
+
+    @Test
+    void importsLegacySchemaV1WorkspaceWithoutEnvironments() throws Exception {
+        byte[] zipBytes = zipWithCollectionJson("""
+                {
+                  "schemaVersion": 1,
+                  "exportedAt": "2026-07-11T00:00:00Z",
+                  "collections": [{"id": 1, "name": "Legacy", "description": "v1"}],
+                  "folders": [],
+                  "requests": [],
+                  "files": [],
+                  "protos": []
+                }
+                """);
+
+        JsonNode result = objectMapper.readTree(importWorkspace(zipBytes).getBody());
+        assertThat(result.path("collections").asInt()).isEqualTo(1);
+        assertThat(result.path("environments").asInt()).isZero();
     }
 
     private JsonNode postJson(String path, String body) throws Exception {
@@ -203,11 +237,33 @@ class WorkspaceArchiveIntegrationTest {
         return entries;
     }
 
+    private JsonNode collectionJson(byte[] zipBytes) throws Exception {
+        try (ZipInputStream zipInputStream = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                if ("collection.json".equals(entry.getName())) {
+                    return objectMapper.readTree(zipInputStream.readAllBytes());
+                }
+            }
+        }
+        throw new IllegalStateException("collection.json 不存在");
+    }
+
     private byte[] zipWithUnsafePath() throws Exception {
         java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
         try (java.util.zip.ZipOutputStream zipOutputStream = new java.util.zip.ZipOutputStream(outputStream)) {
             zipOutputStream.putNextEntry(new ZipEntry("../collection.json"));
             zipOutputStream.write("{}".getBytes());
+            zipOutputStream.closeEntry();
+        }
+        return outputStream.toByteArray();
+    }
+
+    private byte[] zipWithCollectionJson(String collectionJson) throws Exception {
+        java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zipOutputStream = new java.util.zip.ZipOutputStream(outputStream)) {
+            zipOutputStream.putNextEntry(new ZipEntry("collection.json"));
+            zipOutputStream.write(collectionJson.getBytes());
             zipOutputStream.closeEntry();
         }
         return outputStream.toByteArray();

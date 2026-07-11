@@ -45,6 +45,26 @@
           </label>
         </div>
       </div>
+      <section class="environment-panel" aria-label="Environment">
+        <div class="section-title">
+          <span>Environment</span>
+          <span class="section-count">{{ activeEnvironmentVariableCount }}</span>
+        </div>
+        <div class="environment-controls">
+          <select v-model="activeEnvironmentId" aria-label="目前 Environment" @change="selectActiveEnvironment">
+            <option value="">未選擇 Environment</option>
+            <option v-for="environment in environments" :key="environment.id" :value="String(environment.id)">
+              {{ environment.name }}
+            </option>
+          </select>
+          <button class="icon-action-button" type="button" title="新增 Environment" aria-label="新增 Environment" @click="startCreateEnvironment">＋</button>
+          <button class="icon-action-button" type="button" title="管理 Environment 變數" aria-label="管理 Environment 變數" :disabled="!activeEnvironment" @click="openEnvironmentManager">⚙</button>
+        </div>
+        <p v-if="activeEnvironment" class="environment-summary">
+          {{ activeEnvironment.name }}：送出時替換 <code v-text="'{{variable}}'"></code>
+        </p>
+        <p v-else class="environment-summary empty-text">未選擇 Environment；含變數的 Request 送出前會提示。</p>
+      </section>
       <section class="sidebar-section tree">
         <div class="section-title">
           <span>Collections</span>
@@ -446,7 +466,7 @@
           </label>
           <label class="check-line">
             <input v-model="ignoreSslVerification" type="checkbox" />
-            Ignore SSL certificate verification
+            略過 HTTPS 憑證驗證
           </label>
           <label v-if="requestType === 'GRPC'" class="check-line">
             <input v-model="grpcPlaintext" type="checkbox" />
@@ -588,6 +608,44 @@
         <pre v-else>{{ responseInfo }}</pre>
       </section>
     </section>
+    <div v-if="showEnvironmentManager" class="modal-backdrop" @click.self="closeEnvironmentManager">
+      <section class="environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-modal-title">
+        <header class="environment-modal-head">
+          <div>
+            <h2 id="environment-modal-title">Environment</h2>
+            <p>Request 內的 <code v-text="'{{variable}}'"></code> 會在送出時替換。</p>
+          </div>
+          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeEnvironmentManager">×</button>
+        </header>
+        <label class="environment-name-field">
+          Environment 名稱
+          <input v-model="environmentDraftName" aria-label="Environment 名稱" placeholder="例如 SIT、UAT、Production" />
+        </label>
+        <div class="environment-variable-editor">
+          <div class="environment-variable-header">
+            <span>Variable</span>
+            <span>Value</span>
+            <span></span>
+          </div>
+          <div v-for="variable in environmentDraftVariables" :key="variable.id" class="environment-variable-row">
+            <input v-model="variable.name" aria-label="Variable 名稱" placeholder="baseUrl" />
+            <input v-model="variable.value" aria-label="Variable 值" placeholder="https://example.internal" />
+            <button class="icon-danger-button" type="button" title="刪除變數" aria-label="刪除變數" @click="removeEnvironmentVariable(variable.id)">×</button>
+          </div>
+          <button class="secondary-button add-row-button" type="button" @click="addEnvironmentVariable"><span aria-hidden="true">＋</span>新增變數</button>
+        </div>
+        <footer class="environment-modal-actions">
+          <button v-if="environmentDraftId" class="danger-button" type="button" :disabled="deletingEnvironment || savingEnvironment" @click="deleteEnvironment">
+            刪除 Environment
+          </button>
+          <span></span>
+          <button class="secondary-button" type="button" :disabled="savingEnvironment" @click="closeEnvironmentManager">取消</button>
+          <button class="primary-button" type="button" :disabled="savingEnvironment" @click="saveEnvironment">
+            {{ savingEnvironment ? '儲存中' : '儲存 Environment' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -612,6 +670,14 @@ const responseTabs = [
 
 const collections = ref([])
 const protos = ref([])
+const environments = ref([])
+const activeEnvironmentId = ref('')
+const showEnvironmentManager = ref(false)
+const environmentDraftId = ref(null)
+const environmentDraftName = ref('')
+const environmentDraftVariables = ref([newNameValueRow()])
+const savingEnvironment = ref(false)
+const deletingEnvironment = ref(false)
 const selectedCollectionId = ref(null)
 const selectedFolderId = ref(null)
 const selectedRequestId = ref(null)
@@ -653,7 +719,7 @@ const formDataParts = ref([newFormDataPart()])
 const responseDecodeRows = ref([newNameValueRow()])
 const timeoutMillis = ref(30000)
 const followRedirects = ref(true)
-const ignoreSslVerification = ref(false)
+const ignoreSslVerification = ref(true)
 const activeRequestTab = ref('params')
 const activeResponseTab = ref('body')
 const loadingCollections = ref(false)
@@ -815,6 +881,14 @@ const selectedContextLabel = computed(() => {
   return collection.name
 })
 
+const activeEnvironment = computed(() => {
+  return environments.value.find((environment) => String(environment.id) === String(activeEnvironmentId.value)) || null
+})
+
+const activeEnvironmentVariableCount = computed(() => {
+  return (activeEnvironment.value?.variables || []).filter((variable) => variable.key?.trim()).length
+})
+
 initializeTheme()
 markEditorSaved()
 
@@ -824,6 +898,7 @@ onMounted(() => {
   loadCollections()
   loadHistory()
   loadProtos()
+  loadEnvironments()
 })
 
 onBeforeUnmount(() => {
@@ -840,6 +915,128 @@ function setTheme(theme) {
   themeMode.value = theme === 'dark' ? 'dark' : 'light'
   document.documentElement.dataset.theme = themeMode.value
   window.localStorage.setItem('post-bubi-theme', themeMode.value)
+}
+
+async function loadEnvironments() {
+  try {
+    environments.value = await apiJson('/api/environments')
+    const savedId = window.localStorage.getItem('post-bubi-active-environment-id') || ''
+    const currentId = String(activeEnvironmentId.value || savedId)
+    const selected = environments.value.find((environment) => String(environment.id) === currentId)
+    activeEnvironmentId.value = selected ? String(selected.id) : (environments.value[0] ? String(environments.value[0].id) : '')
+    persistActiveEnvironment()
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+function selectActiveEnvironment() {
+  persistActiveEnvironment()
+  if (activeEnvironment.value) {
+    workspaceStatus.value = `目前 Environment：${activeEnvironment.value.name}`
+  }
+}
+
+function persistActiveEnvironment() {
+  if (activeEnvironmentId.value) {
+    window.localStorage.setItem('post-bubi-active-environment-id', String(activeEnvironmentId.value))
+  } else {
+    window.localStorage.removeItem('post-bubi-active-environment-id')
+  }
+}
+
+function startCreateEnvironment() {
+  environmentDraftId.value = null
+  environmentDraftName.value = ''
+  environmentDraftVariables.value = [newNameValueRow()]
+  showEnvironmentManager.value = true
+}
+
+function openEnvironmentManager() {
+  if (!activeEnvironment.value) {
+    startCreateEnvironment()
+    return
+  }
+  environmentDraftId.value = activeEnvironment.value.id
+  environmentDraftName.value = activeEnvironment.value.name
+  environmentDraftVariables.value = (activeEnvironment.value.variables || []).map((variable) => newNameValueRow(variable.key, variable.value))
+  if (!environmentDraftVariables.value.length) {
+    environmentDraftVariables.value = [newNameValueRow()]
+  }
+  showEnvironmentManager.value = true
+}
+
+function closeEnvironmentManager() {
+  if (savingEnvironment.value || deletingEnvironment.value) {
+    return
+  }
+  showEnvironmentManager.value = false
+}
+
+function addEnvironmentVariable() {
+  environmentDraftVariables.value.push(newNameValueRow())
+}
+
+function removeEnvironmentVariable(id) {
+  environmentDraftVariables.value = environmentDraftVariables.value.filter((variable) => variable.id !== id)
+  if (!environmentDraftVariables.value.length) {
+    addEnvironmentVariable()
+  }
+}
+
+async function saveEnvironment() {
+  const name = environmentDraftName.value.trim()
+  if (!name) {
+    workspaceStatus.value = 'Environment 名稱不可空白'
+    return
+  }
+
+  savingEnvironment.value = true
+  try {
+    const payload = {
+      name,
+      variables: environmentDraftVariables.value
+        .map((variable) => ({ key: variable.name.trim(), value: variable.value || '' }))
+        .filter((variable) => variable.key),
+    }
+    const saved = environmentDraftId.value
+      ? await apiJson(`/api/environments/${environmentDraftId.value}`, { method: 'PUT', body: JSON.stringify(payload) })
+      : await apiJson('/api/environments', { method: 'POST', body: JSON.stringify(payload) })
+    await loadEnvironments()
+    activeEnvironmentId.value = String(saved.id)
+    persistActiveEnvironment()
+    showEnvironmentManager.value = false
+    workspaceStatus.value = `Environment 已儲存：${saved.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    savingEnvironment.value = false
+  }
+}
+
+async function deleteEnvironment() {
+  if (!environmentDraftId.value) {
+    return
+  }
+  const confirmed = window.confirm(`確定刪除 Environment「${environmentDraftName.value}」？Request 內容不會被修改。`)
+  if (!confirmed) {
+    return
+  }
+
+  deletingEnvironment.value = true
+  try {
+    await apiJson(`/api/environments/${environmentDraftId.value}`, { method: 'DELETE' })
+    if (String(activeEnvironmentId.value) === String(environmentDraftId.value)) {
+      activeEnvironmentId.value = ''
+    }
+    await loadEnvironments()
+    showEnvironmentManager.value = false
+    workspaceStatus.value = 'Environment 已刪除'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    deletingEnvironment.value = false
+  }
 }
 
 function formatActiveJson(options = {}) {
@@ -1242,7 +1439,8 @@ async function importWorkspace(event) {
     await loadCollections()
     newDraftRequest({ force: true })
     await loadProtos()
-    workspaceStatus.value = `匯入完成：${payload.collections} 個 Collection、${payload.requests} 個 Request、${payload.protos || 0} 個 Proto`
+    await loadEnvironments()
+    workspaceStatus.value = `匯入完成：${payload.collections} 個 Collection、${payload.requests} 個 Request、${payload.protos || 0} 個 Proto、${payload.environments || 0} 個 Environment`
   } catch (error) {
     workspaceStatus.value = readableError(error)
   } finally {
@@ -1484,7 +1682,7 @@ function newDraftRequest(options = {}) {
   responseDecodeRows.value = [newNameValueRow()]
   timeoutMillis.value = 30000
   followRedirects.value = true
-  ignoreSslVerification.value = false
+  ignoreSslVerification.value = true
   grpcBurPreview.value = null
   response.value = null
   errorText.value = ''
@@ -1571,6 +1769,7 @@ async function deleteSelectedRequest() {
 }
 
 async function sendCurrentRequest() {
+  activeResponseTab.value = 'body'
   if (requestType.value === 'GRPC_BUR') {
     await sendGrpcBurRequest()
   } else if (requestType.value === 'GRPC') {
@@ -1588,7 +1787,7 @@ async function sendHttpRequest() {
   try {
     response.value = await apiJson('/api/http/execute', {
       method: 'POST',
-      body: JSON.stringify(executePayload()),
+      body: JSON.stringify(resolveExecutionPayload(executePayload())),
     })
     await loadHistory()
   } catch (error) {
@@ -1607,7 +1806,7 @@ async function sendGrpcRequest() {
   try {
     response.value = await apiJson('/api/grpc/execute', {
       method: 'POST',
-      body: JSON.stringify(grpcExecutePayload()),
+      body: JSON.stringify(resolveExecutionPayload(grpcExecutePayload())),
     })
   } catch (error) {
     errorText.value = readableError(error)
@@ -1621,7 +1820,7 @@ async function previewGrpcBurRequest() {
   try {
     grpcBurPreview.value = await apiJson('/api/grpc-bur/preview', {
       method: 'POST',
-      body: JSON.stringify(grpcBurExecutePayload()),
+      body: JSON.stringify(resolveExecutionPayload(grpcBurExecutePayload())),
     })
     workspaceStatus.value = 'gRPC BUR payload preview 已產生'
   } catch (error) {
@@ -1637,7 +1836,7 @@ async function sendGrpcBurRequest() {
   try {
     response.value = await apiJson('/api/grpc-bur/execute', {
       method: 'POST',
-      body: JSON.stringify(grpcBurExecutePayload()),
+      body: JSON.stringify(resolveExecutionPayload(grpcBurExecutePayload())),
     })
     grpcBurPreview.value = response.value.requestPreview || null
   } catch (error) {
@@ -1645,6 +1844,54 @@ async function sendGrpcBurRequest() {
   } finally {
     sending.value = false
   }
+}
+
+function resolveExecutionPayload(payload) {
+  const variables = new Map(
+    (activeEnvironment.value?.variables || [])
+      .filter((variable) => variable?.key?.trim())
+      .map((variable) => [variable.key.trim(), variable.value || '']),
+  )
+  const unresolved = new Set()
+  const circular = new Set()
+
+  const resolveText = (value, resolving = new Set()) => String(value).replace(/{{\s*([^{}]+?)\s*}}/g, (placeholder, rawKey) => {
+    const key = rawKey.trim()
+    if (!variables.has(key)) {
+      unresolved.add(key)
+      return placeholder
+    }
+    if (resolving.has(key)) {
+      circular.add(key)
+      return placeholder
+    }
+    const nextResolving = new Set(resolving)
+    nextResolving.add(key)
+    return resolveText(variables.get(key), nextResolving)
+  })
+
+  const resolveValue = (value) => {
+    if (typeof value === 'string') {
+      return resolveText(value)
+    }
+    if (Array.isArray(value)) {
+      return value.map(resolveValue)
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveValue(item)]))
+    }
+    return value
+  }
+
+  const resolved = resolveValue(payload)
+  if (circular.size) {
+    throw new Error(`ENVIRONMENT_VARIABLE_CIRCULAR: Environment 變數循環引用：${[...circular].join(', ')}`)
+  }
+  if (unresolved.size) {
+    const environmentName = activeEnvironment.value?.name || '未選擇 Environment'
+    throw new Error(`ENVIRONMENT_VARIABLE_NOT_FOUND: ${environmentName} 找不到變數：${[...unresolved].join(', ')}`)
+  }
+  return resolved
 }
 
 async function loadHistory() {
@@ -1676,7 +1923,7 @@ function loadHistoryItem(item) {
   responseDecodeRows.value = restoreNameValueRows(payload.responseDecodeRows)
   timeoutMillis.value = payload.timeoutMillis || 30000
   followRedirects.value = payload.followRedirects !== false
-  ignoreSslVerification.value = payload.ignoreSslVerification === true
+  ignoreSslVerification.value = payload.ignoreSslVerification !== false
   response.value = null
   errorText.value = ''
   markEditorSaved()
@@ -1842,7 +2089,7 @@ function loadPayloadToEditor(payload) {
   responseDecodeRows.value = restoreNameValueRows(payload.responseDecodeRows)
   timeoutMillis.value = payload.timeoutMillis || 30000
   followRedirects.value = payload.followRedirects !== false
-  ignoreSslVerification.value = payload.ignoreSslVerification === true
+  ignoreSslVerification.value = payload.ignoreSslVerification !== false
   grpcHost.value = payload.grpcHost || 'localhost'
   grpcPort.value = payload.grpcPort || 50051
   grpcServiceName.value = payload.grpcServiceName || ''

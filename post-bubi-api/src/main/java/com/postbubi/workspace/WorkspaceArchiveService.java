@@ -30,6 +30,7 @@ import com.postbubi.proto.ProtoStorageService;
 import com.postbubi.repository.CollectionRepository;
 import com.postbubi.repository.FolderRepository;
 import com.postbubi.repository.RequestRepository;
+import com.postbubi.service.EnvironmentService;
 import com.postbubi.storage.FileStorageService;
 import com.postbubi.web.dto.FileUploadResponse;
 import com.postbubi.web.error.ApiException;
@@ -37,12 +38,13 @@ import com.postbubi.web.error.ApiException;
 @Service
 public class WorkspaceArchiveService {
 
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
     private static final String COLLECTION_JSON = "collection.json";
 
     private final CollectionRepository collectionRepository;
     private final FolderRepository folderRepository;
     private final RequestRepository requestRepository;
+    private final EnvironmentService environmentService;
     private final FileStorageService fileStorageService;
     private final ProtoStorageService protoStorageService;
     private final ObjectMapper objectMapper;
@@ -51,6 +53,7 @@ public class WorkspaceArchiveService {
             CollectionRepository collectionRepository,
             FolderRepository folderRepository,
             RequestRepository requestRepository,
+            EnvironmentService environmentService,
             FileStorageService fileStorageService,
             ProtoStorageService protoStorageService,
             ObjectMapper objectMapper
@@ -58,6 +61,7 @@ public class WorkspaceArchiveService {
         this.collectionRepository = collectionRepository;
         this.folderRepository = folderRepository;
         this.requestRepository = requestRepository;
+        this.environmentService = environmentService;
         this.fileStorageService = fileStorageService;
         this.protoStorageService = protoStorageService;
         this.objectMapper = objectMapper;
@@ -109,7 +113,7 @@ public class WorkspaceArchiveService {
 
         ZipContent zipContent = readZip(file);
         Archive archive = readArchive(zipContent.entries().get(COLLECTION_JSON));
-        if (archive.schemaVersion() != SCHEMA_VERSION) {
+        if (archive.schemaVersion() < 1 || archive.schemaVersion() > SCHEMA_VERSION) {
             throw badRequest("WORKSPACE_SCHEMA_NOT_SUPPORTED", "不支援的匯入檔 schema version。");
         }
 
@@ -125,9 +129,10 @@ public class WorkspaceArchiveService {
         Map<Long, Long> folderIds = importFolders(archive.folders(), collectionIds);
         Map<String, String> fileIds = importFiles(zipContent.entries(), archive.files());
         int protoCount = importProtos(zipContent.entries(), archive.protos());
+        int environmentCount = environmentService.importArchivedEnvironments(toStoredEnvironments(archive.environments()));
         int requestCount = importRequests(archive.requests(), collectionIds, folderIds, fileIds);
 
-        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount, protoCount);
+        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount, protoCount, environmentCount);
     }
 
     private Archive buildArchive() {
@@ -158,7 +163,10 @@ public class WorkspaceArchiveService {
         List<ProtoArchive> protos = protoStorageService.listStoredProtosForArchive().stream()
                 .map(proto -> new ProtoArchive(proto.protoId(), proto.path(), proto.originalFilename()))
                 .toList();
-        return new Archive(SCHEMA_VERSION, Instant.now().toString(), collections, folders, requests, files, protos);
+        List<EnvironmentArchive> environments = environmentService.listForArchive().stream()
+                .map(environment -> new EnvironmentArchive(environment.name(), environment.variables()))
+                .toList();
+        return new Archive(SCHEMA_VERSION, Instant.now().toString(), collections, folders, requests, files, protos, environments);
     }
 
     private Map<String, byte[]> collectReferencedFiles(List<RequestArchive> requests) {
@@ -377,6 +385,12 @@ public class WorkspaceArchiveService {
         return requestCount;
     }
 
+    private List<EnvironmentService.StoredEnvironment> toStoredEnvironments(List<EnvironmentArchive> environments) {
+        return safeList(environments).stream()
+                .map(environment -> new EnvironmentService.StoredEnvironment(environment.name(), environment.variables()))
+                .toList();
+    }
+
     private String sanitizeArchiveName(String value) {
         return value == null || value.isBlank() ? "file.bin" : value.replaceAll("[^A-Za-z0-9._-]", "_");
     }
@@ -389,7 +403,7 @@ public class WorkspaceArchiveService {
         return values == null ? List.of() : values;
     }
 
-    public record ImportResult(int collections, int folders, int requests, int protos) {
+    public record ImportResult(int collections, int folders, int requests, int protos, int environments) {
     }
 
     private record ZipContent(Map<String, byte[]> entries) {
@@ -402,7 +416,8 @@ public class WorkspaceArchiveService {
             List<FolderArchive> folders,
             List<RequestArchive> requests,
             List<FileArchive> files,
-            List<ProtoArchive> protos
+            List<ProtoArchive> protos,
+            List<EnvironmentArchive> environments
     ) {
     }
 
@@ -427,5 +442,8 @@ public class WorkspaceArchiveService {
     }
 
     private record ProtoArchive(String protoId, String path, String originalFilename) {
+    }
+
+    private record EnvironmentArchive(String name, List<com.postbubi.web.dto.EnvironmentVariable> variables) {
     }
 }
