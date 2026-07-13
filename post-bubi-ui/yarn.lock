@@ -147,6 +147,11 @@
   resolved "https://registry.yarnpkg.com/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz#6912b00d2c631c0d15ce1a7ab57cd657f2a8f8ba"
   integrity sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==
 
+"@lucide/vue@^1.24.0":
+  version "1.24.0"
+  resolved "https://registry.yarnpkg.com/@lucide/vue/-/vue-1.24.0.tgz#437392b0eb02eb78eccdf3b539772e736ccecf39"
+  integrity sha512-5bNPX0G2YEWdUlBYk7pE8SgDg/f1mkIFpJ9vtE44pW/cwRz7Ioc0tOTESoVJAPvxIELSmYekX+XXIJMjsswNIg==
+
 "@rollup/rollup-android-arm-eabi@4.62.2":
   version "4.62.2"
   resolved "https://registry.yarnpkg.com/@rollup/rollup-android-arm-eabi/-/rollup-android-arm-eabi-4.62.2.tgz#5e9849b661c2229cf967a08dbe2dbbe9e8c991e5"

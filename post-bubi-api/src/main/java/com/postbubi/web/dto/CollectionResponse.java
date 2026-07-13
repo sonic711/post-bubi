@@ -7,6 +7,7 @@ public record CollectionResponse(
         Long id,
         String name,
         String description,
+        Integer sortOrder,
         List<FolderResponse> folders,
         List<RequestResponse> requests,
         Instant createdAt,

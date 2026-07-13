@@ -46,7 +46,7 @@ public class WorkspaceService {
 
     @Transactional(readOnly = true)
     public List<CollectionResponse> listCollections() {
-        return collectionRepository.findAll().stream()
+        return collectionRepository.findAllByOrderBySortOrderAscIdAsc().stream()
                 .map(this::toCollectionResponse)
                 .toList();
     }
@@ -56,6 +56,7 @@ public class WorkspaceService {
         CollectionEntity entity = new CollectionEntity();
         entity.setName(requiredText(request.name(), "name", "Collection 名稱不可空白。"));
         entity.setDescription(trimToNull(request.description()));
+        entity.setSortOrder(request.sortOrder() == null ? nextCollectionSortOrder() : defaultSortOrder(request.sortOrder()));
         return toCollectionResponse(collectionRepository.saveAndFlush(entity));
     }
 
@@ -64,6 +65,9 @@ public class WorkspaceService {
         CollectionEntity entity = findCollection(id);
         entity.setName(requiredText(request.name(), "name", "Collection 名稱不可空白。"));
         entity.setDescription(trimToNull(request.description()));
+        if (request.sortOrder() != null) {
+            entity.setSortOrder(defaultSortOrder(request.sortOrder()));
+        }
         return toCollectionResponse(collectionRepository.saveAndFlush(entity));
     }
 
@@ -138,8 +142,11 @@ public class WorkspaceService {
     @Transactional
     public RequestResponse updateRequest(Long id, RequestUpdateRequest request) {
         RequestEntity entity = findRequest(id);
-        validateFolder(entity.getCollectionId(), request.folderId());
+        Long collectionId = request.collectionId() == null ? entity.getCollectionId() : requiredId(request.collectionId(), "collectionId", "Collection ID 不可空白。");
+        findCollection(collectionId);
+        validateFolder(collectionId, request.folderId());
 
+        entity.setCollectionId(collectionId);
         entity.setFolderId(request.folderId());
         entity.setType(requiredType(request.type()));
         entity.setName(requiredText(request.name(), "name", "Request 名稱不可空白。"));
@@ -179,6 +186,7 @@ public class WorkspaceService {
                 entity.getId(),
                 entity.getName(),
                 entity.getDescription(),
+                entity.getSortOrder(),
                 folders,
                 requests,
                 entity.getCreatedAt(),
@@ -279,6 +287,14 @@ public class WorkspaceService {
 
     private Integer defaultSortOrder(Integer sortOrder) {
         return sortOrder == null ? 0 : sortOrder;
+    }
+
+    private int nextCollectionSortOrder() {
+        return collectionRepository.findAllByOrderBySortOrderAscIdAsc().stream()
+                .map(CollectionEntity::getSortOrder)
+                .filter(sortOrder -> sortOrder != null)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
     }
 
     private String defaultPayload(String payloadJson) {

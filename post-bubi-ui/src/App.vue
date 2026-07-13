@@ -15,7 +15,7 @@
             :class="{ active: themeMode === 'light' }"
             @click="setTheme('light')"
           >
-            <span aria-hidden="true">☀</span>
+            <Sun :size="15" aria-hidden="true" />
             Light
           </button>
           <button
@@ -23,23 +23,23 @@
             :class="{ active: themeMode === 'dark' }"
             @click="setTheme('dark')"
           >
-            <span aria-hidden="true">☾</span>
+            <Moon :size="15" aria-hidden="true" />
             Dark
           </button>
         </div>
       </div>
       <div class="sidebar-actions">
         <button class="primary-button full-button" type="button" :disabled="loadingCollections" @click="createCollection">
-          <span class="button-icon" aria-hidden="true">＋</span>
+          <Plus class="button-icon" :size="17" aria-hidden="true" />
           新增 Collection
         </button>
         <div class="archive-actions">
           <button class="secondary-button" type="button" title="匯出工作區 ZIP" @click="exportWorkspace">
-            <span class="button-icon" aria-hidden="true">↓</span>
+            <Download class="button-icon" :size="16" aria-hidden="true" />
             匯出
           </button>
           <label class="secondary-button import-button">
-            <span class="button-icon" aria-hidden="true">↑</span>
+            <Upload class="button-icon" :size="16" aria-hidden="true" />
             匯入
             <input type="file" accept=".zip,application/zip" @change="importWorkspace" />
           </label>
@@ -57,8 +57,8 @@
               {{ environment.name }}
             </option>
           </select>
-          <button class="icon-action-button" type="button" title="新增 Environment" aria-label="新增 Environment" @click="startCreateEnvironment">＋</button>
-          <button class="icon-action-button" type="button" title="管理 Environment 變數" aria-label="管理 Environment 變數" :disabled="!activeEnvironment" @click="openEnvironmentManager">⚙</button>
+          <button class="icon-action-button" type="button" title="新增 Environment" aria-label="新增 Environment" @click="startCreateEnvironment"><Plus :size="16" aria-hidden="true" /></button>
+          <button class="icon-action-button" type="button" title="管理 Environment 變數" aria-label="管理 Environment 變數" :disabled="!activeEnvironment" @click="openEnvironmentManager"><Settings :size="15" aria-hidden="true" /></button>
         </div>
         <p v-if="activeEnvironment" class="environment-summary">
           {{ activeEnvironment.name }}：送出時替換 <code v-text="'{{variable}}'"></code>
@@ -72,15 +72,37 @@
         </div>
         <p v-if="!collections.length" class="empty-text">尚無 Collection</p>
         <div v-for="collection in collections" :key="collection.id" class="collection-block">
-          <div class="collection-row">
+          <div
+            class="collection-row"
+            :class="treeRowClasses('collection', collection.id)"
+            @dragover.prevent="markTreeDropTarget('collection', collection.id)"
+            @dragleave="clearTreeDropTarget('collection', collection.id)"
+            @drop="dropOnCollection(collection)"
+          >
+            <button
+              class="tree-collapse-button"
+              type="button"
+              :class="{ collapsed: isCollectionCollapsed(collection.id) }"
+              :title="isCollectionCollapsed(collection.id) ? `展開 ${collection.name}` : `收合 ${collection.name}`"
+              :aria-label="isCollectionCollapsed(collection.id) ? `展開 ${collection.name}` : `收合 ${collection.name}`"
+              :aria-expanded="!isCollectionCollapsed(collection.id)"
+              @click.stop="toggleCollectionCollapsed(collection.id)"
+            >
+              <ChevronDown :size="16" aria-hidden="true" />
+            </button>
             <button
               class="tree-item collection-item"
               type="button"
+              draggable="true"
               :class="{ active: selectedCollectionId === collection.id && !selectedFolderId && !selectedRequestId }"
               :title="collection.name"
+              @dragstart="startTreeDrag('collection', collection, collection, $event)"
+              @dragend="endTreeDrag"
               @click="selectCollection(collection.id)"
             >
-              {{ collection.name }}
+              <GripVertical class="tree-drag-handle" :size="15" aria-hidden="true" />
+              <Archive class="tree-item-icon collection-icon" :size="16" aria-hidden="true" />
+              <span>{{ collection.name }}</span>
             </button>
             <button
               class="tree-menu-button"
@@ -88,28 +110,38 @@
               :title="`${collection.name} 操作`"
               @click.stop="toggleTreeMenu(treeMenuId('collection', collection.id))"
             >
-              ⋯
+              <MoreHorizontal :size="18" aria-hidden="true" />
             </button>
             <div v-if="openTreeMenu === treeMenuId('collection', collection.id)" class="tree-action-menu">
-              <button type="button" @click="prepareNewRequest(collection.id, null)">＋ 新增 Request</button>
-              <button type="button" @click="createFolderFromMenu(collection.id, null)">▣ 新增 Folder</button>
-              <button type="button" class="danger-menu-item" :disabled="deletingCollection" @click="deleteCollectionFromMenu(collection)">⌫ 刪除 Collection</button>
+              <button type="button" @click="prepareNewRequest(collection.id, null)"><Plus :size="15" aria-hidden="true" />新增 Request</button>
+              <button type="button" @click="createFolderFromMenu(collection.id, null)"><FolderPlus :size="15" aria-hidden="true" />新增 Folder</button>
+              <button type="button" @click="openCollectionRename(collection)"><Pencil :size="15" aria-hidden="true" />重新命名</button>
+              <button type="button" class="danger-menu-item" :disabled="deletingCollection" @click="deleteCollectionFromMenu(collection)"><Trash2 :size="15" aria-hidden="true" />刪除 Collection</button>
             </div>
           </div>
+          <div v-if="!isCollectionCollapsed(collection.id)" class="collection-children">
           <div v-for="folder in folderRows(collection)" :key="folder.id" class="folder-group">
-            <div class="folder-row" :style="{ paddingLeft: `${folder.depth * 14}px` }">
+            <div
+              class="folder-row"
+              :class="treeRowClasses('folder', folder.id)"
+              :style="{ paddingLeft: `${folder.depth * 14}px` }"
+              @dragover.prevent.stop="markTreeDropTarget('folder', folder.id)"
+              @dragleave.stop="clearTreeDropTarget('folder', folder.id)"
+              @drop.stop="dropOnFolder(folder, collection)"
+            >
               <button
                 class="tree-item folder-item"
                 type="button"
                 draggable="true"
                 :class="{ active: selectedFolderId === folder.id && !selectedRequestId }"
                 :title="folder.name"
-                @dragstart="startTreeDrag('folder', folder, collection)"
-                @dragover.prevent
-                @drop="dropTreeItem('folder', folder, collection)"
+                @dragstart="startTreeDrag('folder', folder, collection, $event)"
+                @dragend="endTreeDrag"
                 @click="selectFolder(folder)"
               >
-                {{ folder.name }}
+                <GripVertical class="tree-drag-handle" :size="15" aria-hidden="true" />
+                <Folder class="tree-item-icon folder-icon" :size="16" aria-hidden="true" />
+                <span>{{ folder.name }}</span>
               </button>
               <button
                 class="tree-menu-button"
@@ -117,12 +149,12 @@
                 :title="`${folder.name} 操作`"
                 @click.stop="toggleTreeMenu(treeMenuId('folder', folder.id))"
               >
-                ⋯
+                <MoreHorizontal :size="18" aria-hidden="true" />
               </button>
               <div v-if="openTreeMenu === treeMenuId('folder', folder.id)" class="tree-action-menu">
-                <button type="button" @click="prepareNewRequest(collection.id, folder.id)">＋ 新增 Request</button>
-                <button type="button" @click="createFolderFromMenu(collection.id, folder.id)">▣ 新增子 Folder</button>
-                <button type="button" class="danger-menu-item" :disabled="deletingFolder" @click="deleteFolderFromMenu(collection, folder)">⌫ 刪除 Folder</button>
+                <button type="button" @click="prepareNewRequest(collection.id, folder.id)"><Plus :size="15" aria-hidden="true" />新增 Request</button>
+                <button type="button" @click="createFolderFromMenu(collection.id, folder.id)"><FolderPlus :size="15" aria-hidden="true" />新增子 Folder</button>
+                <button type="button" class="danger-menu-item" :disabled="deletingFolder" @click="deleteFolderFromMenu(collection, folder)"><Trash2 :size="15" aria-hidden="true" />刪除 Folder</button>
               </div>
             </div>
             <div
@@ -130,26 +162,37 @@
               :key="request.id"
               :style="{ paddingLeft: `${folder.depth * 14 + 38}px` }"
               class="request-row"
+              :class="treeRowClasses('request', request.id)"
+              @dragover.prevent.stop="markTreeDropTarget('request', request.id)"
+              @dragleave.stop="clearTreeDropTarget('request', request.id)"
+              @drop.stop="dropOnRequest(request, collection)"
             >
               <button
                 class="tree-item request-item"
                 type="button"
                 draggable="true"
                 :class="{ active: selectedRequestId === request.id }"
-                :title="request.name"
-                @dragstart="startTreeDrag('request', request, collection)"
-                @dragover.prevent
-                @drop="dropTreeItem('request', request, collection)"
+                :title="`${request.type} · ${request.name}`"
+                @dragstart="startTreeDrag('request', request, collection, $event)"
+                @dragend="endTreeDrag"
                 @click="selectRequest(request)"
               >
-                {{ request.name }}
+                <GripVertical class="tree-drag-handle" :size="15" aria-hidden="true" />
+                <component
+                  :is="requestTreeIcon(request.type)"
+                  class="tree-item-icon request-icon"
+                  :class="`request-icon-${request.type.toLowerCase().replace('_', '-')}`"
+                  :size="16"
+                  aria-hidden="true"
+                />
+                <span>{{ request.name }}</span>
               </button>
               <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
-                ⋯
+                <MoreHorizontal :size="18" aria-hidden="true" />
               </button>
               <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
-                <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
-                <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)">⌫ 刪除 Request</button>
+                <button type="button" @click="duplicateRequestFromMenu(request)"><Copy :size="15" aria-hidden="true" />複製 Request</button>
+                <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)"><Trash2 :size="15" aria-hidden="true" />刪除 Request</button>
               </div>
             </div>
           </div>
@@ -157,74 +200,95 @@
             v-for="request in requestsInFolder(collection, null)"
             :key="request.id"
             class="request-row"
+            :class="treeRowClasses('request', request.id)"
+            @dragover.prevent.stop="markTreeDropTarget('request', request.id)"
+            @dragleave.stop="clearTreeDropTarget('request', request.id)"
+            @drop.stop="dropOnRequest(request, collection)"
           >
             <button
               class="tree-item request-item"
               type="button"
               draggable="true"
               :class="{ active: selectedRequestId === request.id }"
-              :title="request.name"
-              @dragstart="startTreeDrag('request', request, collection)"
-              @dragover.prevent
-              @drop="dropTreeItem('request', request, collection)"
+              :title="`${request.type} · ${request.name}`"
+              @dragstart="startTreeDrag('request', request, collection, $event)"
+              @dragend="endTreeDrag"
               @click="selectRequest(request)"
             >
-              {{ request.name }}
+              <GripVertical class="tree-drag-handle" :size="15" aria-hidden="true" />
+              <component
+                :is="requestTreeIcon(request.type)"
+                class="tree-item-icon request-icon"
+                :class="`request-icon-${request.type.toLowerCase().replace('_', '-')}`"
+                :size="16"
+                aria-hidden="true"
+              />
+              <span>{{ request.name }}</span>
             </button>
             <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
-              ⋯
+              <MoreHorizontal :size="18" aria-hidden="true" />
             </button>
             <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
-              <button type="button" @click="duplicateRequestFromMenu(request)">⧉ 複製 Request</button>
-              <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)">⌫ 刪除 Request</button>
+              <button type="button" @click="duplicateRequestFromMenu(request)"><Copy :size="15" aria-hidden="true" />複製 Request</button>
+              <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)"><Trash2 :size="15" aria-hidden="true" />刪除 Request</button>
+            </div>
+          </div>
+          </div>
+        </div>
+      </section>
+      <section class="sidebar-section proto-panel" :class="{ collapsed: !protoPanelExpanded && protos.length }">
+        <div class="section-title">
+          <button class="section-collapse-button" type="button" :aria-expanded="protoPanelExpanded" @click="toggleProtoPanel">
+            <ChevronDown class="collapse-indicator" :size="15" aria-hidden="true" />
+            <span>Protos</span>
+            <span class="section-count">{{ protos.length }}</span>
+          </button>
+        </div>
+        <div v-if="protoPanelExpanded || !protos.length" class="proto-panel-content">
+          <label class="secondary-button proto-upload-button">
+            <Upload class="button-icon" :size="16" aria-hidden="true" />
+            上傳 Proto
+            <input type="file" accept=".proto" @change="uploadProto" />
+          </label>
+          <p v-if="!protos.length" class="empty-text">尚無 Proto</p>
+          <button
+            v-for="proto in protos"
+            :key="proto.protoId"
+            class="tree-item proto-item"
+            type="button"
+            :class="{ active: selectedProto?.protoId === proto.protoId }"
+            :title="proto.filename"
+            @click="inspectProto(proto)"
+          >
+            <FileCode2 class="tree-item-icon proto-icon" :size="16" aria-hidden="true" />
+            {{ proto.filename }}
+          </button>
+          <div v-if="selectedProtoInspect" class="proto-inspect">
+            <div class="proto-package">{{ selectedProtoInspect.packageName || '無 package' }}</div>
+            <div v-for="service in selectedProtoInspect.services" :key="service.name" class="proto-service">
+              <strong>{{ service.name }}</strong>
+              <button
+                v-for="method in service.methods"
+                :key="method.name"
+                class="proto-method-button"
+                type="button"
+                @click="applyProtoMethod(service, method)"
+              >
+                {{ method.name }}({{ method.requestType }}) returns ({{ method.responseType }})
+              </button>
+            </div>
+            <div v-if="selectedProtoInspect.messages.length" class="proto-messages">
+              Messages: {{ selectedProtoInspect.messages.join(', ') }}
             </div>
           </div>
         </div>
-      </section>
-      <section class="sidebar-section proto-panel">
-        <div class="section-title">
-          <span>Protos</span>
-          <span class="section-count">{{ protos.length }}</span>
-        </div>
-        <label class="secondary-button proto-upload-button">
-          <span class="button-icon" aria-hidden="true">↑</span>
-          上傳 Proto
-          <input type="file" accept=".proto" @change="uploadProto" />
-        </label>
-        <p v-if="!protos.length" class="empty-text">尚無 Proto</p>
-        <button
-          v-for="proto in protos"
-          :key="proto.protoId"
-          class="tree-item proto-item"
-          type="button"
-          :class="{ active: selectedProto?.protoId === proto.protoId }"
-          :title="proto.filename"
-          @click="inspectProto(proto)"
-        >
-          {{ proto.filename }}
-        </button>
-        <div v-if="selectedProtoInspect" class="proto-inspect">
-          <div class="proto-package">{{ selectedProtoInspect.packageName || '無 package' }}</div>
-          <div v-for="service in selectedProtoInspect.services" :key="service.name" class="proto-service">
-            <strong>{{ service.name }}</strong>
-            <button
-              v-for="method in service.methods"
-              :key="method.name"
-              class="proto-method-button"
-              type="button"
-              @click="applyProtoMethod(service, method)"
-            >
-              {{ method.name }}({{ method.requestType }}) returns ({{ method.responseType }})
-            </button>
-          </div>
-          <div v-if="selectedProtoInspect.messages.length" class="proto-messages">
-            Messages: {{ selectedProtoInspect.messages.join(', ') }}
-          </div>
-        </div>
+        <p v-else class="proto-collapsed-summary" :title="selectedProto?.filename || ''">
+          {{ selectedProto?.filename || `${protos.length} 個 Proto 已收合` }}
+        </p>
       </section>
     </aside>
 
-    <section class="panel">
+    <section class="panel" :style="panelStyle">
       <header class="toolbar" :class="`toolbar-${requestType.toLowerCase()}`">
         <select v-model="requestType" class="type-select" aria-label="Request type">
           <option value="HTTP">HTTP</option>
@@ -250,15 +314,15 @@
           <input class="target-input fixed-method-input" aria-label="gRPC BUR method" value="Service/rpcPeriphery" disabled />
         </template>
         <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
-          <span class="button-icon" aria-hidden="true">◇</span>
+          <Save class="button-icon" :size="16" aria-hidden="true" />
           {{ selectedRequestId ? '儲存' : '另存 Request' }}
         </button>
         <button class="send-button" type="button" :disabled="sending" @click="sendCurrentRequest">
-          <span class="button-icon send-icon" aria-hidden="true">→</span>
+          <Send class="button-icon send-icon" :size="16" aria-hidden="true" />
           {{ sending ? '送出中' : '送出' }}
         </button>
         <button v-if="sending" class="cancel-button" type="button" :disabled="cancelling" @click="cancelCurrentRequest">
-          <span class="button-icon" aria-hidden="true">×</span>
+          <X class="button-icon" :size="17" aria-hidden="true" />
           {{ cancelling ? '取消中' : '取消' }}
         </button>
       </header>
@@ -354,9 +418,9 @@
               <input v-model="header.enabled" type="checkbox" aria-label="啟用 Header" />
               <input v-model="header.name" aria-label="Header key" placeholder="Header name" />
               <input v-model="header.value" aria-label="Header value" placeholder="Value" />
-              <button class="icon-danger-button" type="button" title="刪除 Header" aria-label="刪除 Header" @click="removeHeaderRow(header.id)">×</button>
+              <button class="icon-danger-button" type="button" title="刪除 Header" aria-label="刪除 Header" @click="removeHeaderRow(header.id)"><Trash2 :size="16" aria-hidden="true" /></button>
             </div>
-            <button class="secondary-button add-row-button" type="button" @click="addHeaderRow"><span aria-hidden="true">＋</span>新增 Header</button>
+            <button class="secondary-button add-row-button" type="button" @click="addHeaderRow"><Plus :size="16" aria-hidden="true" />新增 Header</button>
           </div>
           <textarea v-else-if="requestType === 'GRPC'" v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
           <textarea v-else v-model="grpcBurMetadataText" spellcheck="false" aria-label="gRPC BUR Metadata"></textarea>
@@ -405,9 +469,9 @@
                 <input type="file" @change="uploadFormDataFile(part, $event)" />
                 <span>{{ part.fileName || '選擇檔案' }}</span>
               </label>
-              <button class="icon-danger-button" type="button" title="刪除欄位" aria-label="刪除欄位" @click="removeFormDataPart(part.id)">×</button>
+              <button class="icon-danger-button" type="button" title="刪除欄位" aria-label="刪除欄位" @click="removeFormDataPart(part.id)"><Trash2 :size="16" aria-hidden="true" /></button>
             </div>
-            <button class="secondary-button add-row-button" type="button" @click="addFormDataPart"><span aria-hidden="true">＋</span>新增欄位</button>
+            <button class="secondary-button add-row-button" type="button" @click="addFormDataPart"><Plus :size="16" aria-hidden="true" />新增欄位</button>
           </div>
           <div v-if="requestType === 'GRPC'" class="json-editor-header">
             <label class="grpc-body-label">JSON Request</label>
@@ -508,6 +572,17 @@
         </div>
       </section>
 
+      <div
+        class="response-resize-handle"
+        :class="{ active: resizingResponse }"
+        role="separator"
+        aria-label="調整 Response 高度"
+        aria-orientation="horizontal"
+        tabindex="0"
+        @pointerdown.prevent="startResponseResize"
+        @keydown.up.prevent="adjustResponseHeight(24)"
+        @keydown.down.prevent="adjustResponseHeight(-24)"
+      ></div>
       <section class="response">
         <div class="response-bar">
           <div class="response-heading">
@@ -535,7 +610,7 @@
           v-html="highlightedResponseBody"
         ></pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
-        <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response">
+        <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response" :class="{ 'grpc-bur-decoded': requestType === 'GRPC_BUR' }">
           <div v-if="requestType === 'GRPC_BUR'" class="decoded-result-list">
             <p v-if="!grpcBurDecodedPayloads.length" class="empty-text">尚無 gRPC BUR 解碼結果</p>
             <article
@@ -551,7 +626,7 @@
               <pre>{{ payload.error || payload.text }}</pre>
             </article>
           </div>
-          <div v-else>
+          <template v-else>
             <div class="decode-config">
               <div class="decode-help">
                 使用 JSON path 指定 base64 欄位，例如 <code>data.payload</code>、<code>items[0].body</code>、<code>items[*].body</code>。
@@ -566,9 +641,9 @@
                 <input v-model="row.enabled" type="checkbox" aria-label="啟用解碼欄位" />
                 <input v-model="row.name" aria-label="Response JSON path" placeholder="data.payload" />
                 <input v-model="row.value" aria-label="Decoded label" placeholder="顯示名稱，可留空" />
-                <button class="icon-danger-button" type="button" title="刪除解碼欄位" aria-label="刪除解碼欄位" @click="removeResponseDecodeRow(row.id)">×</button>
+                <button class="icon-danger-button" type="button" title="刪除解碼欄位" aria-label="刪除解碼欄位" @click="removeResponseDecodeRow(row.id)"><Trash2 :size="16" aria-hidden="true" /></button>
               </div>
-              <button class="secondary-button add-row-button" type="button" @click="addResponseDecodeRow"><span aria-hidden="true">＋</span>新增欄位</button>
+              <button class="secondary-button add-row-button" type="button" @click="addResponseDecodeRow"><Plus :size="16" aria-hidden="true" />新增欄位</button>
             </div>
             <div class="decoded-result-list">
               <p v-if="!decodedResponseResults.length" class="empty-text">尚無解碼結果</p>
@@ -585,7 +660,7 @@
                 <pre>{{ result.error || result.decoded }}</pre>
               </article>
             </div>
-          </div>
+          </template>
         </div>
         <div v-else-if="activeResponseTab === 'history'" class="history-list">
           <div class="history-actions">
@@ -620,7 +695,7 @@
             <h2 id="environment-modal-title">Environment</h2>
             <p>Request 內的 <code v-text="'{{variable}}'"></code> 會在送出時替換。</p>
           </div>
-          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeEnvironmentManager">×</button>
+          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeEnvironmentManager"><X :size="18" aria-hidden="true" /></button>
         </header>
         <label class="environment-name-field">
           Environment 名稱
@@ -635,9 +710,9 @@
           <div v-for="variable in environmentDraftVariables" :key="variable.id" class="environment-variable-row">
             <input v-model="variable.name" aria-label="Variable 名稱" placeholder="baseUrl" />
             <input v-model="variable.value" aria-label="Variable 值" placeholder="https://example.internal" />
-            <button class="icon-danger-button" type="button" title="刪除變數" aria-label="刪除變數" @click="removeEnvironmentVariable(variable.id)">×</button>
+            <button class="icon-danger-button" type="button" title="刪除變數" aria-label="刪除變數" @click="removeEnvironmentVariable(variable.id)"><Trash2 :size="16" aria-hidden="true" /></button>
           </div>
-          <button class="secondary-button add-row-button" type="button" @click="addEnvironmentVariable"><span aria-hidden="true">＋</span>新增變數</button>
+          <button class="secondary-button add-row-button" type="button" @click="addEnvironmentVariable"><Plus :size="16" aria-hidden="true" />新增變數</button>
         </div>
         <footer class="environment-modal-actions">
           <button v-if="environmentDraftId" class="danger-button" type="button" :disabled="deletingEnvironment || savingEnvironment" @click="deleteEnvironment">
@@ -651,11 +726,57 @@
         </footer>
       </section>
     </div>
+    <div v-if="showCollectionRename" class="modal-backdrop" @click.self="closeCollectionRename">
+      <section class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="collection-rename-title">
+        <header class="environment-modal-head">
+          <div>
+            <h2 id="collection-rename-title">重新命名 Collection</h2>
+            <p>{{ collectionRenameDraft?.name }}</p>
+          </div>
+          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeCollectionRename"><X :size="18" aria-hidden="true" /></button>
+        </header>
+        <label class="environment-name-field">
+          Collection 名稱
+          <input v-model="collectionRenameValue" aria-label="Collection 名稱" maxlength="200" @keyup.enter="saveCollectionRename" />
+        </label>
+        <footer class="collection-rename-actions">
+          <button class="secondary-button" type="button" :disabled="savingCollectionRename" @click="closeCollectionRename">取消</button>
+          <button class="primary-button" type="button" :disabled="savingCollectionRename" @click="saveCollectionRename">
+            {{ savingCollectionRename ? '儲存中' : '儲存' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </main>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  Archive,
+  Binary,
+  ChevronDown,
+  Copy,
+  Download,
+  FileCode2,
+  FileText,
+  Folder,
+  FolderPlus,
+  GripVertical,
+  Globe,
+  Moon,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RadioTower,
+  Save,
+  Send,
+  Settings,
+  Sun,
+  Trash2,
+  Upload,
+  X,
+} from '@lucide/vue'
 import postBubiLogo from './assets/post-bubi-logo.png'
 
 const requestTabs = [
@@ -677,6 +798,10 @@ const collections = ref([])
 const protos = ref([])
 const environments = ref([])
 const activeEnvironmentId = ref('')
+const showCollectionRename = ref(false)
+const collectionRenameDraft = ref(null)
+const collectionRenameValue = ref('')
+const savingCollectionRename = ref(false)
 const showEnvironmentManager = ref(false)
 const environmentDraftId = ref(null)
 const environmentDraftName = ref('')
@@ -688,6 +813,7 @@ const selectedFolderId = ref(null)
 const selectedRequestId = ref(null)
 const selectedProto = ref(null)
 const selectedProtoInspect = ref(null)
+const protoPanelExpanded = ref(true)
 const requestName = ref('健康檢查')
 const requestType = ref('HTTP')
 const method = ref('GET')
@@ -744,8 +870,15 @@ const historyItems = ref([])
 const themeMode = ref('light')
 const savedEditorState = ref('')
 const draggingTreeItem = ref(null)
+const treeDropTarget = ref('')
 const draggingHeaderRowId = ref('')
 const openTreeMenu = ref('')
+const collapsedCollectionIds = ref(new Set())
+const responseCacheByRequestId = new Map()
+const responseHeight = ref(380)
+const resizingResponse = ref(false)
+const responseResizeStart = ref(null)
+let protoPanelPreferenceLoaded = false
 
 const grpcTarget = computed({
   get() {
@@ -797,8 +930,14 @@ const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || bodyType
 
 const highlightedBodyText = computed(() => highlightJson(activeBodyText.value))
 
+const grpcBurDecodedResponseResults = computed(() => decodeGrpcBurResponseFields())
+
+const responseBodyDecodedResults = computed(() => {
+  return requestType.value === 'GRPC_BUR' ? grpcBurDecodedResponseResults.value : decodedResponseResults.value
+})
+
 const decodedResponseMap = computed(() => {
-  const entries = decodedResponseResults.value
+  const entries = responseBodyDecodedResults.value
     .filter((result) => !result.error)
     .map((result) => [result.matchPath, result])
   return new Map(entries)
@@ -814,6 +953,10 @@ const grpcBurPreviewText = computed(() => {
 })
 
 const grpcBurDecodedPayloads = computed(() => response.value?.decodedPayloads || [])
+
+const panelStyle = computed(() => ({
+  '--response-height': `${responseHeight.value}px`,
+}))
 
 const hasUnsavedChanges = computed(() => savedEditorState.value !== snapshotEditorState())
 
@@ -904,6 +1047,7 @@ initializeTheme()
 markEditorSaved()
 
 onMounted(() => {
+  initializePanelPreferences()
   window.addEventListener('beforeunload', warnBeforeUnload)
   document.addEventListener('click', closeTreeMenuOnOutsideClick)
   loadCollections()
@@ -914,6 +1058,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activeExecution.value?.controller.abort()
+  stopResponseResize()
   window.removeEventListener('beforeunload', warnBeforeUnload)
   document.removeEventListener('click', closeTreeMenuOnOutsideClick)
 })
@@ -927,6 +1072,71 @@ function setTheme(theme) {
   themeMode.value = theme === 'dark' ? 'dark' : 'light'
   document.documentElement.dataset.theme = themeMode.value
   window.localStorage.setItem('post-bubi-theme', themeMode.value)
+}
+
+function initializePanelPreferences() {
+  const savedResponseHeight = Number(window.localStorage.getItem('post-bubi-response-height'))
+  if (Number.isFinite(savedResponseHeight)) {
+    responseHeight.value = clampResponseHeight(savedResponseHeight)
+  }
+  try {
+    const savedCollapsedCollections = JSON.parse(window.localStorage.getItem('post-bubi-collapsed-collections') || '[]')
+    if (Array.isArray(savedCollapsedCollections)) {
+      collapsedCollectionIds.value = new Set(savedCollapsedCollections.filter((id) => Number.isInteger(id)))
+    }
+  } catch {
+    window.localStorage.removeItem('post-bubi-collapsed-collections')
+  }
+}
+
+function toggleProtoPanel() {
+  protoPanelExpanded.value = !protoPanelExpanded.value
+  window.localStorage.setItem('post-bubi-proto-panel-expanded', String(protoPanelExpanded.value))
+}
+
+function startResponseResize(event) {
+  if (window.innerWidth <= 860) {
+    return
+  }
+  resizingResponse.value = true
+  responseResizeStart.value = {
+    y: event.clientY,
+    height: responseHeight.value,
+  }
+  window.addEventListener('pointermove', resizeResponse)
+  window.addEventListener('pointerup', stopResponseResize, { once: true })
+}
+
+function resizeResponse(event) {
+  if (!responseResizeStart.value) {
+    return
+  }
+  const offset = responseResizeStart.value.y - event.clientY
+  responseHeight.value = clampResponseHeight(responseResizeStart.value.height + offset)
+}
+
+function stopResponseResize() {
+  if (!resizingResponse.value && !responseResizeStart.value) {
+    return
+  }
+  resizingResponse.value = false
+  responseResizeStart.value = null
+  window.removeEventListener('pointermove', resizeResponse)
+  window.removeEventListener('pointerup', stopResponseResize)
+  window.localStorage.setItem('post-bubi-response-height', String(responseHeight.value))
+}
+
+function adjustResponseHeight(offset) {
+  if (window.innerWidth <= 860) {
+    return
+  }
+  responseHeight.value = clampResponseHeight(responseHeight.value + offset)
+  window.localStorage.setItem('post-bubi-response-height', String(responseHeight.value))
+}
+
+function clampResponseHeight(value) {
+  const maxHeight = Math.max(250, window.innerHeight - 360)
+  return Math.min(maxHeight, Math.max(250, Math.round(value)))
 }
 
 async function loadEnvironments() {
@@ -1217,6 +1427,7 @@ async function loadCollections() {
   let autoSelectedCollection = false
   try {
     collections.value = await apiJson('/api/collections')
+    synchronizeCollapsedCollections()
     if (!selectedCollectionId.value && collections.value.length) {
       selectedCollectionId.value = collections.value[0].id
       autoSelectedCollection = true
@@ -1256,6 +1467,40 @@ async function createCollection() {
   }
 }
 
+function openCollectionRename(collection) {
+  closeTreeMenu()
+  collectionRenameDraft.value = collection
+  collectionRenameValue.value = collection.name
+  showCollectionRename.value = true
+}
+
+function closeCollectionRename() {
+  showCollectionRename.value = false
+  collectionRenameDraft.value = null
+  collectionRenameValue.value = ''
+}
+
+async function saveCollectionRename() {
+  const collection = collectionRenameDraft.value
+  const name = collectionRenameValue.value.trim()
+  if (!collection || !name) {
+    workspaceStatus.value = 'Collection 名稱不可空白'
+    return
+  }
+
+  savingCollectionRename.value = true
+  try {
+    await updateCollection(collection, { name })
+    await loadCollections()
+    workspaceStatus.value = `Collection 已改名：${name}`
+    closeCollectionRename()
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    savingCollectionRename.value = false
+  }
+}
+
 async function createFolder(collectionId, parentFolderId) {
   const name = window.prompt('Folder 名稱', parentFolderId ? '子資料夾' : '新資料夾')
   if (!name || !name.trim()) {
@@ -1290,6 +1535,47 @@ function toggleTreeMenu(menuId) {
   openTreeMenu.value = openTreeMenu.value === menuId ? '' : menuId
 }
 
+function isCollectionCollapsed(collectionId) {
+  return collapsedCollectionIds.value.has(collectionId)
+}
+
+function requestTreeIcon(type) {
+  if (type === 'HTTP') {
+    return Globe
+  }
+  if (type === 'GRPC') {
+    return RadioTower
+  }
+  if (type === 'GRPC_BUR') {
+    return Binary
+  }
+  return FileText
+}
+
+function toggleCollectionCollapsed(collectionId) {
+  const collapsed = new Set(collapsedCollectionIds.value)
+  if (collapsed.has(collectionId)) {
+    collapsed.delete(collectionId)
+  } else {
+    collapsed.add(collectionId)
+  }
+  collapsedCollectionIds.value = collapsed
+  persistCollapsedCollections()
+}
+
+function synchronizeCollapsedCollections() {
+  const activeCollectionIds = new Set(collections.value.map((collection) => collection.id))
+  const collapsed = new Set([...collapsedCollectionIds.value].filter((id) => activeCollectionIds.has(id)))
+  if (collapsed.size !== collapsedCollectionIds.value.size) {
+    collapsedCollectionIds.value = collapsed
+    persistCollapsedCollections()
+  }
+}
+
+function persistCollapsedCollections() {
+  window.localStorage.setItem('post-bubi-collapsed-collections', JSON.stringify([...collapsedCollectionIds.value]))
+}
+
 function closeTreeMenu() {
   openTreeMenu.value = ''
 }
@@ -1310,6 +1596,7 @@ function prepareNewRequest(collectionId, folderId) {
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  cacheCurrentResponse()
   selectedCollectionId.value = collectionId
   selectedFolderId.value = folderId || null
   newDraftRequest({ force: true })
@@ -1335,6 +1622,14 @@ async function deleteFolderFromMenu(collection, folder) {
 async function loadProtos() {
   try {
     protos.value = await apiJson('/api/protos')
+    if (!protoPanelPreferenceLoaded) {
+      const savedExpanded = window.localStorage.getItem('post-bubi-proto-panel-expanded')
+      protoPanelExpanded.value = savedExpanded == null ? !protos.value.length : savedExpanded === 'true'
+      protoPanelPreferenceLoaded = true
+    }
+    if (!protos.value.length) {
+      protoPanelExpanded.value = true
+    }
   } catch (error) {
     workspaceStatus.value = readableError(error)
   }
@@ -1358,6 +1653,8 @@ async function uploadProto(event) {
       throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
     }
     await loadProtos()
+    protoPanelExpanded.value = true
+    window.localStorage.setItem('post-bubi-proto-panel-expanded', 'true')
     const uploaded = protos.value.find((proto) => proto.protoId === payload.protoId)
     if (uploaded) {
       await inspectProto(uploaded)
@@ -1472,6 +1769,7 @@ async function deleteCollection(collection) {
   deletingCollection.value = true
   try {
     await apiJson(`/api/collections/${collection.id}`, { method: 'DELETE' })
+    clearCachedResponses(collection.requests || [])
     if (selectedCollectionId.value === collection.id) {
       selectedCollectionId.value = null
       selectedFolderId.value = null
@@ -1519,6 +1817,7 @@ async function deleteRequestFromMenu(request) {
   deleting.value = true
   try {
     await apiJson(`/api/requests/${request.id}`, { method: 'DELETE' })
+    responseCacheByRequestId.delete(request.id)
     if (selectedRequestId.value === request.id) {
       selectedRequestId.value = null
       newDraftRequest({ force: true })
@@ -1532,44 +1831,171 @@ async function deleteRequestFromMenu(request) {
   }
 }
 
-function startTreeDrag(kind, item, collection) {
+function startTreeDrag(kind, item, collection, event) {
   draggingTreeItem.value = {
     kind,
     id: item.id,
     collectionId: collection.id,
-    parentId: kind === 'folder' ? item.parentFolderId || null : item.folderId || null,
+    parentId: kind === 'folder' ? item.parentFolderId || null : kind === 'request' ? item.folderId || null : null,
+  }
+  event.dataTransfer?.setData('text/plain', `${kind}:${item.id}`)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = kind === 'request' ? 'move' : 'move'
   }
 }
 
-async function dropTreeItem(kind, target, collection) {
+function endTreeDrag() {
+  draggingTreeItem.value = null
+  treeDropTarget.value = ''
+}
+
+function treeRowClasses(kind, id) {
+  return {
+    'is-dragging': draggingTreeItem.value?.kind === kind && draggingTreeItem.value?.id === id,
+    'is-drop-target': treeDropTarget.value === treeDropTargetId(kind, id),
+  }
+}
+
+function treeDropTargetId(kind, id) {
+  return `${kind}:${id}`
+}
+
+function markTreeDropTarget(kind, id) {
+  if (draggingTreeItem.value) {
+    treeDropTarget.value = treeDropTargetId(kind, id)
+  }
+}
+
+function clearTreeDropTarget(kind, id) {
+  if (treeDropTarget.value === treeDropTargetId(kind, id)) {
+    treeDropTarget.value = ''
+  }
+}
+
+function consumeTreeDrag() {
   const dragged = draggingTreeItem.value
   draggingTreeItem.value = null
-  if (!dragged || dragged.kind !== kind || dragged.id === target.id || dragged.collectionId !== collection.id) {
-    return
-  }
-  const targetParentId = kind === 'folder' ? target.parentFolderId || null : target.folderId || null
-  if (dragged.parentId !== targetParentId) {
-    workspaceStatus.value = '目前僅支援同層排序'
+  treeDropTarget.value = ''
+  return dragged
+}
+
+async function dropOnCollection(collection) {
+  const dragged = consumeTreeDrag()
+  if (!dragged || (dragged.kind === 'collection' && dragged.id === collection.id)) {
     return
   }
 
   try {
-    if (kind === 'folder') {
-      const siblings = (collection.folders || [])
-        .filter((folder) => (folder.parentFolderId || null) === targetParentId)
-        .sort(compareBySortOrder)
-      const ordered = reorderItems(siblings, dragged.id, target.id)
-      await Promise.all(ordered.map((folder, index) => updateFolderSortOrder(folder, index + 1)))
-    } else {
-      const siblings = requestsInFolder(collection, targetParentId)
-      const ordered = reorderItems(siblings, dragged.id, target.id)
-      await Promise.all(ordered.map((request, index) => updateRequestSortOrder(request, index + 1)))
+    if (dragged.kind === 'collection') {
+      const ordered = reorderItems(collections.value, dragged.id, collection.id)
+      await Promise.all(ordered.map((item, index) => updateCollection(item, { sortOrder: index + 1 })))
+      await loadCollections()
+      workspaceStatus.value = 'Collection 排序已更新'
+      return
     }
-    await loadCollections()
-    workspaceStatus.value = '排序已更新'
+    if (dragged.kind === 'request') {
+      await moveRequestToContainer(dragged, collection, null)
+    }
   } catch (error) {
     workspaceStatus.value = readableError(error)
   }
+}
+
+async function dropOnFolder(folder, collection) {
+  const dragged = consumeTreeDrag()
+  if (!dragged || (dragged.kind === 'folder' && dragged.id === folder.id)) {
+    return
+  }
+
+  try {
+    if (dragged.kind === 'folder') {
+      const targetParentId = folder.parentFolderId || null
+      if (dragged.collectionId !== collection.id || dragged.parentId !== targetParentId) {
+        workspaceStatus.value = 'Folder 目前僅支援同層排序'
+        return
+      }
+      const siblings = (collection.folders || [])
+        .filter((folder) => (folder.parentFolderId || null) === targetParentId)
+        .sort(compareBySortOrder)
+      const ordered = reorderItems(siblings, dragged.id, folder.id)
+      await Promise.all(ordered.map((folder, index) => updateFolderSortOrder(folder, index + 1)))
+      await loadCollections()
+      workspaceStatus.value = 'Folder 排序已更新'
+      return
+    }
+    if (dragged.kind === 'request') {
+      await moveRequestToContainer(dragged, collection, folder.id)
+    }
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function dropOnRequest(target, collection) {
+  const dragged = consumeTreeDrag()
+  if (!dragged || dragged.kind !== 'request' || dragged.id === target.id) {
+    return
+  }
+
+  try {
+    await moveRequestBefore(dragged, target, collection)
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function moveRequestToContainer(dragged, targetCollection, targetFolderId) {
+  const sourceCollection = collections.value.find((collection) => collection.id === dragged.collectionId)
+  const request = findRequestInCollections(dragged.id)
+  if (!sourceCollection || !request) {
+    return
+  }
+
+  const sameContainer = sourceCollection.id === targetCollection.id && (dragged.parentId || null) === (targetFolderId || null)
+  const sourceSiblings = requestsInFolder(sourceCollection, dragged.parentId).filter((item) => item.id !== request.id)
+  if (sameContainer) {
+    await updateRequestPositions([...sourceSiblings, request], sourceCollection.id, targetFolderId)
+  } else {
+    const targetSiblings = requestsInFolder(targetCollection, targetFolderId).filter((item) => item.id !== request.id)
+    await updateRequestPositions(sourceSiblings, sourceCollection.id, dragged.parentId)
+    await updateRequestPositions([...targetSiblings, request], targetCollection.id, targetFolderId)
+  }
+  await loadCollections()
+  workspaceStatus.value = `Request 已移至 ${targetCollection.name}${targetFolderId ? ' 的 Folder' : ''}`
+}
+
+async function moveRequestBefore(dragged, target, targetCollection) {
+  const sourceCollection = collections.value.find((collection) => collection.id === dragged.collectionId)
+  const request = findRequestInCollections(dragged.id)
+  const targetFolderId = target.folderId || null
+  if (!sourceCollection || !request) {
+    return
+  }
+
+  const sameContainer = sourceCollection.id === targetCollection.id && (dragged.parentId || null) === targetFolderId
+  if (sameContainer) {
+    const ordered = reorderItems(requestsInFolder(sourceCollection, targetFolderId), request.id, target.id)
+    await updateRequestPositions(ordered, sourceCollection.id, targetFolderId)
+  } else {
+    const sourceSiblings = requestsInFolder(sourceCollection, dragged.parentId).filter((item) => item.id !== request.id)
+    const targetSiblings = requestsInFolder(targetCollection, targetFolderId).filter((item) => item.id !== request.id)
+    const targetIndex = targetSiblings.findIndex((item) => item.id === target.id)
+    targetSiblings.splice(Math.max(0, targetIndex), 0, request)
+    await updateRequestPositions(sourceSiblings, sourceCollection.id, dragged.parentId)
+    await updateRequestPositions(targetSiblings, targetCollection.id, targetFolderId)
+  }
+  await loadCollections()
+  workspaceStatus.value = `Request 已移至 ${targetCollection.name}`
+}
+
+function findRequestInCollections(requestId) {
+  return collections.value
+    .flatMap((collection) => collection.requests || [])
+    .find((request) => request.id === requestId)
+}
+
+async function updateRequestPositions(requests, collectionId, folderId) {
+  await Promise.all(requests.map((request, index) => updateRequestPosition(request, collectionId, folderId, index + 1)))
 }
 
 function reorderItems(items, draggedId, targetId) {
@@ -1595,15 +2021,27 @@ function updateFolderSortOrder(folder, sortOrder) {
   })
 }
 
-function updateRequestSortOrder(request, sortOrder) {
+function updateRequestPosition(request, collectionId, folderId, sortOrder) {
   return apiJson(`/api/requests/${request.id}`, {
     method: 'PUT',
     body: JSON.stringify({
-      folderId: request.folderId || null,
+      collectionId,
+      folderId,
       type: request.type,
       name: request.name,
       sortOrder,
       payloadJson: request.payloadJson,
+    }),
+  })
+}
+
+function updateCollection(collection, changes = {}) {
+  return apiJson(`/api/collections/${collection.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      name: changes.name || collection.name,
+      description: collection.description || '',
+      sortOrder: changes.sortOrder ?? collection.sortOrder,
     }),
   })
 }
@@ -1615,6 +2053,7 @@ function selectCollection(collectionId) {
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  cacheCurrentResponse()
   selectedCollectionId.value = collectionId
   selectedFolderId.value = null
   selectedRequestId.value = null
@@ -1629,6 +2068,7 @@ function selectFolder(folder) {
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  cacheCurrentResponse()
   selectedCollectionId.value = folder.collectionId
   selectedFolderId.value = folder.id
   selectedRequestId.value = null
@@ -1646,6 +2086,7 @@ async function deleteFolder(collection, folder) {
   deletingFolder.value = true
   try {
     await apiJson(`/api/folders/${folder.id}`, { method: 'DELETE' })
+    clearCachedResponses(requestsInFolder(collection, folder.id))
     if (selectedFolderId.value === folder.id) {
       selectedFolderId.value = null
       selectedRequestId.value = null
@@ -1667,6 +2108,7 @@ function selectRequest(request) {
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  cacheCurrentResponse()
   selectedCollectionId.value = request.collectionId
   selectedFolderId.value = request.folderId || null
   selectedRequestId.value = request.id
@@ -1674,8 +2116,9 @@ function selectRequest(request) {
   const payload = safeJsonParse(request.payloadJson)
   payload.requestType = payload.requestType || request.type || 'HTTP'
   loadPayloadToEditor(payload)
+  const restoredResponse = restoreCachedResponse(request.id)
   markEditorSaved()
-  workspaceStatus.value = '已載入 Request'
+  workspaceStatus.value = restoredResponse ? '已載入 Request（已還原暫存 Response）' : '已載入 Request'
 }
 
 function newDraftRequest(options = {}) {
@@ -1748,6 +2191,7 @@ async function saveRequest() {
         }),
       })
       selectedRequestId.value = created.id
+      cacheCurrentResponse(created.id)
       workspaceStatus.value = 'Request 已新增'
     }
     await loadCollections()
@@ -1771,6 +2215,7 @@ async function deleteSelectedRequest() {
   deleting.value = true
   try {
     await apiJson(`/api/requests/${selectedRequestId.value}`, { method: 'DELETE' })
+    responseCacheByRequestId.delete(selectedRequestId.value)
     selectedRequestId.value = null
     newDraftRequest({ force: true })
     await loadCollections()
@@ -1813,6 +2258,7 @@ async function sendHttpRequest() {
       await loadHistory()
     }
   } finally {
+    cacheCurrentResponse(execution.requestId)
     finishExecution(execution)
   }
 }
@@ -1835,6 +2281,7 @@ async function sendGrpcRequest() {
       errorText.value = readableError(error)
     }
   } finally {
+    cacheCurrentResponse(execution.requestId)
     finishExecution(execution)
   }
 }
@@ -1871,6 +2318,7 @@ async function sendGrpcBurRequest() {
       errorText.value = readableError(error)
     }
   } finally {
+    cacheCurrentResponse(execution.requestId)
     finishExecution(execution)
   }
 }
@@ -1878,6 +2326,7 @@ async function sendGrpcBurRequest() {
 function startExecution() {
   const execution = {
     id: window.crypto?.randomUUID?.() || `execution-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    requestId: selectedRequestId.value,
     controller: new AbortController(),
   }
   activeExecution.value = execution
@@ -1896,6 +2345,35 @@ function finishExecution(execution) {
     activeExecution.value = null
     cancelling.value = false
     sending.value = false
+  }
+}
+
+function cacheCurrentResponse(requestId = selectedRequestId.value) {
+  if (!requestId || (!response.value && !errorText.value && !cancellationText.value)) {
+    return
+  }
+  responseCacheByRequestId.set(requestId, {
+    response: response.value,
+    errorText: errorText.value,
+    cancellationText: cancellationText.value,
+    activeResponseTab: activeResponseTab.value,
+    grpcBurPreview: grpcBurPreview.value,
+  })
+}
+
+function restoreCachedResponse(requestId) {
+  const cached = responseCacheByRequestId.get(requestId)
+  response.value = cached?.response || null
+  errorText.value = cached?.errorText || ''
+  cancellationText.value = cached?.cancellationText || ''
+  activeResponseTab.value = cached?.activeResponseTab || 'body'
+  grpcBurPreview.value = cached?.grpcBurPreview || null
+  return Boolean(cached)
+}
+
+function clearCachedResponses(requests) {
+  for (const request of requests) {
+    responseCacheByRequestId.delete(request.id)
   }
 }
 
@@ -2459,6 +2937,26 @@ function decodeResponseFields() {
         error: decoded.error,
       }
     })
+  })
+}
+
+function decodeGrpcBurResponseFields() {
+  const parsed = tryJsonParse(rawResponseBody.value)
+  const payloads = parsed?.payload
+  if (!payloads || typeof payloads !== 'object' || Array.isArray(payloads)) {
+    return []
+  }
+  return grpcBurDecodedPayloads.value.map((payload) => {
+    const source = payloads[payload.key]
+    const original = typeof source?.data === 'string' ? source.data : ''
+    return {
+      configPath: `payload.${payload.key}.data`,
+      matchPath: `$.payload.${payload.key}.data`,
+      label: `payload ${payload.key}`,
+      decoded: prettyText(payload.text || ''),
+      original,
+      error: payload.error || (original ? '' : '找不到 payload data 欄位'),
+    }
   })
 }
 

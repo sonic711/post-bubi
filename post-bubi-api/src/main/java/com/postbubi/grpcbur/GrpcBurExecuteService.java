@@ -31,7 +31,9 @@ public class GrpcBurExecuteService {
     private static final String DEFAULT_TCPIP_HEADER_HEX = "0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F";
     private static final int DEFAULT_MCS_HEADER_LENGTH = 72;
     private static final int DEFAULT_BASIC_LABEL_LENGTH = 158;
-    private static final int DEFAULT_TIMEOUT_MILLIS = 60000;
+    private static final int DEFAULT_TIMEOUT_MILLIS = 30000;
+    private static final int MIN_TIMEOUT_MILLIS = 1;
+    private static final int MAX_TIMEOUT_MILLIS = 300000;
 
     private final BurCodecService burCodecService;
     private final GrpcExecuteService grpcExecuteService;
@@ -252,7 +254,15 @@ public class GrpcBurExecuteService {
     }
 
     private int normalizeTimeout(Integer timeoutMillis) {
-        return timeoutMillis == null ? DEFAULT_TIMEOUT_MILLIS : timeoutMillis;
+        int timeout = timeoutMillis == null ? DEFAULT_TIMEOUT_MILLIS : timeoutMillis;
+        if (timeout < MIN_TIMEOUT_MILLIS || timeout > MAX_TIMEOUT_MILLIS) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "GRPC_TIMEOUT_INVALID",
+                    "Timeout 必須介於 1 至 300000 毫秒。"
+            );
+        }
+        return timeout;
     }
 
     private byte[] decodeHex(String value, String label) {

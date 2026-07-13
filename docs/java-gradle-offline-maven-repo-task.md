@@ -1,6 +1,6 @@
 # Gradle Offline Maven Repo Task 使用指南
 
-更新日期：2026-06-09
+更新日期：2026-07-13
 
 本文件說明如何把本專案的離線 Maven repository 轉換 task 引入其他 Gradle 專案，並產出可供離線建置使用的 Maven layout 壓縮檔。
 
@@ -112,6 +112,13 @@ offlineMavenRepo {
 GRADLE_USER_HOME=$PWD/.gradle-online ./gradlew zipOfflineMavenRepo
 ```
 
+Windows PowerShell 等效指令：
+
+```powershell
+$env:GRADLE_USER_HOME = "$PWD/.gradle-online"
+.\gradlew.bat zipOfflineMavenRepo
+```
+
 產物位置：
 
 ```text
@@ -123,6 +130,13 @@ build/offline-maven-repo.zip
 
 ```bash
 GRADLE_USER_HOME=/path/to/copied/.gradle ./gradlew zipOfflineMavenRepo
+```
+
+Windows PowerShell 若要轉換一整包既有 `.gradle` cache：
+
+```powershell
+$env:GRADLE_USER_HOME = "C:\path\to\copied\.gradle"
+.\gradlew.bat zipOfflineMavenRepo
 ```
 
 ## 6. 離線環境使用方式

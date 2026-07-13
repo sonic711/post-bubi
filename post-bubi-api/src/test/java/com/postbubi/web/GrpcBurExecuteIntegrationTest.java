@@ -77,6 +77,21 @@ class GrpcBurExecuteIntegrationTest {
         assertThat(error.path("message").asText()).contains("Basic Label");
     }
 
+    @Test
+    void rejectsTimeoutOutsideSupportedRange() throws Exception {
+        ResponseEntity<String> response = postJson("/api/grpc-bur/execute", """
+                {
+                  "host": "127.0.0.1",
+                  "port": 1,
+                  "timeoutMillis": 0
+                }
+                """);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode error = objectMapper.readTree(response.getBody());
+        assertThat(error.path("code").asText()).isEqualTo("GRPC_TIMEOUT_INVALID");
+    }
+
     private ResponseEntity<String> postJson(String path, String body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

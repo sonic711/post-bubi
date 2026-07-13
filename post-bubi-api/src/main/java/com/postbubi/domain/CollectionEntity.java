@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "collections")
@@ -24,6 +25,10 @@ public class CollectionEntity {
 
     @Column(length = 2000)
     private String description;
+
+    @Column(name = "sort_order", nullable = false)
+    @ColumnDefault("0")
+    private Integer sortOrder = 0;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -61,6 +66,14 @@ public class CollectionEntity {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public Integer getSortOrder() {
+        return sortOrder;
+    }
+
+    public void setSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder;
     }
 
     public Instant getCreatedAt() {

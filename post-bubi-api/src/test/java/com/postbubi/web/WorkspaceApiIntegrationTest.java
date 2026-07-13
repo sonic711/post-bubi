@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -99,6 +100,71 @@ class WorkspaceApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value("REQUEST_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("找不到指定的 Request。"))
                 .andExpect(jsonPath("$.details.id").value(999));
+    }
+
+    @Test
+    void renamesAndSortsCollectionsAndMovesRequestToAnotherCollectionFolder() throws Exception {
+        long firstCollectionId = postJson("/api/collections", """
+                { "name": "第一組", "sortOrder": 1 }
+                """).path("id").asLong();
+        long secondCollectionId = postJson("/api/collections", """
+                { "name": "第二組", "sortOrder": 2 }
+                """).path("id").asLong();
+        long targetFolderId = postJson("/api/folders", """
+                {
+                  "collectionId": %d,
+                  "name": "目標 Folder",
+                  "sortOrder": 1
+                }
+                """.formatted(secondCollectionId)).path("id").asLong();
+        long requestId = postJson("/api/requests", """
+                {
+                  "collectionId": %d,
+                  "type": "HTTP",
+                  "name": "可移動 Request",
+                  "sortOrder": 1,
+                  "payloadJson": "{}"
+                }
+                """.formatted(firstCollectionId)).path("id").asLong();
+
+        mockMvc.perform(put("/api/collections/{id}", firstCollectionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "第一組已改名", "sortOrder": 2 }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("第一組已改名"))
+                .andExpect(jsonPath("$.sortOrder").value(2));
+
+        mockMvc.perform(put("/api/collections/{id}", secondCollectionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "第二組", "sortOrder": 1 }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/requests/{id}", requestId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "collectionId": %d,
+                                  "folderId": %d,
+                                  "type": "HTTP",
+                                  "name": "可移動 Request",
+                                  "sortOrder": 1,
+                                  "payloadJson": "{}"
+                                }
+                                """.formatted(secondCollectionId, targetFolderId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collectionId").value(secondCollectionId))
+                .andExpect(jsonPath("$.folderId").value(targetFolderId));
+
+        mockMvc.perform(get("/api/collections"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(secondCollectionId))
+                .andExpect(jsonPath("$[0].requests[0].id").value(requestId))
+                .andExpect(jsonPath("$[1].id").value(firstCollectionId))
+                .andExpect(jsonPath("$[1].name").value("第一組已改名"));
     }
 
     private JsonNode postJson(String path, String body) throws Exception {

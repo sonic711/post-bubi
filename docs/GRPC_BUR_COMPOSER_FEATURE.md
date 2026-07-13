@@ -1,6 +1,6 @@
 # gRPC BUR 組包功能
 
-最後整理日期：2026-07-10
+最後整理日期：2026-07-13
 
 本功能已完成第一個可用版本。設計源自原始驗證 notebook 的組包流程；notebook 已不再是建置或執行必要檔案，實際行為以目前 Java 實作與本文件為準。
 
@@ -48,7 +48,7 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 | MCS Header 長度 | 72 字元 |
 | Basic Label 長度 | 158 字元 |
 | Text Area 長度 | `0`，代表不限制 |
-| Timeout | 60000 ms |
+| Timeout | 30000 ms |
 | Plaintext | true |
 
 處理規則：
@@ -94,7 +94,7 @@ Request 主要欄位：
 {
   "host": "10.1.11.34",
   "port": 50003,
-  "timeoutMillis": 60000,
+  "timeoutMillis": 30000,
   "plaintext": true,
   "ignoreTlsVerification": false,
   "metadataText": "",
@@ -113,6 +113,8 @@ Request 主要欄位：
   }
 }
 ```
+
+`serviceName` 與 `methodName` 是可選覆寫欄位；未提供時分別使用 `com.bot.fsap.model.grpc.common.Service` 與 `rpcPeriphery`。`timeoutMillis` 未提供時預設為 `30000`，可設定範圍為 `1` 至 `300000`。
 
 Response 包含：
 
@@ -174,7 +176,7 @@ java -jar post-bubi.jar \
 3. 使用 BUR CodeTable 轉成 UTF-8。
 4. 回傳 key、charsets、format、length、hex、text 與 error。
 
-單一 payload 解碼失敗不會丟棄整個 response；原始 Body 仍可查看，Decoded 顯示該 entry 的錯誤原因。
+單一 payload 解碼失敗不會丟棄整個 response。成功解碼時，Body 會以明碼呈現原本的 `payload.*.data` 值，並標示 `decoded`、保留原始 base64 tooltip；Decoded tab 以滿版清單顯示各 entry 的資訊。失敗 entry 會保留原始值並在 Decoded 顯示錯誤原因。
 
 ## 錯誤代碼
 
@@ -203,6 +205,7 @@ java -jar post-bubi.jar \
 - 無外部 CodeTable 時從 JAR resource 載入。
 - TCPIP、MCS、Basic Label、Text Area 串接結果。
 - Basic Label 超長錯誤。
+- Timeout 預設與合法範圍驗證。
 - TBConvert 與 CodeTable 打入 executable JAR。
 
 實際 target server 驗收仍需要正確業務資料、可連線環境與相符 proto。

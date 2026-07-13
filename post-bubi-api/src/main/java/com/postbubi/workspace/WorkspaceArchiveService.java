@@ -122,6 +122,7 @@ public class WorkspaceArchiveService {
             CollectionEntity entity = new CollectionEntity();
             entity.setName(source.name() + " 匯入");
             entity.setDescription(source.description());
+            entity.setSortOrder(source.sortOrder() == null ? 0 : source.sortOrder());
             collectionRepository.saveAndFlush(entity);
             collectionIds.put(source.id(), entity.getId());
         }
@@ -136,8 +137,8 @@ public class WorkspaceArchiveService {
     }
 
     private Archive buildArchive() {
-        List<CollectionArchive> collections = collectionRepository.findAll().stream()
-                .map(collection -> new CollectionArchive(collection.getId(), collection.getName(), collection.getDescription()))
+        List<CollectionArchive> collections = collectionRepository.findAllByOrderBySortOrderAscIdAsc().stream()
+                .map(collection -> new CollectionArchive(collection.getId(), collection.getName(), collection.getDescription(), collection.getSortOrder()))
                 .toList();
         List<FolderArchive> folders = folderRepository.findAll().stream()
                 .map(folder -> new FolderArchive(
@@ -421,7 +422,7 @@ public class WorkspaceArchiveService {
     ) {
     }
 
-    private record CollectionArchive(Long id, String name, String description) {
+    private record CollectionArchive(Long id, String name, String description, Integer sortOrder) {
     }
 
     private record FolderArchive(Long id, Long collectionId, Long parentFolderId, String name, Integer sortOrder) {
