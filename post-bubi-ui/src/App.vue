@@ -288,7 +288,7 @@
       </section>
     </aside>
 
-    <section class="panel" :style="panelStyle">
+    <section ref="panelElement" class="panel" :style="panelStyle">
       <header class="toolbar" :class="`toolbar-${requestType.toLowerCase()}`">
         <select v-model="requestType" class="type-select" aria-label="Request type">
           <option value="HTTP">HTTP</option>
@@ -397,33 +397,63 @@
           </label>
         </div>
 
-        <div v-if="activeRequestTab === 'headers'" class="editor-pane">
-          <label>{{ requestType === 'HTTP' ? 'Headers' : 'Metadata' }}</label>
-          <div v-if="requestType === 'HTTP'" class="key-value-editor">
-            <div class="key-value-header">
-              <span></span>
-              <span>Key</span>
-              <span>Value</span>
-              <span></span>
+        <div v-if="activeRequestTab === 'headers'" class="editor-pane headers-pane">
+          <template v-if="requestType === 'HTTP'">
+            <div class="headers-pane-heading">
+              <span>Headers</span>
+              <button
+                class="icon-action-button headers-collapse-button"
+                type="button"
+                :title="headersExpanded ? '收合 Headers' : '展開 Headers'"
+                :aria-label="headersExpanded ? '收合 Headers' : '展開 Headers'"
+                :aria-expanded="headersExpanded"
+                @click="toggleHeadersPanel"
+              ><ChevronDown :size="17" :class="{ collapsed: !headersExpanded }" aria-hidden="true" /></button>
             </div>
-            <div
-              v-for="header in headerRows"
-              :key="header.id"
-              class="key-value-row"
-              draggable="true"
-              @dragstart="startHeaderDrag(header.id)"
-              @dragover.prevent
-              @drop="dropHeaderRow(header.id)"
-            >
-              <input v-model="header.enabled" type="checkbox" aria-label="啟用 Header" />
-              <input v-model="header.name" aria-label="Header key" placeholder="Header name" />
-              <input v-model="header.value" aria-label="Header value" placeholder="Value" />
-              <button class="icon-danger-button" type="button" title="刪除 Header" aria-label="刪除 Header" @click="removeHeaderRow(header.id)"><Trash2 :size="16" aria-hidden="true" /></button>
+            <div v-if="headersExpanded" class="key-value-editor">
+              <div class="key-value-scroll">
+                <div class="key-value-header">
+                  <span></span>
+                  <span></span>
+                  <span>Key</span>
+                  <span>Value</span>
+                  <span></span>
+                </div>
+                <div
+                  v-for="header in headerRows"
+                  :key="header.id"
+                  class="key-value-row"
+                  :class="{
+                    'is-dragging': draggingHeaderRowId === header.id,
+                    'is-drop-target': headerDropTargetId === header.id,
+                  }"
+                  @dragover.prevent="markHeaderDropTarget(header.id)"
+                  @dragleave="clearHeaderDropTarget(header.id)"
+                  @drop="dropHeaderRow(header.id)"
+                >
+                  <input v-model="header.enabled" type="checkbox" aria-label="啟用 Header" />
+                  <span
+                    class="header-drag-handle"
+                    draggable="true"
+                    title="拖曳排序 Header"
+                    aria-label="拖曳排序 Header"
+                    @dragstart.stop="startHeaderDrag(header.id, $event)"
+                    @dragend="endHeaderDrag"
+                  ><GripVertical :size="17" aria-hidden="true" /></span>
+                  <input v-model="header.name" aria-label="Header key" placeholder="Header name" />
+                  <input v-model="header.value" aria-label="Header value" placeholder="Value" />
+                  <button class="icon-danger-button" type="button" title="刪除 Header" aria-label="刪除 Header" @click="removeHeaderRow(header.id)"><Trash2 :size="16" aria-hidden="true" /></button>
+                </div>
+              </div>
+              <button class="secondary-button add-row-button" type="button" @click="addHeaderRow"><Plus :size="16" aria-hidden="true" />新增 Header</button>
             </div>
-            <button class="secondary-button add-row-button" type="button" @click="addHeaderRow"><Plus :size="16" aria-hidden="true" />新增 Header</button>
-          </div>
-          <textarea v-else-if="requestType === 'GRPC'" v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
-          <textarea v-else v-model="grpcBurMetadataText" spellcheck="false" aria-label="gRPC BUR Metadata"></textarea>
+            <p v-else class="headers-collapsed-summary">已收合 {{ headerRows.length }} 筆 Header</p>
+          </template>
+          <template v-else>
+            <label>Metadata</label>
+            <textarea v-if="requestType === 'GRPC'" v-model="grpcMetadataText" spellcheck="false" aria-label="Metadata"></textarea>
+            <textarea v-else v-model="grpcBurMetadataText" spellcheck="false" aria-label="gRPC BUR Metadata"></textarea>
+          </template>
         </div>
 
         <div v-if="activeRequestTab === 'body'" class="editor-pane body-pane">
@@ -872,12 +902,15 @@ const savedEditorState = ref('')
 const draggingTreeItem = ref(null)
 const treeDropTarget = ref('')
 const draggingHeaderRowId = ref('')
+const headerDropTargetId = ref('')
+const headersExpanded = ref(true)
 const openTreeMenu = ref('')
 const collapsedCollectionIds = ref(new Set())
 const responseCacheByRequestId = new Map()
 const responseHeight = ref(380)
 const resizingResponse = ref(false)
 const responseResizeStart = ref(null)
+const panelElement = ref(null)
 let protoPanelPreferenceLoaded = false
 
 const grpcTarget = computed({
@@ -1079,6 +1112,7 @@ function initializePanelPreferences() {
   if (Number.isFinite(savedResponseHeight)) {
     responseHeight.value = clampResponseHeight(savedResponseHeight)
   }
+  headersExpanded.value = window.localStorage.getItem('post-bubi-headers-expanded') !== 'false'
   try {
     const savedCollapsedCollections = JSON.parse(window.localStorage.getItem('post-bubi-collapsed-collections') || '[]')
     if (Array.isArray(savedCollapsedCollections)) {
@@ -1094,8 +1128,13 @@ function toggleProtoPanel() {
   window.localStorage.setItem('post-bubi-proto-panel-expanded', String(protoPanelExpanded.value))
 }
 
+function toggleHeadersPanel() {
+  headersExpanded.value = !headersExpanded.value
+  window.localStorage.setItem('post-bubi-headers-expanded', String(headersExpanded.value))
+}
+
 function startResponseResize(event) {
-  if (window.innerWidth <= 860) {
+  if (!supportsResponseResize()) {
     return
   }
   resizingResponse.value = true
@@ -1127,7 +1166,7 @@ function stopResponseResize() {
 }
 
 function adjustResponseHeight(offset) {
-  if (window.innerWidth <= 860) {
+  if (!supportsResponseResize()) {
     return
   }
   responseHeight.value = clampResponseHeight(responseHeight.value + offset)
@@ -1135,8 +1174,17 @@ function adjustResponseHeight(offset) {
 }
 
 function clampResponseHeight(value) {
-  const maxHeight = Math.max(250, window.innerHeight - 360)
-  return Math.min(maxHeight, Math.max(250, Math.round(value)))
+  const panel = panelElement.value
+  const toolbarHeight = panel?.querySelector('.toolbar')?.offsetHeight || 96
+  const metaHeight = panel?.querySelector('.request-meta')?.offsetHeight || 48
+  const panelHeight = panel?.clientHeight || window.innerHeight
+  const minimumEditorHeight = 160
+  const maximumResponseHeight = Math.max(220, panelHeight - toolbarHeight - metaHeight - minimumEditorHeight - 12)
+  return Math.min(maximumResponseHeight, Math.max(220, Math.round(value)))
+}
+
+function supportsResponseResize() {
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches
 }
 
 async function loadEnvironments() {
@@ -2812,13 +2860,35 @@ function removeHeaderRow(id) {
   }
 }
 
-function startHeaderDrag(id) {
+function startHeaderDrag(id, event) {
   draggingHeaderRowId.value = id
+  headerDropTargetId.value = ''
+  if (event?.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', id)
+  }
+}
+
+function markHeaderDropTarget(id) {
+  if (draggingHeaderRowId.value && draggingHeaderRowId.value !== id) {
+    headerDropTargetId.value = id
+  }
+}
+
+function clearHeaderDropTarget(id) {
+  if (headerDropTargetId.value === id) {
+    headerDropTargetId.value = ''
+  }
+}
+
+function endHeaderDrag() {
+  draggingHeaderRowId.value = ''
+  headerDropTargetId.value = ''
 }
 
 function dropHeaderRow(targetId) {
   const draggedId = draggingHeaderRowId.value
-  draggingHeaderRowId.value = ''
+  endHeaderDrag()
   if (!draggedId || draggedId === targetId) {
     return
   }

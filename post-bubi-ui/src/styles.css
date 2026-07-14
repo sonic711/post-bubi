@@ -29,6 +29,8 @@
   --surface-hover: #f0f2f3;
   --surface-raised: #ffffff;
   --surface-selected: #fff1f8;
+  --selection-background: #b8d7fb;
+  --selection-text: #102a43;
   --border: #dfe3e6;
   --border-strong: #c8ced3;
   --border-subtle: #eceeef;
@@ -77,6 +79,8 @@
   --surface-hover: #22262a;
   --surface-raised: #1c1f22;
   --surface-selected: #321523;
+  --selection-background: #285d99;
+  --selection-text: #ffffff;
   --border: #30353a;
   --border-strong: #464d53;
   --border-subtle: #262a2e;
@@ -97,8 +101,8 @@
 }
 
 ::selection {
-  background: var(--brand-primary-border);
-  color: var(--text-primary);
+  background: var(--selection-background);
+  color: var(--selection-text);
 }
 
 body {
@@ -844,8 +848,11 @@ textarea:focus-visible {
 
 .panel {
   display: grid;
-  grid-template-rows: auto auto minmax(280px, 1fr) 12px minmax(250px, var(--response-height, 380px));
+  grid-template-rows: auto auto minmax(160px, 1fr) 12px minmax(220px, var(--response-height, 380px));
+  height: 100vh;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   padding: 14px;
   gap: 0;
   background: var(--surface-sunken);
@@ -1009,6 +1016,10 @@ textarea:focus-visible {
   border-right: 1px solid var(--border);
 }
 
+.editor {
+  overflow: hidden;
+}
+
 .response-resize-handle {
   position: relative;
   z-index: 2;
@@ -1107,6 +1118,37 @@ textarea:disabled {
   border-bottom: 1px solid var(--border-subtle);
   padding: 9px 16px;
   background: var(--surface-subtle);
+}
+
+.headers-pane-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+  padding: 7px 12px 7px 16px;
+}
+
+.headers-pane-heading > span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.headers-collapse-button svg {
+  transition: transform 140ms ease;
+}
+
+.headers-collapse-button svg.collapsed {
+  transform: rotate(-90deg);
+}
+
+.headers-collapsed-summary {
+  margin: 0;
+  padding: 14px 18px;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .grpc-pane {
@@ -1232,6 +1274,7 @@ textarea:disabled {
 .json-input {
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   margin: 0;
@@ -1240,6 +1283,8 @@ textarea:disabled {
   padding: 18px;
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
+  font-weight: 400;
+  font-variant-ligatures: none;
   line-height: 1.65;
   tab-size: 2;
   white-space: pre;
@@ -1249,6 +1294,8 @@ textarea:disabled {
   pointer-events: none;
   background: var(--surface);
   color: var(--text-primary);
+  /* Keep enough scroll range for textarea's trailing caret line on Windows. */
+  padding-bottom: calc(18px + 1.65em);
 }
 
 .json-input {
@@ -1260,13 +1307,12 @@ textarea:disabled {
 }
 
 .json-input::selection {
-  background: var(--brand-primary-border);
-  color: transparent;
+  background: var(--selection-background);
+  color: var(--selection-text);
 }
 
 .json-key {
   color: var(--json-key);
-  font-weight: 700;
 }
 
 .json-string {
@@ -1344,17 +1390,28 @@ textarea:disabled {
 
 .key-value-editor {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 18px;
+}
+
+.key-value-scroll {
+  display: grid;
   align-content: start;
   gap: 10px;
-  height: 100%;
-  overflow: auto;
-  padding: 14px 18px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .key-value-header,
 .key-value-row {
   display: grid;
-  grid-template-columns: 32px minmax(160px, 0.38fr) minmax(220px, 1fr) 48px;
+  grid-template-columns: 28px 28px minmax(160px, 0.38fr) minmax(220px, 1fr) 48px;
   gap: 8px;
   align-items: center;
 }
@@ -1368,7 +1425,18 @@ textarea:disabled {
 
 .key-value-row {
   min-height: 40px;
-  cursor: grab;
+  position: relative;
+  border-radius: 6px;
+  transition: background 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.key-value-row.is-dragging {
+  opacity: 0.45;
+}
+
+.key-value-row.is-drop-target {
+  background: var(--brand-primary-soft);
+  box-shadow: inset 0 2px 0 var(--brand-primary);
 }
 
 .key-value-row input[type="checkbox"] {
@@ -1381,6 +1449,24 @@ textarea:disabled {
 .key-value-row input:not([type="checkbox"]) {
   min-width: 0;
   cursor: text;
+}
+
+.header-drag-handle {
+  display: grid;
+  width: 28px;
+  height: 36px;
+  place-items: center;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+}
+
+.header-drag-handle:hover {
+  color: var(--brand-primary);
+}
+
+.header-drag-handle:active {
+  cursor: grabbing;
 }
 
 .form-data-header,
@@ -1881,7 +1967,9 @@ pre {
 
   .panel {
     grid-template-rows: auto auto minmax(340px, 52vh) 0 minmax(340px, 44vh);
+    height: auto;
     min-height: 900px;
+    overflow: visible;
     padding: 10px;
   }
 
@@ -1929,6 +2017,19 @@ pre {
 
   .environment-modal {
     max-height: calc(100vh - 28px);
+  }
+}
+
+@media (max-width: 860px) and (hover: hover) and (pointer: fine) {
+  .panel {
+    grid-template-rows: auto auto minmax(160px, 52vh) 12px minmax(220px, 44vh);
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .response-resize-handle {
+    display: block;
   }
 }
 
@@ -2047,6 +2148,19 @@ pre {
 
   .history-item {
     grid-template-columns: 56px minmax(0, 1fr) 54px;
+  }
+}
+
+@media (max-width: 620px) and (hover: hover) and (pointer: fine) {
+  .panel {
+    grid-template-rows: auto auto minmax(160px, 56vh) 12px minmax(220px, 40vh);
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .response-resize-handle {
+    display: block;
   }
 }
 
