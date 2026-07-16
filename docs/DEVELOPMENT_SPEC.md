@@ -650,6 +650,8 @@ Response viewer 與 Request editor 之間必須提供垂直可拖拉分隔列：
 - 使用者調整後的比例保存在瀏覽器本機，重新整理後保留。
 - 窄版以穩定的固定區塊高度為優先，不要求拖拉調整，避免觸控捲動衝突。
 
+Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當 Params、Headers、Body、Settings、gRPC BUR 組包欄位、Response Headers、Decoded、Info 或 History 內容超出可用高度時，僅該 tab 的內容區可垂直捲動；不得依賴整頁捲動、裁切內容，或將其他工作區推離可視範圍。
+
 ## 12. 錯誤處理
 
 後端 API error response 應統一格式：

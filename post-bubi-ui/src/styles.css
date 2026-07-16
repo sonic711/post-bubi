@@ -1017,6 +1017,8 @@ textarea:focus-visible {
 }
 
 .editor {
+  display: grid;
+  grid-template-rows: 43px minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -1102,8 +1104,9 @@ textarea:disabled {
 .editor-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: calc(100% - 43px);
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .editor-pane label,
@@ -1156,7 +1159,10 @@ textarea:disabled {
   grid-template-columns: repeat(2, minmax(180px, 1fr));
   gap: 16px;
   align-content: start;
-  height: calc(100% - 43px);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 18px;
 }
 
@@ -1180,6 +1186,8 @@ textarea:disabled {
   gap: 12px;
   height: 100%;
   min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 14px 18px;
 }
 
@@ -1384,7 +1392,9 @@ textarea:disabled {
   align-content: start;
   gap: 10px;
   height: 100%;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 14px 18px;
 }
 
@@ -1520,7 +1530,10 @@ textarea:disabled {
   display: grid;
   align-content: start;
   gap: 16px;
-  height: calc(100% - 43px);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 18px;
 }
 
@@ -1845,7 +1858,9 @@ pre {
   align-content: start;
   gap: 8px;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   border-right: 1px solid var(--border);
   padding: 12px;
 }
