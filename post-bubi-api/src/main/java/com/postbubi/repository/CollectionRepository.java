@@ -9,4 +9,6 @@ import com.postbubi.domain.CollectionEntity;
 public interface CollectionRepository extends JpaRepository<CollectionEntity, Long> {
 
     List<CollectionEntity> findAllByOrderBySortOrderAscIdAsc();
+
+    boolean existsByNameIgnoreCase(String name);
 }

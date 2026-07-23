@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -80,5 +82,39 @@ class EnvironmentIntegrationTest {
 
         mockMvc.perform(delete("/api/environments/{id}", id))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void copiesAndImportsExportedEnvironmentWithoutOverwritingExistingName() throws Exception {
+        String response = mockMvc.perform(post("/api/environments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name": "sit", "variables": [{"key": "baseUrl", "value": "https://sit.example"}, {"key": "token", "value": "secret"}]}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        long id = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).path("id").asLong();
+
+        mockMvc.perform(post("/api/environments/{id}/copy", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"local\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("local"))
+                .andExpect(jsonPath("$.variables.length()").value(2));
+
+        byte[] archive = mockMvc.perform(get("/api/environments/{id}/export", id))
+                .andExpect(status().isOk())
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentType().toString()).isEqualTo("application/zip"))
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        mockMvc.perform(multipart("/api/environments/import")
+                        .file(new MockMultipartFile("file", "sit.zip", "application/zip", archive)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("sit 匯入 2"))
+                .andExpect(jsonPath("$.variables[1].value").value("secret"));
     }
 }

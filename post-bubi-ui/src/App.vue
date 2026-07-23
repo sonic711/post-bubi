@@ -1,6 +1,6 @@
 <template>
-  <main class="workspace">
-    <aside class="sidebar">
+  <main class="workspace" :style="workspaceStyle">
+    <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
       <div class="sidebar-head">
         <div class="brand" aria-label="Post Bubi">
           <img :src="postBubiLogo" alt="Post Bubi" />
@@ -59,6 +59,17 @@
           </select>
           <button class="icon-action-button" type="button" title="新增 Environment" aria-label="新增 Environment" @click="startCreateEnvironment"><Plus :size="16" aria-hidden="true" /></button>
           <button class="icon-action-button" type="button" title="管理 Environment 變數" aria-label="管理 Environment 變數" :disabled="!activeEnvironment" @click="openEnvironmentManager"><Settings :size="15" aria-hidden="true" /></button>
+          <div class="environment-menu-wrapper">
+            <button class="icon-action-button" type="button" title="Environment 操作" aria-label="Environment 操作" @click.stop="toggleEnvironmentMenu"><MoreHorizontal :size="17" aria-hidden="true" /></button>
+            <div v-if="environmentMenuOpen" class="tree-action-menu environment-action-menu">
+              <button type="button" :disabled="!activeEnvironment" @click="exportEnvironment"><Download :size="15" aria-hidden="true" />匯出 Environment</button>
+              <label class="menu-file-action">
+                <Upload :size="15" aria-hidden="true" />匯入 Environment
+                <input type="file" accept=".zip,application/zip" @change="importEnvironment" />
+              </label>
+              <button type="button" :disabled="!activeEnvironment" @click="openEnvironmentCopy"><Copy :size="15" aria-hidden="true" />複製 Environment</button>
+            </div>
+          </div>
         </div>
         <p v-if="activeEnvironment" class="environment-summary">
           {{ activeEnvironment.name }}：送出時替換 <code v-text="'{{variable}}'"></code>
@@ -115,6 +126,7 @@
             <div v-if="openTreeMenu === treeMenuId('collection', collection.id)" class="tree-action-menu">
               <button type="button" @click="prepareNewRequest(collection.id, null)"><Plus :size="15" aria-hidden="true" />新增 Request</button>
               <button type="button" @click="createFolderFromMenu(collection.id, null)"><FolderPlus :size="15" aria-hidden="true" />新增 Folder</button>
+              <button type="button" @click="exportCollection(collection)"><Download :size="15" aria-hidden="true" />匯出 Collection</button>
               <button type="button" @click="openCollectionRename(collection)"><Pencil :size="15" aria-hidden="true" />重新命名</button>
               <button type="button" class="danger-menu-item" :disabled="deletingCollection" @click="deleteCollectionFromMenu(collection)"><Trash2 :size="15" aria-hidden="true" />刪除 Collection</button>
             </div>
@@ -287,6 +299,16 @@
         </p>
       </section>
     </aside>
+    <div
+      class="sidebar-resize-handle"
+      :class="{ active: resizingSidebar }"
+      role="separator"
+      :aria-label="sidebarCollapsed ? '向右拖曳展開側欄' : '調整側欄寬度；向左拖曳可收合'"
+      aria-orientation="vertical"
+      tabindex="0"
+      @pointerdown.prevent="startSidebarResize"
+      @keydown="handleSidebarResizeKeydown"
+    ></div>
 
     <section ref="panelElement" class="panel" :style="panelStyle">
       <header class="toolbar" :class="`toolbar-${requestType.toLowerCase()}`">
@@ -777,6 +799,27 @@
         </footer>
       </section>
     </div>
+    <div v-if="showEnvironmentCopy" class="modal-backdrop" @click.self="closeEnvironmentCopy">
+      <section class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="environment-copy-title">
+        <header class="environment-modal-head">
+          <div>
+            <h2 id="environment-copy-title">複製 Environment</h2>
+            <p>{{ activeEnvironment?.name }} 的變數會完整複製到新 Environment。</p>
+          </div>
+          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeEnvironmentCopy"><X :size="18" aria-hidden="true" /></button>
+        </header>
+        <label class="environment-name-field">
+          新 Environment 名稱
+          <input v-model="environmentCopyName" aria-label="新 Environment 名稱" maxlength="200" @keyup.enter="copyEnvironment" />
+        </label>
+        <footer class="collection-rename-actions">
+          <button class="secondary-button" type="button" :disabled="copyingEnvironment" @click="closeEnvironmentCopy">取消</button>
+          <button class="primary-button" type="button" :disabled="copyingEnvironment" @click="copyEnvironment">
+            {{ copyingEnvironment ? '複製中' : '建立副本' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -809,6 +852,9 @@ import {
 } from '@lucide/vue'
 import postBubiLogo from './assets/post-bubi-logo.png'
 
+const SIDEBAR_COLLAPSE_THRESHOLD = 180
+const SIDEBAR_COLLAPSED_WIDTH = 64
+
 const requestTabs = [
   { key: 'params', label: 'Params' },
   { key: 'headers', label: 'Headers' },
@@ -833,11 +879,15 @@ const collectionRenameDraft = ref(null)
 const collectionRenameValue = ref('')
 const savingCollectionRename = ref(false)
 const showEnvironmentManager = ref(false)
+const environmentMenuOpen = ref(false)
 const environmentDraftId = ref(null)
 const environmentDraftName = ref('')
 const environmentDraftVariables = ref([newNameValueRow()])
 const savingEnvironment = ref(false)
 const deletingEnvironment = ref(false)
+const showEnvironmentCopy = ref(false)
+const environmentCopyName = ref('')
+const copyingEnvironment = ref(false)
 const selectedCollectionId = ref(null)
 const selectedFolderId = ref(null)
 const selectedRequestId = ref(null)
@@ -911,6 +961,10 @@ const responseHeight = ref(380)
 const resizingResponse = ref(false)
 const responseResizeStart = ref(null)
 const panelElement = ref(null)
+const sidebarWidth = ref(286)
+const sidebarCollapsed = ref(false)
+const resizingSidebar = ref(false)
+const sidebarResizeStart = ref(null)
 let protoPanelPreferenceLoaded = false
 
 const grpcTarget = computed({
@@ -989,6 +1043,10 @@ const grpcBurDecodedPayloads = computed(() => response.value?.decodedPayloads ||
 
 const panelStyle = computed(() => ({
   '--response-height': `${responseHeight.value}px`,
+}))
+
+const workspaceStyle = computed(() => ({
+  '--sidebar-width': `${sidebarCollapsed.value ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth.value}px`,
 }))
 
 const hasUnsavedChanges = computed(() => savedEditorState.value !== snapshotEditorState())
@@ -1092,6 +1150,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   activeExecution.value?.controller.abort()
   stopResponseResize()
+  stopSidebarResize()
   window.removeEventListener('beforeunload', warnBeforeUnload)
   document.removeEventListener('click', closeTreeMenuOnOutsideClick)
 })
@@ -1113,6 +1172,11 @@ function initializePanelPreferences() {
     responseHeight.value = clampResponseHeight(savedResponseHeight)
   }
   headersExpanded.value = window.localStorage.getItem('post-bubi-headers-expanded') !== 'false'
+  const savedSidebarWidth = Number(window.localStorage.getItem('post-bubi-sidebar-width'))
+  if (Number.isFinite(savedSidebarWidth)) {
+    sidebarWidth.value = clampSidebarWidth(savedSidebarWidth)
+  }
+  sidebarCollapsed.value = window.localStorage.getItem('post-bubi-sidebar-collapsed') === 'true'
   try {
     const savedCollapsedCollections = JSON.parse(window.localStorage.getItem('post-bubi-collapsed-collections') || '[]')
     if (Array.isArray(savedCollapsedCollections)) {
@@ -1121,6 +1185,75 @@ function initializePanelPreferences() {
   } catch {
     window.localStorage.removeItem('post-bubi-collapsed-collections')
   }
+}
+
+function startSidebarResize(event) {
+  if (!supportsSidebarResize()) {
+    return
+  }
+  resizingSidebar.value = true
+  sidebarResizeStart.value = {
+    x: event.clientX,
+    width: sidebarCollapsed.value ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth.value,
+  }
+  window.addEventListener('pointermove', resizeSidebar)
+  window.addEventListener('pointerup', stopSidebarResize, { once: true })
+}
+
+function resizeSidebar(event) {
+  if (!sidebarResizeStart.value) {
+    return
+  }
+  applySidebarWidth(sidebarResizeStart.value.width + event.clientX - sidebarResizeStart.value.x)
+}
+
+function stopSidebarResize() {
+  if (!resizingSidebar.value && !sidebarResizeStart.value) {
+    return
+  }
+  resizingSidebar.value = false
+  sidebarResizeStart.value = null
+  window.removeEventListener('pointermove', resizeSidebar)
+  window.removeEventListener('pointerup', stopSidebarResize)
+  window.localStorage.setItem('post-bubi-sidebar-width', String(sidebarWidth.value))
+  window.localStorage.setItem('post-bubi-sidebar-collapsed', String(sidebarCollapsed.value))
+}
+
+function adjustSidebarWidth(offset) {
+  if (!supportsSidebarResize()) {
+    return
+  }
+  applySidebarWidth((sidebarCollapsed.value ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth.value) + offset)
+  window.localStorage.setItem('post-bubi-sidebar-width', String(sidebarWidth.value))
+  window.localStorage.setItem('post-bubi-sidebar-collapsed', String(sidebarCollapsed.value))
+}
+
+function applySidebarWidth(value) {
+  if (value <= SIDEBAR_COLLAPSE_THRESHOLD) {
+    sidebarCollapsed.value = true
+    return
+  }
+  sidebarCollapsed.value = false
+  sidebarWidth.value = clampSidebarWidth(value)
+}
+
+function handleSidebarResizeKeydown(event) {
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    adjustSidebarWidth(-20)
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    adjustSidebarWidth(20)
+  }
+}
+
+function clampSidebarWidth(value) {
+  const maximumWidth = Math.min(520, Math.max(220, window.innerWidth - 360))
+  return Math.min(maximumWidth, Math.max(220, Math.round(value)))
+}
+
+function supportsSidebarResize() {
+  return window.matchMedia('(min-width: 861px) and (hover: hover) and (pointer: fine)').matches
 }
 
 function toggleProtoPanel() {
@@ -1241,6 +1374,50 @@ function closeEnvironmentManager() {
     return
   }
   showEnvironmentManager.value = false
+}
+
+function toggleEnvironmentMenu() {
+  environmentMenuOpen.value = !environmentMenuOpen.value
+  if (environmentMenuOpen.value) {
+    closeTreeMenu()
+  }
+}
+
+function openEnvironmentCopy() {
+  if (!activeEnvironment.value) {
+    return
+  }
+  environmentMenuOpen.value = false
+  environmentCopyName.value = `${activeEnvironment.value.name} 副本`
+  showEnvironmentCopy.value = true
+}
+
+function closeEnvironmentCopy() {
+  if (!copyingEnvironment.value) {
+    showEnvironmentCopy.value = false
+  }
+}
+
+async function copyEnvironment() {
+  const name = environmentCopyName.value.trim()
+  if (!name || !activeEnvironment.value) {
+    workspaceStatus.value = 'Environment 名稱不可空白'
+    return
+  }
+  copyingEnvironment.value = true
+  try {
+    const copied = await apiJson(`/api/environments/${activeEnvironment.value.id}/copy`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    })
+    await loadEnvironments()
+    showEnvironmentCopy.value = false
+    workspaceStatus.value = `Environment 已複製：${copied.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    copyingEnvironment.value = false
+  }
 }
 
 function addEnvironmentVariable() {
@@ -1629,14 +1806,15 @@ function closeTreeMenu() {
 }
 
 function closeTreeMenuOnOutsideClick(event) {
-  if (!openTreeMenu.value) {
+  if (!openTreeMenu.value && !environmentMenuOpen.value) {
     return
   }
   const target = event.target
-  if (target instanceof Element && target.closest('.tree-action-menu')) {
+  if (target instanceof Element && target.closest('.tree-action-menu, .environment-menu-wrapper')) {
     return
   }
   closeTreeMenu()
+  environmentMenuOpen.value = false
 }
 
 function prepareNewRequest(collectionId, folderId) {
@@ -1769,6 +1947,79 @@ async function exportWorkspace() {
   } catch (error) {
     workspaceStatus.value = readableError(error)
   }
+}
+
+async function exportCollection(collection) {
+  closeTreeMenu()
+  try {
+    const response = await fetch(`/api/collections/${collection.id}/export`)
+    if (!response.ok) {
+      const payload = await response.json()
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    downloadZip(await response.blob(), `post-bubi-${safeDownloadName(collection.name)}.zip`)
+    workspaceStatus.value = `Collection 已匯出：${collection.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function exportEnvironment() {
+  if (!activeEnvironment.value) {
+    return
+  }
+  environmentMenuOpen.value = false
+  const confirmed = window.confirm(`Environment「${activeEnvironment.value.name}」的匯出檔會包含全部變數值，可能含有 Token、帳密或內網位址。確定匯出？`)
+  if (!confirmed) {
+    return
+  }
+  try {
+    const response = await fetch(`/api/environments/${activeEnvironment.value.id}/export`)
+    if (!response.ok) {
+      const payload = await response.json()
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    downloadZip(await response.blob(), `post-bubi-environment-${safeDownloadName(activeEnvironment.value.name)}.zip`)
+    workspaceStatus.value = `Environment 已匯出：${activeEnvironment.value.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function importEnvironment(event) {
+  const file = event.target.files?.[0]
+  if (!file) {
+    return
+  }
+  environmentMenuOpen.value = false
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch('/api/environments/import', { method: 'POST', body: formData })
+    const payload = await response.json()
+    if (!response.ok) {
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    await loadEnvironments()
+    workspaceStatus.value = `Environment 已匯入：${payload.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    event.target.value = ''
+  }
+}
+
+function downloadZip(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function safeDownloadName(value) {
+  return String(value || 'archive').trim().replace(/[^A-Za-z0-9._-]+/g, '-') || 'archive'
 }
 
 async function importWorkspace(event) {

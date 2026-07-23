@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.postbubi.domain.EnvironmentEntity;
 import com.postbubi.repository.EnvironmentRepository;
 import com.postbubi.web.dto.EnvironmentCreateRequest;
+import com.postbubi.web.dto.EnvironmentCopyRequest;
 import com.postbubi.web.dto.EnvironmentResponse;
 import com.postbubi.web.dto.EnvironmentUpdateRequest;
 import com.postbubi.web.dto.EnvironmentVariable;
@@ -69,6 +70,19 @@ public class EnvironmentService {
         environmentRepository.delete(find(id));
     }
 
+    @Transactional
+    public EnvironmentResponse copy(Long id, EnvironmentCopyRequest request) {
+        EnvironmentEntity source = find(id);
+        String name = requiredName(request == null ? null : request.name());
+        if (environmentRepository.existsByNameIgnoreCase(name)) {
+            throw badRequest("ENVIRONMENT_NAME_DUPLICATE", "Environment 名稱已存在。", Map.of("name", name));
+        }
+        EnvironmentEntity entity = new EnvironmentEntity();
+        entity.setName(name);
+        entity.setVariablesJson(source.getVariablesJson());
+        return toResponse(environmentRepository.saveAndFlush(entity));
+    }
+
     @Transactional(readOnly = true)
     public List<StoredEnvironment> listForArchive() {
         return environmentRepository.findAllByOrderByNameAsc().stream()
@@ -76,20 +90,34 @@ public class EnvironmentService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public StoredEnvironment getForArchive(Long id) {
+        EnvironmentEntity entity = find(id);
+        return new StoredEnvironment(entity.getName(), readVariables(entity.getVariablesJson()));
+    }
+
     @Transactional
     public int importArchivedEnvironments(List<StoredEnvironment> environments) {
         int imported = 0;
         for (StoredEnvironment source : safeList(environments)) {
-            String baseName = requiredName(source.name());
-            String name = uniqueImportedName(baseName);
-            EnvironmentEntity entity = new EnvironmentEntity();
-            entity.setName(name);
-            entity.setVariablesJson(writeVariables(normalizeVariables(source.variables())));
-            environmentRepository.save(entity);
+            saveImportedEnvironment(source);
             imported++;
         }
         environmentRepository.flush();
         return imported;
+    }
+
+    @Transactional
+    public EnvironmentResponse importArchivedEnvironment(StoredEnvironment environment) {
+        return toResponse(saveImportedEnvironment(environment));
+    }
+
+    private EnvironmentEntity saveImportedEnvironment(StoredEnvironment source) {
+        String baseName = requiredName(source.name());
+        EnvironmentEntity entity = new EnvironmentEntity();
+        entity.setName(uniqueImportedName(baseName));
+        entity.setVariablesJson(writeVariables(normalizeVariables(source.variables())));
+        return environmentRepository.save(entity);
     }
 
     private EnvironmentEntity find(Long id) {

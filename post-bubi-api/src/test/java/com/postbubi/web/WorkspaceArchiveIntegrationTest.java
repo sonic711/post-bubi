@@ -103,9 +103,9 @@ class WorkspaceArchiveIntegrationTest {
                   "type": "HTTP",
                   "name": "Multipart Upload",
                   "sortOrder": 1,
-                  "payloadJson": "{\\"requestType\\":\\"HTTP\\",\\"method\\":\\"POST\\",\\"bodyType\\":\\"form-data\\",\\"formData\\":[{\\"type\\":\\"file\\",\\"name\\":\\"file\\",\\"fileId\\":\\"%s\\",\\"fileName\\":\\"archive-source.txt\\",\\"contentType\\":\\"text/plain\\",\\"enabled\\":true}]}"
+                  "payloadJson": "{\\"requestType\\":\\"HTTP\\",\\"method\\":\\"POST\\",\\"grpcProtoId\\":\\"%s\\",\\"bodyType\\":\\"form-data\\",\\"formData\\":[{\\"type\\":\\"file\\",\\"name\\":\\"file\\",\\"fileId\\":\\"%s\\",\\"fileName\\":\\"archive-source.txt\\",\\"contentType\\":\\"text/plain\\",\\"enabled\\":true}]}"
                 }
-                """.formatted(collectionId, folderId, fileId));
+                """.formatted(collectionId, folderId, protoId, fileId));
 
         ResponseEntity<byte[]> exportResponse = restTemplate.getForEntity("/api/workspace/export", byte[].class);
         assertThat(exportResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -120,21 +120,21 @@ class WorkspaceArchiveIntegrationTest {
                 "protos/" + protoId + "-archive.proto"
         );
         JsonNode archive = collectionJson(zipBytes);
-        assertThat(archive.path("schemaVersion").asInt()).isEqualTo(2);
-        assertThat(archive.path("environments")).hasSize(1);
-        assertThat(archive.path("environments").get(0).path("name").asText()).isEqualTo("SIT");
+        assertThat(archive.path("schemaVersion").asInt()).isEqualTo(3);
+        assertThat(archive.path("archiveType").asText()).isEqualTo("WORKSPACE");
+        assertThat(archive.path("environments")).isEmpty();
 
         JsonNode importResult = objectMapper.readTree(importWorkspace(zipBytes).getBody());
         assertThat(importResult.path("collections").asInt()).isEqualTo(1);
         assertThat(importResult.path("folders").asInt()).isEqualTo(1);
         assertThat(importResult.path("requests").asInt()).isEqualTo(1);
         assertThat(importResult.path("protos").asInt()).isEqualTo(1);
-        assertThat(importResult.path("environments").asInt()).isEqualTo(1);
+        assertThat(importResult.path("environments").asInt()).isZero();
 
         JsonNode collections = objectMapper.readTree(restTemplate.getForEntity("/api/collections", String.class).getBody());
         assertThat(collections).hasSize(2);
         JsonNode imported = collections.get(1);
-        assertThat(imported.path("name").asText()).isEqualTo("匯出測試 Collection 匯入");
+        assertThat(imported.path("name").asText()).isEqualTo("匯出測試 Collection 匯入 2");
         assertThat(imported.path("folders")).hasSize(1);
         assertThat(imported.path("requests")).hasSize(1);
         assertThat(imported.path("requests").get(0).path("folderId").asLong())
@@ -145,14 +145,57 @@ class WorkspaceArchiveIntegrationTest {
         assertThat(importedPart.path("fileId").asText()).isNotBlank();
         assertThat(importedPart.path("fileId").asText()).isNotEqualTo(fileId);
         assertThat(importedPart.has("archivePath")).isFalse();
+        assertThat(payload.path("grpcProtoId").asText()).isNotEqualTo(protoId);
 
         JsonNode protos = objectMapper.readTree(restTemplate.getForEntity("/api/protos", String.class).getBody());
         assertThat(protos).hasSize(2);
         assertThat(protos.get(1).path("filename").asText()).isEqualTo("archive.proto");
 
         JsonNode environments = objectMapper.readTree(restTemplate.getForEntity("/api/environments", String.class).getBody());
-        assertThat(environments).hasSize(2);
-        assertThat(environments.get(1).path("name").asText()).isEqualTo("SIT 匯入 2");
+        assertThat(environments).hasSize(1);
+        assertThat(environments.get(0).path("name").asText()).isEqualTo("SIT");
+    }
+
+    @Test
+    void exportsAndImportsSingleCollectionWithoutEnvironmentOrOtherCollections() throws Exception {
+        postJson("/api/environments", """
+                {"name": "SIT", "variables": [{"key": "baseUrl", "value": "https://sit.example.internal"}]}
+                """);
+        long exportedCollectionId = postJson("/api/collections", """
+                {"name": "單獨匯出", "description": "only this collection"}
+                """).path("id").asLong();
+        postJson("/api/requests", """
+                {"collectionId": %d, "folderId": null, "type": "HTTP", "name": "只在這裡", "sortOrder": 1, "payloadJson": "{\\"requestType\\":\\"HTTP\\"}"}
+                """.formatted(exportedCollectionId));
+        long unrelatedCollectionId = postJson("/api/collections", """
+                {"name": "不應匯出", "description": "other"}
+                """).path("id").asLong();
+        postJson("/api/requests", """
+                {"collectionId": %d, "folderId": null, "type": "HTTP", "name": "不應出現", "sortOrder": 1, "payloadJson": "{\\"requestType\\":\\"HTTP\\"}"}
+                """.formatted(unrelatedCollectionId));
+
+        ResponseEntity<byte[]> exportResponse = restTemplate.getForEntity("/api/collections/{id}/export", byte[].class, exportedCollectionId);
+        assertThat(exportResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode archive = collectionJson(exportResponse.getBody());
+        assertThat(archive.path("archiveType").asText()).isEqualTo("COLLECTION");
+        assertThat(archive.path("collections")).hasSize(1);
+        assertThat(archive.path("collections").get(0).path("name").asText()).isEqualTo("單獨匯出");
+        assertThat(archive.path("requests")).hasSize(1);
+        assertThat(archive.path("requests").get(0).path("name").asText()).isEqualTo("只在這裡");
+        assertThat(archive.path("environments")).isEmpty();
+
+        JsonNode result = objectMapper.readTree(importWorkspace(exportResponse.getBody()).getBody());
+        assertThat(result.path("collections").asInt()).isEqualTo(1);
+        assertThat(result.path("environments").asInt()).isZero();
+
+        JsonNode collections = objectMapper.readTree(restTemplate.getForEntity("/api/collections", String.class).getBody());
+        assertThat(collections).hasSize(3);
+        JsonNode imported = java.util.stream.StreamSupport.stream(collections.spliterator(), false)
+                .filter(collection -> "單獨匯出 匯入 2".equals(collection.path("name").asText()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(imported.path("requests")).hasSize(1);
+        assertThat(imported.path("requests").get(0).path("name").asText()).isEqualTo("只在這裡");
     }
 
     @Test
@@ -183,6 +226,24 @@ class WorkspaceArchiveIntegrationTest {
         JsonNode result = objectMapper.readTree(importWorkspace(zipBytes).getBody());
         assertThat(result.path("collections").asInt()).isEqualTo(1);
         assertThat(result.path("environments").asInt()).isZero();
+    }
+
+    @Test
+    void importsLegacySchemaV2WorkspaceWithEnvironments() throws Exception {
+        byte[] zipBytes = zipWithCollectionJson("""
+                {
+                  "schemaVersion": 2,
+                  "exportedAt": "2026-07-11T00:00:00Z",
+                  "collections": [], "folders": [], "requests": [], "files": [], "protos": [],
+                  "environments": [{"name": "Legacy SIT", "variables": [{"key": "baseUrl", "value": "https://legacy.example"}]}]
+                }
+                """);
+
+        JsonNode result = objectMapper.readTree(importWorkspace(zipBytes).getBody());
+        assertThat(result.path("environments").asInt()).isEqualTo(1);
+        JsonNode environments = objectMapper.readTree(restTemplate.getForEntity("/api/environments", String.class).getBody());
+        assertThat(environments).hasSize(1);
+        assertThat(environments.get(0).path("name").asText()).isEqualTo("Legacy SIT");
     }
 
     private JsonNode postJson(String path, String body) throws Exception {

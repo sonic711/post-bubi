@@ -347,15 +347,28 @@ Request 類型：
 
 ### 8.1 格式
 
-第一版不需要相容 Postman Collection。匯入與匯出採用 Post Bubi 自訂 ZIP 格式。
+第一版不需要相容 Postman Collection。匯入與匯出採用 Post Bubi 自訂 ZIP 格式，並區分下列三種封存檔：
 
-ZIP 內容：
+| 封存類型 | 匯出範圍 | 根描述檔 |
+| --- | --- | --- |
+| Workspace ZIP | 全部 Collection、Folder、Request、其引用檔案與 Proto | `collection.json` |
+| Collection ZIP | 單一指定 Collection、其 Folder、Request、引用檔案與 Proto | `collection.json` |
+| Environment ZIP | 單一指定 Environment 與其全部 key/value variables | `environment.json` |
+
+Workspace ZIP 與 Collection ZIP **不包含 Environment**。Environment value 可能含有 token、帳密或內網位址，必須由使用者在 Environment 區塊另行匯出與分享。
+
+Collection 類封存 ZIP 內容：
 
 ```text
 collection.json
 files/
 protos/
-environments
+```
+
+Environment ZIP 內容：
+
+```text
+environment.json
 ```
 
 ### 8.2 collection.json
@@ -363,6 +376,7 @@ environments
 `collection.json` 必須包含：
 
 - schema version
+- archive type（Workspace 或 Collection）
 - collections
 - folders
 - HTTP requests
@@ -373,7 +387,6 @@ environments
 - gRPC metadata
 - proto references
 - file references
-- named environments 與 key/value variables
 - Collection、Folder、Request 的 sort order
 
 不包含：
@@ -382,23 +395,29 @@ environments
 - 本機絕對路徑
 - 使用者機器相關設定
 - 本次瀏覽期間的 Response 暫存
+- Environment 與其 variables
+
+`environment.json` 必須包含 schema version、archive type（Environment），以及一個命名 Environment 與其 key/value variables。Environment ZIP 僅含目前選定的單一 Environment，不含任何 Collection、Request、Proto 或上傳檔案。
 
 ### 8.3 檔案處理
 
 匯出 ZIP 時：
 
 - HTTP file upload 相關檔案放入 `files/`
-- gRPC proto 檔案放入 `protos/`
+- gRPC proto 檔案只匯出該 Workspace / Collection Request 實際引用的 Proto，放入 `protos/`
 - `collection.json` 使用相對路徑引用檔案
+- Collection 匯出不得包含任何 Environment，即使 Request 內容包含 `{{variable}}` 模板。
+- Environment 匯出前介面必須提示該檔案包含 variable value，使用者需確認可安全分享。
 
 匯入 ZIP 時：
 
-- 解壓並驗證 `collection.json`
+- 自動依根描述檔識別 Workspace、Collection 或 Environment ZIP。
+- 解壓並驗證 `collection.json` 或 `environment.json`
 - 將檔案複製到本機資料目錄
-- 建立新的 collection 資料
-- 不覆蓋既有 collection，除非後續新增明確覆蓋選項
-- Environment 匯入時若名稱重複，新增為「原名稱 匯入 N」，不覆蓋既有 Environment。
-- ZIP 會包含 Environment value；匯出含 token、帳密或其他敏感值前，使用者必須確認收件者可取得該資訊。
+- 建立新的 Collection 或 Environment，不覆蓋既有資料；後續若需覆蓋，必須新增明確選項。
+- Collection 或 Environment 名稱重複時，自動使用「原名稱 匯入 2」、「原名稱 匯入 3」等未使用名稱。
+- 匯入 Environment 後不自動切換目前選用的 Environment，避免意外以新設定送出 Request。
+- 為相容既有使用者資料，仍可匯入舊版 schema v1 與 schema v2 Workspace ZIP；其中 schema v2 內嵌的 Environment 會依既有規則一併匯入。
 
 ## 9. 資料庫設計
 
@@ -567,6 +586,9 @@ Request 可選欄位：
 
 - `GET /api/workspace/export`
 - `POST /api/workspace/import`
+- `GET /api/collections/{id}/export`
+- `GET /api/environments/{id}/export`
+- `POST /api/environments/import`
 
 ### 10.9 Environment API
 
@@ -587,15 +609,31 @@ Request 可選欄位：
 
 Environment 切換、Workspace 匯入/匯出與全域操作位於左側工作台區域；Request type、目標、儲存、送出與取消位於中央 Request toolbar，不另設右側工具欄。
 
+桌面版左側 sidebar 必須支援：
+
+- 拖曳右側分隔列調整寬度，範圍限制為 220–520px，且不得推擠或遮蔽中央工作台。
+- 拖曳縮小至 180px 以下時自動收合為 64px 最小列；收合後向右拖曳同一分隔列超過門檻時自動展開至最小可用寬度，不得提供額外收合或展開按鈕。
+- 寬度與收合狀態保存在瀏覽器本機；收合或調整 sidebar 不得修改 Collection、Environment、Proto 或 Request 資料。
+- 860px 以下採既有單欄窄版工作台，不顯示桌面版拖曳分隔列或強制收合行為。
+
 不要做行銷 landing page。啟動後第一個畫面就是可操作的 API 測試工作台。
 
 左側樹狀操作補充：
 
 - Collection 的三點選單必須提供重新命名。
+- Collection 的三點選單必須提供「匯出 Collection」，下載單一 Collection ZIP。
 - Collection 列提供獨立收合控制，不得將收合與選取 Collection 混為同一操作；收合控制應有清楚的展開/收合圖示與無障礙標籤。
 - 左側樹狀列、主要動作按鈕、三點選單與輸入列的操作圖示必須使用一致的 icon system；保留文字標籤的控制可顯示 icon 加文字，純圖示控制必須提供 tooltip。
 - 已上傳 Proto 時，Proto 區塊預設收合，只保留數量與目前選擇的檔名摘要；使用者可展開查看、上傳及套用 service / method。
 - Proto 區塊的展開狀態應保存在瀏覽器本機，重新整理後保留。
+
+### Environment variables
+
+- 可建立、修改、刪除及切換命名 Environment。
+- 變數使用 `{{variable}}` 語法，保存 Request 時保留模板，送出時才解析；HTTP、gRPC、gRPC BUR 的可輸入字串欄位皆可替換。
+- Environment 操作選單提供「匯出 Environment」、「匯入 Environment」與「複製 Environment」。
+- 複製 Environment 時，使用者輸入目標名稱；名稱不可與既有 Environment 重複。複製成功後保留目前選用的 Environment，不自動切換。
+- 新版 Workspace / Collection ZIP 不包含 Environment；需使用 Environment ZIP 分享變數值。
 
 ### 11.2 Request Editor
 
@@ -687,7 +725,7 @@ Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當
 - 檔案儲存時不得直接使用使用者提供的原始檔名作為實體檔名。
 - 匯出資料不得包含使用者機器上的本機絕對路徑。
 - Ignore SSL certificate verification 必須是 request settings 中的明確開關。
-- Environment value 可能包含敏感資訊，只保存於本機 H2；ZIP 匯出會帶入 value，因此使用者需自行控管匯出檔案。
+- Environment value 可能包含敏感資訊，只保存於本機 H2；僅 Environment ZIP 會帶入 value，因此使用者需自行控管匯出檔案。
 
 ## 14. 打包與建置
 

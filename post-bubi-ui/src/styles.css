@@ -138,7 +138,7 @@ textarea:focus-visible {
 
 .workspace {
   display: grid;
-  grid-template-columns: 286px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 286px) 10px minmax(0, 1fr);
   height: 100vh;
   min-width: 0;
   background: var(--surface-subtle);
@@ -154,6 +154,41 @@ textarea:focus-visible {
   padding: 14px;
   position: relative;
   z-index: 3;
+}
+
+.sidebar-resize-handle {
+  position: relative;
+  z-index: 4;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize-handle::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: var(--border-strong);
+  content: "";
+  transition: background 140ms ease, width 140ms ease, left 140ms ease;
+}
+
+.sidebar-resize-handle:hover::before,
+.sidebar-resize-handle.active::before,
+.sidebar-resize-handle:focus-visible::before {
+  left: 3px;
+  width: 4px;
+  background: var(--brand-primary);
+}
+
+.sidebar.is-collapsed {
+  display: block;
+  padding: 0;
+}
+
+.sidebar.is-collapsed > * {
+  display: none;
 }
 
 .sidebar-head {
@@ -395,7 +430,7 @@ textarea:focus-visible {
 
 .environment-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  grid-template-columns: minmax(0, 1fr) 30px 30px 30px;
   gap: 6px;
 }
 
@@ -413,6 +448,15 @@ textarea:focus-visible {
   width: 30px;
   height: 30px;
   font-size: 15px;
+}
+
+.environment-menu-wrapper {
+  position: relative;
+}
+
+.environment-action-menu {
+  top: 36px;
+  min-width: 178px;
 }
 
 .environment-summary {
@@ -678,6 +722,27 @@ textarea:focus-visible {
   font-size: 13px;
   padding: 0 8px;
   text-align: left;
+}
+
+.tree-action-menu .menu-file-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  border-radius: 5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+.tree-action-menu .menu-file-action:hover {
+  background: var(--surface-hover);
+}
+
+.tree-action-menu .menu-file-action input {
+  display: none;
 }
 
 .tree-action-menu button:hover:not(:disabled) {
@@ -1941,7 +2006,7 @@ pre {
 
 @media (max-width: 1180px) {
   .workspace {
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 260px) 10px minmax(0, 1fr);
   }
 
   .toolbar-http,
@@ -1978,6 +2043,35 @@ pre {
     max-height: 52vh;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-resize-handle {
+    display: none;
+  }
+
+  .sidebar.is-collapsed {
+    display: grid;
+    grid-template-rows: auto auto auto minmax(120px, 26vh) auto;
+    justify-items: stretch;
+    padding: 14px;
+  }
+
+  .sidebar.is-collapsed .sidebar-head,
+  .sidebar.is-collapsed .brand {
+    display: flex;
+  }
+
+  .sidebar.is-collapsed .theme-switch {
+    display: flex;
+  }
+
+  .sidebar.is-collapsed .sidebar-actions {
+    display: grid;
+  }
+
+  .sidebar.is-collapsed .environment-panel,
+  .sidebar.is-collapsed .sidebar-section {
+    display: block;
   }
 
   .panel {

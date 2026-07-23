@@ -33,13 +33,16 @@ import com.postbubi.repository.RequestRepository;
 import com.postbubi.service.EnvironmentService;
 import com.postbubi.storage.FileStorageService;
 import com.postbubi.web.dto.FileUploadResponse;
+import com.postbubi.web.dto.ProtoUploadResponse;
 import com.postbubi.web.error.ApiException;
 
 @Service
 public class WorkspaceArchiveService {
 
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final String COLLECTION_JSON = "collection.json";
+    private static final String ARCHIVE_TYPE_WORKSPACE = "WORKSPACE";
+    private static final String ARCHIVE_TYPE_COLLECTION = "COLLECTION";
 
     private final CollectionRepository collectionRepository;
     private final FolderRepository folderRepository;
@@ -69,7 +72,19 @@ public class WorkspaceArchiveService {
 
     @Transactional(readOnly = true)
     public byte[] exportWorkspace() {
-        Archive archive = buildArchive();
+        Archive archive = buildWorkspaceArchive();
+        return writeArchive(archive);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportCollection(Long collectionId) {
+        CollectionEntity collection = collectionRepository.findById(collectionId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "COLLECTION_NOT_FOUND", "找不到指定的 Collection。", Map.of("id", collectionId)));
+        Archive archive = buildCollectionArchive(collection);
+        return writeArchive(archive);
+    }
+
+    private byte[] writeArchive(Archive archive) {
         Map<String, byte[]> fileEntries = collectReferencedFiles(archive.requests());
         Map<String, byte[]> protoEntries = collectProtoFiles(archive.protos());
 
@@ -116,11 +131,16 @@ public class WorkspaceArchiveService {
         if (archive.schemaVersion() < 1 || archive.schemaVersion() > SCHEMA_VERSION) {
             throw badRequest("WORKSPACE_SCHEMA_NOT_SUPPORTED", "不支援的匯入檔 schema version。");
         }
+        if (archive.schemaVersion() >= 3
+                && !ARCHIVE_TYPE_WORKSPACE.equals(archive.archiveType())
+                && !ARCHIVE_TYPE_COLLECTION.equals(archive.archiveType())) {
+            throw badRequest("WORKSPACE_ARCHIVE_TYPE_INVALID", "不支援的 Collection 封存檔類型。");
+        }
 
         Map<Long, Long> collectionIds = new HashMap<>();
-        for (CollectionArchive source : archive.collections()) {
+        for (CollectionArchive source : safeList(archive.collections())) {
             CollectionEntity entity = new CollectionEntity();
-            entity.setName(source.name() + " 匯入");
+            entity.setName(uniqueImportedCollectionName(source.name()));
             entity.setDescription(source.description());
             entity.setSortOrder(source.sortOrder() == null ? 0 : source.sortOrder());
             collectionRepository.saveAndFlush(entity);
@@ -129,14 +149,14 @@ public class WorkspaceArchiveService {
 
         Map<Long, Long> folderIds = importFolders(archive.folders(), collectionIds);
         Map<String, String> fileIds = importFiles(zipContent.entries(), archive.files());
-        int protoCount = importProtos(zipContent.entries(), archive.protos());
+        Map<String, String> protoIds = importProtos(zipContent.entries(), archive.protos());
         int environmentCount = environmentService.importArchivedEnvironments(toStoredEnvironments(archive.environments()));
-        int requestCount = importRequests(archive.requests(), collectionIds, folderIds, fileIds);
+        int requestCount = importRequests(archive.requests(), collectionIds, folderIds, fileIds, protoIds);
 
-        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount, protoCount, environmentCount);
+        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount, protoIds.size(), environmentCount);
     }
 
-    private Archive buildArchive() {
+    private Archive buildWorkspaceArchive() {
         List<CollectionArchive> collections = collectionRepository.findAllByOrderBySortOrderAscIdAsc().stream()
                 .map(collection -> new CollectionArchive(collection.getId(), collection.getName(), collection.getDescription(), collection.getSortOrder()))
                 .toList();
@@ -161,13 +181,41 @@ public class WorkspaceArchiveService {
                 ))
                 .toList();
         List<FileArchive> files = archiveFilesFromRequests(requests);
-        List<ProtoArchive> protos = protoStorageService.listStoredProtosForArchive().stream()
+        List<ProtoArchive> protos = archiveProtosFromRequests(requests);
+        return new Archive(SCHEMA_VERSION, ARCHIVE_TYPE_WORKSPACE, Instant.now().toString(), collections, folders, requests, files, protos, List.of());
+    }
+
+    private Archive buildCollectionArchive(CollectionEntity collection) {
+        List<CollectionArchive> collections = List.of(new CollectionArchive(
+                collection.getId(), collection.getName(), collection.getDescription(), collection.getSortOrder()
+        ));
+        List<FolderArchive> folders = folderRepository.findAll().stream()
+                .filter(folder -> collection.getId().equals(folder.getCollectionId()))
+                .map(folder -> new FolderArchive(
+                        folder.getId(), folder.getCollectionId(), folder.getParentFolderId(), folder.getName(), folder.getSortOrder()
+                ))
+                .toList();
+        List<RequestArchive> requests = requestRepository.findAll().stream()
+                .filter(request -> collection.getId().equals(request.getCollectionId()))
+                .map(request -> new RequestArchive(
+                        request.getId(), request.getCollectionId(), request.getFolderId(), request.getType(), request.getName(),
+                        request.getSortOrder(), replaceFileIdsWithArchivePaths(request.getPayloadJson(), null)
+                ))
+                .toList();
+        List<FileArchive> files = archiveFilesFromRequests(requests);
+        List<ProtoArchive> protos = archiveProtosFromRequests(requests);
+        return new Archive(SCHEMA_VERSION, ARCHIVE_TYPE_COLLECTION, Instant.now().toString(), collections, folders, requests, files, protos, List.of());
+    }
+
+    private List<ProtoArchive> archiveProtosFromRequests(List<RequestArchive> requests) {
+        Set<String> referencedProtoIds = new HashSet<>();
+        for (RequestArchive request : safeList(requests)) {
+            referencedProtoIds.addAll(extractProtoIds(request.payloadJson()));
+        }
+        return protoStorageService.listStoredProtosForArchive().stream()
+                .filter(proto -> referencedProtoIds.contains(proto.protoId()))
                 .map(proto -> new ProtoArchive(proto.protoId(), proto.path(), proto.originalFilename()))
                 .toList();
-        List<EnvironmentArchive> environments = environmentService.listForArchive().stream()
-                .map(environment -> new EnvironmentArchive(environment.name(), environment.variables()))
-                .toList();
-        return new Archive(SCHEMA_VERSION, Instant.now().toString(), collections, folders, requests, files, protos, environments);
     }
 
     private Map<String, byte[]> collectReferencedFiles(List<RequestArchive> requests) {
@@ -239,6 +287,22 @@ public class WorkspaceArchiveService {
         return result;
     }
 
+    private Set<String> extractProtoIds(String payloadJson) {
+        Set<String> result = new HashSet<>();
+        try {
+            JsonNode root = objectMapper.readTree(payloadJson == null || payloadJson.isBlank() ? "{}" : payloadJson);
+            for (String fieldName : List.of("grpcProtoId", "grpcBurProtoId")) {
+                String protoId = root.path(fieldName).asText("").trim();
+                if (!protoId.isEmpty()) {
+                    result.add(protoId);
+                }
+            }
+        } catch (IOException ignored) {
+            // A malformed stored payload will retain its original value during export.
+        }
+        return result;
+    }
+
     private String replaceFileIdsWithArchivePaths(String payloadJson, Map<String, String> importedFileIds) {
         try {
             JsonNode rootNode = objectMapper.readTree(payloadJson == null || payloadJson.isBlank() ? "{}" : payloadJson);
@@ -263,6 +327,24 @@ public class WorkspaceArchiveService {
                 } else if (importedFileIds.containsKey(fileId)) {
                     objectPart.put("fileId", importedFileIds.get(fileId));
                     objectPart.remove("archivePath");
+                }
+            }
+            return objectMapper.writeValueAsString(root);
+        } catch (IOException exception) {
+            return payloadJson;
+        }
+    }
+
+    private String replaceProtoIds(String payloadJson, Map<String, String> importedProtoIds) {
+        try {
+            JsonNode rootNode = objectMapper.readTree(payloadJson == null || payloadJson.isBlank() ? "{}" : payloadJson);
+            if (!(rootNode instanceof ObjectNode root)) {
+                return payloadJson;
+            }
+            for (String fieldName : List.of("grpcProtoId", "grpcBurProtoId")) {
+                String protoId = root.path(fieldName).asText("");
+                if (importedProtoIds.containsKey(protoId)) {
+                    root.put(fieldName, importedProtoIds.get(protoId));
                 }
             }
             return objectMapper.writeValueAsString(root);
@@ -349,27 +431,28 @@ public class WorkspaceArchiveService {
         return fileIds;
     }
 
-    private int importProtos(Map<String, byte[]> entries, List<ProtoArchive> protos) {
-        int protoCount = 0;
+    private Map<String, String> importProtos(Map<String, byte[]> entries, List<ProtoArchive> protos) {
+        Map<String, String> protoIds = new HashMap<>();
         for (ProtoArchive proto : safeList(protos)) {
             byte[] content = entries.get(proto.path());
             if (content == null) {
                 continue;
             }
-            protoStorageService.storeImportedProto(
+            ProtoUploadResponse imported = protoStorageService.storeImportedProto(
                     proto.originalFilename(),
                     new ByteArrayInputStream(content)
             );
-            protoCount++;
+            protoIds.put(proto.protoId(), imported.protoId());
         }
-        return protoCount;
+        return protoIds;
     }
 
     private int importRequests(
             List<RequestArchive> requests,
             Map<Long, Long> collectionIds,
             Map<Long, Long> folderIds,
-            Map<String, String> fileIds
+            Map<String, String> fileIds,
+            Map<String, String> protoIds
     ) {
         int requestCount = 0;
         for (RequestArchive source : requests) {
@@ -379,7 +462,7 @@ public class WorkspaceArchiveService {
             entity.setType(source.type());
             entity.setName(source.name());
             entity.setSortOrder(source.sortOrder() == null ? 0 : source.sortOrder());
-            entity.setPayloadJson(replaceFileIdsWithArchivePaths(source.payloadJson(), fileIds));
+            entity.setPayloadJson(replaceProtoIds(replaceFileIdsWithArchivePaths(source.payloadJson(), fileIds), protoIds));
             requestRepository.saveAndFlush(entity);
             requestCount++;
         }
@@ -394,6 +477,21 @@ public class WorkspaceArchiveService {
 
     private String sanitizeArchiveName(String value) {
         return value == null || value.isBlank() ? "file.bin" : value.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private String uniqueImportedCollectionName(String sourceName) {
+        String baseName = sourceName == null ? "" : sourceName.trim();
+        if (baseName.isEmpty()) {
+            throw badRequest("WORKSPACE_COLLECTION_NAME_REQUIRED", "匯入的 Collection 名稱不可空白。");
+        }
+        if (!collectionRepository.existsByNameIgnoreCase(baseName)) {
+            return baseName;
+        }
+        int suffix = 2;
+        while (collectionRepository.existsByNameIgnoreCase(baseName + " 匯入 " + suffix)) {
+            suffix++;
+        }
+        return baseName + " 匯入 " + suffix;
     }
 
     private ApiException badRequest(String code, String message) {
@@ -412,6 +510,7 @@ public class WorkspaceArchiveService {
 
     private record Archive(
             int schemaVersion,
+            String archiveType,
             String exportedAt,
             List<CollectionArchive> collections,
             List<FolderArchive> folders,
