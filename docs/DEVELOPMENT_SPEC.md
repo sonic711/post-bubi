@@ -253,7 +253,9 @@ HTTP 批次執行第一版只支援目前編輯中的單一 HTTP Request，不�
 - 後端以背景工作執行，不可占用啟動批次的 HTTP request thread；前端以輪詢取得批次狀態與分頁項目結果。
 - API 提供：`POST /api/http/batch-runs`、`GET /api/http/batch-runs?requestId={requestId}`、`GET /api/http/batch-runs/{id}`、`GET /api/http/batch-runs/{id}/items`、`POST /api/http/batch-runs/{id}/cancel`。
 - 後端批次執行完成後，批次子 Request 不得寫入既有單筆 Request History；避免批次測試洗掉使用者的單筆執行紀錄。
-- HTTP toolbar 必須提供批次執行 icon；Batch 分頁必須顯示進度統計、項目結果與可展開的 headers/body preview。已儲存 HTTP Request 開啟 Batch 分頁時，必須載入該 Request 最近一次已保存的 Batch Run。
+- HTTP toolbar 必須提供批次執行 icon；Batch 分頁必須顯示進度統計、項目結果與可展開的 headers/body preview。
+- Batch Run 歷程必須以 `requestId` 分隔保存。已儲存 HTTP Request 開啟 Batch 分頁時，必須載入該 Request 的歷程清單，預設選擇最新一筆；使用者可切換同一 Request 的任何已保存 Batch Run，且歷程要提供分頁瀏覽與總筆數。切換至其他 Request 時，不可顯示前一個 Request 的 Batch Run。
+- Batch Run 歷程與項目結果必須在重新整理、重新啟動 JAR 後可由 H2 還原。未儲存 Request 因沒有 `requestId`，其 Batch Run 只在目前瀏覽工作階段可查看。
 
 ### 5.5 HTTP 轉 cURL
 
@@ -265,6 +267,8 @@ HTTP Request editor 必須提供 cURL 匯出與複製功能，第一版只產生
 - JSON、raw、`x-www-form-urlencoded` 必須轉為相應的 `--data`；`form-data` 必須轉為 `-F`。
 - 已上傳的 form-data file 不保存使用者原始本機路徑，cURL 必須輸出明確的 `@/path/to/file` placeholder。
 - 預設輸出保留 `{{variable}}`，避免將 Environment 的敏感值直接複製。使用者可選擇套用目前 Environment 產生可直接執行的指令，UI 必須先提示指令可能包含 Token、帳密或內網位址。
+- 保留 `{{variable}}` 的 Bash/zsh 指令是供分享或後續替換的模板，不能直接在 Linux shell 執行；UI 必須清楚提示使用者勾選套用目前 Environment 後再複製，或自行將模板替換為實際值。
+- Bash/zsh 輸出必須可由 Linux `bash` 直接執行。至少要以含 query params、排序 headers 與含單引號、多行 JSON body 的 Request 進行自動化實際執行驗證。
 - cURL 產生、顯示與複製不得寫入 application log、Request History 或 Batch Result。
 
 ## 6. gRPC 功能規格

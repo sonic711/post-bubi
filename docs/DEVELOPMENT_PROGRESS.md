@@ -26,15 +26,15 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | 離線 Maven repository task | 完成 | `zipOfflineMavenRepo` 與 `--offline` 流程 |
 | Maven POM 產生 | 完成 | `maven-publish`、`generatePomXml` 與離線 POM 產物驗證完成 |
 | 完整依賴 POM | 完成 | compile、runtime、test 與 Gradle buildscript POM；總 task 與 Maven 離線驗證完成 |
-| HTTP 批次執行 | 完成，待使用者驗收 | H2 Batch Run / Item、三種模式、期限/手動取消、批次 UI、結果還原與整合測試完成 |
-| HTTP 轉 cURL 匯出 | 完成，待使用者驗收 | Bash/zsh、PowerShell、Environment 模板/已解析值、form-data file placeholder 與本機剪貼簿複製 |
+| HTTP 批次執行 | 完成，待使用者驗收 | H2 Batch Run / Item、三種模式、依 Request 分隔的可選擇歷程、期限/手動取消與整合測試完成 |
+| HTTP 轉 cURL 匯出 | 完成，待使用者驗收 | Bash/zsh 實際執行測試、PowerShell、Environment 模板/已解析值、form-data file placeholder 與本機剪貼簿複製 |
 
 ## 下一階段
 
 1. 已完成 HTTP Batch Run / Batch Item H2 model、背景排程、三種模式與整批取消。
 2. 已完成批次 API、結果輪詢與 HTTP 整合測試，驗證併發限制、回應後間隔、期限取消、手動取消與不寫入單筆歷程。
-3. 已完成批次執行 UI、進度摘要、結果列表與單筆 headers/body preview；已儲存 HTTP Request 可載入最近一次 Batch Run。
-4. 已完成 HTTP 轉 cURL generator：工具列 icon 開啟預覽，支援 Bash/zsh 與 PowerShell，並能選擇保留或解析目前 Environment。
+3. 已完成批次執行 UI、進度摘要、結果列表與單筆 headers/body preview；已儲存 HTTP Request 可瀏覽專屬的 Batch Run 歷程並切換任一筆。
+4. 已完成 HTTP 轉 cURL generator：工具列 icon 開啟預覽，支援 Bash/zsh 與 PowerShell，並能選擇保留或解析目前 Environment；Bash 指令已以本機 HTTP server 實際執行驗證。
 5. 下一階段：待使用者驗收 HTTP 批次執行與 cURL 匯出，再依回饋處理修正或進入既有文件列出的後續項目。
 
 ## 已完成功能
@@ -62,9 +62,9 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - Timeout 預設 30 秒，可於 Settings 調整為 1 至 300 秒；redirect、忽略 SSL certificate verification。
 - 送出後可按取消；前端會停止等待，後端同步關閉對應 HTTP client。
 - HTTP 工具列提供批次執行 icon，可設定並行、回應後間隔或完成期限模式；Response 的 Batch 分頁顯示已排程、已送出、進行中、成功、失敗、取消、未送出、總耗時與平均/最快/最慢回應時間，可取消進行中批次並查看項目 headers/body preview。
-- 已儲存 HTTP Request 在開啟 Batch 分頁時會自動載入該 Request 最近一次 Batch Run；未儲存 Request 的批次結果只保留於本次瀏覽。
+- 已儲存 HTTP Request 的 Batch 分頁會載入同一 `requestId` 的歷程；預設顯示最新一筆，可切換任何已保存 Run 並以前後頁瀏覽，切換至其他 Request 不會混入前一測案結果。未儲存 Request 的批次結果只保留於本次瀏覽。
 - HTTP 工具列提供 cURL icon，可產生 Bash/zsh 或 PowerShell 指令並複製到剪貼簿。輸出保留啟用中的 Params、Headers 排序、redirect、HTTPS 憑證設定、timeout 與 Body；form-data file 使用 `@/path/to/file` placeholder。
-- cURL 預設保留 `{{variable}}`；可選擇套用目前 Environment 取得可直接執行的指令，畫面會提示可能包含敏感值。產生與複製完全在瀏覽器內進行，不寫入後端 log、History 或 Batch Result。
+- cURL 預設保留 `{{variable}}`；若輸出含模板，畫面會提示 Linux shell 不會自動替換，必須套用目前 Environment 或自行替換後才能執行。套用 Environment 時會提示可能包含敏感值。產生與複製完全在瀏覽器內進行，不寫入後端 log、History 或 Batch Result。
 - 新建 HTTP Request 預設略過 HTTPS 憑證驗證；已保存 Request 保留原設定。
 - 執行紀錄與歷史 request 載入。
 
@@ -138,6 +138,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | `WorkspaceApiIntegrationTest` | Collection、Folder、Request CRUD、Collection 改名與排序、跨 Collection / Folder Request 移動、複製、錯誤格式 |
 | `HttpExecuteIntegrationTest` | 本機 HTTP GET、history、invalid URL、執行中 HTTP 取消 |
 | `HttpBatchIntegrationTest` | HTTP 批次併發、回應後間隔、完成期限取消、手動取消與單筆 history 隔離 |
+| `curl-command.test.mjs` | Bash cURL 實際執行、query、Header 順序、單引號/多行 JSON body、PowerShell 轉義與模板辨識 |
 | `FileUploadIntegrationTest` | multipart upload、HTTP form-data file |
 | `WorkspaceArchiveIntegrationTest` | Workspace / Collection ZIP、file/proto reference、舊版 Environment schema v2、schema v1 相容與 zip slip |
 | `ProtoIntegrationTest` | Proto upload、list、inspect、rpc parsing |
@@ -208,6 +209,12 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - HTTP 工具列可開啟 cURL 對話框；Bash/zsh 使用 `curl`，PowerShell 使用 `curl.exe`，並以適合各 shell 的單引號規則輸出多行指令。
 - 產生器會納入啟用的 Params 與 Headers（維持 Header 順序）、`--location`、`--insecure`、`--max-time`、`--data` 或 `-F`。form-data file 一律輸出 `@/path/to/file`，不會洩漏上傳時的本機路徑。
 - cURL 預覽與複製不呼叫 API；Environment 解析僅在使用者勾選後執行，找不到或循環引用變數時會在對話框顯示錯誤。
+
+2026-08-07 Batch 歷程與 Linux cURL 驗證結果：
+
+- Batch 分頁改用 `GET /api/http/batch-runs?requestId={requestId}&page={page}&size=20` 載入歷程。實際 JAR 以 `測試Headers` 驗證兩筆已保存 Run 皆可顯示，且切換歷程選單後會載入對應的統計與項目結果。
+- 修正切換 HTTP Request 時停留在 Batch 分頁卻未顯示歷程的問題：切換前會保留 Batch 分頁狀態，載入目標 Request 後立即依新的 `requestId` 查詢歷程。實際 JAR 以「測試Headers -> 測試Headers 複本 -> 測試Headers」驗證，兩個測案均直接顯示各自的 Batch 結果。
+- `node --test src/curl-command.test.mjs` 成功。測試啟動本機 HTTP server 並由產生的 Bash 多行 cURL 指令實際呼叫，確認 query、Header 順序、含單引號與多行 JSON body 均正確傳送；同時驗證 PowerShell 使用 `curl.exe` 與模板辨識。
 
 前端正式建置：
 

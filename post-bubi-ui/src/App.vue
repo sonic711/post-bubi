@@ -698,6 +698,25 @@
               ><X :size="16" aria-hidden="true" />{{ batchCancelling ? '取消中' : '取消批次' }}</button>
               <button v-else class="icon-action-button" type="button" title="重新整理批次結果" aria-label="重新整理批次結果" @click="refreshBatchRun"><RefreshCw :size="16" aria-hidden="true" /></button>
             </header>
+            <div v-if="selectedRequestId" class="batch-history-bar" aria-label="目前 Request 的批次執行歷程">
+              <label>
+                執行歷程
+                <select
+                  :value="String(batchRun.id)"
+                  :disabled="batchRunHistoryLoading || !batchRunHistory.length"
+                  @change="selectBatchRunFromHistory($event.target.value)"
+                >
+                  <option v-for="run in batchRunHistory" :key="run.id" :value="String(run.id)">
+                    {{ batchHistoryLabel(run) }}
+                  </option>
+                </select>
+              </label>
+              <div class="batch-history-actions">
+                <span>{{ batchRunHistoryTotal }} 次</span>
+                <button class="icon-action-button" type="button" title="較新的批次紀錄" aria-label="較新的批次紀錄" :disabled="!batchHistoryHasPrevious || batchRunHistoryLoading" @click="changeBatchHistoryPage(-1)"><ChevronLeft :size="16" aria-hidden="true" /></button>
+                <button class="icon-action-button" type="button" title="較舊的批次紀錄" aria-label="較舊的批次紀錄" :disabled="!batchHistoryHasNext || batchRunHistoryLoading" @click="changeBatchHistoryPage(1)"><ChevronRight :size="16" aria-hidden="true" /></button>
+              </div>
+            </div>
             <div class="batch-metrics" aria-label="批次執行統計">
               <span><b>{{ batchRun.totalCount }}</b>已排程</span>
               <span><b>{{ batchRun.dispatchedCount }}</b>已送出</span>
@@ -879,7 +898,8 @@
           <input v-model="curlResolveVariables" type="checkbox" />
           套用目前 Environment
         </label>
-        <p v-if="curlResolveVariables" class="curl-sensitive-warning">指令可能包含 Token、帳密或內網位址，請確認複製與分享的範圍。</p>
+        <p v-if="curlTemplateWarning" class="curl-template-warning">此指令保留 <code v-text="'{{variable}}'"></code> 模板，Linux shell 不會自動替換；請套用目前 Environment 後再執行。</p>
+        <p v-else-if="curlResolveVariables" class="curl-sensitive-warning">指令可能包含 Token、帳密或內網位址，請確認複製與分享的範圍。</p>
         <p v-if="curlPreview.error" class="batch-form-error">{{ curlPreview.error }}</p>
         <pre v-else class="curl-command-output">{{ curlPreview.command }}</pre>
         <footer class="collection-rename-actions">
@@ -979,6 +999,8 @@ import {
   Archive,
   Binary,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Download,
   FileCode2,
@@ -1003,10 +1025,12 @@ import {
   Upload,
   X,
 } from '@lucide/vue'
+import { buildCurlCommand as createCurlCommand, hasCurlTemplateVariables } from './curl-command.mjs'
 import postBubiLogo from './assets/post-bubi-logo.png'
 
 const SIDEBAR_COLLAPSE_THRESHOLD = 180
 const SIDEBAR_COLLAPSED_WIDTH = 64
+const BATCH_HISTORY_PAGE_SIZE = 20
 
 const requestTabs = [
   { key: 'params', label: 'Params' },
@@ -1057,6 +1081,10 @@ const batchRun = ref(null)
 const batchItems = ref([])
 const selectedBatchItemId = ref(null)
 const batchPolling = ref(false)
+const batchRunHistory = ref([])
+const batchRunHistoryPage = ref(0)
+const batchRunHistoryTotal = ref(0)
+const batchRunHistoryLoading = ref(false)
 const selectedCollectionId = ref(null)
 const selectedFolderId = ref(null)
 const selectedRequestId = ref(null)
@@ -1136,6 +1164,7 @@ const resizingSidebar = ref(false)
 const sidebarResizeStart = ref(null)
 let protoPanelPreferenceLoaded = false
 let batchPollTimer = null
+let batchRunHistoryLoadSequence = 0
 
 const grpcTarget = computed({
   get() {
@@ -1225,6 +1254,10 @@ const workspaceStyle = computed(() => ({
 
 const batchIsRunning = computed(() => batchRun.value?.status === 'RUNNING')
 
+const batchHistoryHasPrevious = computed(() => batchRunHistoryPage.value > 0)
+
+const batchHistoryHasNext = computed(() => (batchRunHistoryPage.value + 1) * BATCH_HISTORY_PAGE_SIZE < batchRunHistoryTotal.value)
+
 const displayingBatch = computed(() => requestType.value === 'HTTP' && activeResponseTab.value === 'batch')
 
 const curlPreview = computed(() => {
@@ -1232,11 +1265,14 @@ const curlPreview = computed(() => {
     const payload = curlResolveVariables.value
       ? resolveExecutionPayload(executePayload())
       : executePayload()
-    return { command: buildCurlCommand(payload, curlShell.value), error: '' }
+    return { command: createCurlCommand(payload, curlShell.value), error: '' }
   } catch (error) {
     return { command: '', error: readableError(error) }
   }
 })
+
+const curlTemplateWarning = computed(() => !curlResolveVariables.value
+  && hasCurlTemplateVariables(curlPreview.value.command))
 
 const selectedBatchItem = computed(() => {
   return batchItems.value.find((item) => item.id === selectedBatchItemId.value) || null
@@ -2598,14 +2634,16 @@ async function deleteFolder(collection, folder) {
   }
 }
 
-function selectRequest(request) {
+async function selectRequest(request) {
   if (selectedRequestId.value === request.id) {
     return
   }
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  const wasDisplayingBatch = activeResponseTab.value === 'batch'
   cacheCurrentResponse()
+  clearBatchRunHistory()
   selectedCollectionId.value = request.collectionId
   selectedFolderId.value = request.folderId || null
   selectedRequestId.value = request.id
@@ -2615,6 +2653,14 @@ function selectRequest(request) {
   loadPayloadToEditor(payload)
   const restoredResponse = restoreCachedResponse(request.id)
   markEditorSaved()
+  if (wasDisplayingBatch) {
+    if (requestType.value === 'HTTP') {
+      activeResponseTab.value = 'batch'
+      await loadBatchRunHistory()
+    } else {
+      activeResponseTab.value = 'body'
+    }
+  }
   workspaceStatus.value = restoredResponse ? '已載入 Request（已還原暫存 Response）' : '已載入 Request'
 }
 
@@ -2622,6 +2668,7 @@ function newDraftRequest(options = {}) {
   if (options?.force !== true && !confirmDiscardUnsavedChanges()) {
     return
   }
+  clearBatchRunHistory()
   selectedRequestId.value = null
   requestName.value = defaultRequestName()
   method.value = 'GET'
@@ -2794,7 +2841,7 @@ function handleRequestTypeChange() {
 async function selectResponseTab(tabKey) {
   activeResponseTab.value = tabKey
   if (tabKey === 'batch') {
-    await loadLatestBatchRun()
+    await loadBatchRunHistory()
   }
 }
 
@@ -2825,6 +2872,9 @@ async function startBatchRun() {
     batchRun.value = started
     batchItems.value = []
     selectedBatchItemId.value = null
+    batchRunHistoryPage.value = 0
+    batchRunHistory.value = [started]
+    batchRunHistoryTotal.value += 1
     showBatchRunner.value = false
     activeResponseTab.value = 'batch'
     workspaceStatus.value = `HTTP 批次已開始：${started.totalCount} 筆`
@@ -2860,6 +2910,7 @@ async function refreshBatchRun() {
       apiJson(`/api/http/batch-runs/${batchRun.value.id}/items?size=100`),
     ])
     batchRun.value = run
+    replaceBatchRunHistory(run)
     batchItems.value = page.items || []
     if (!batchIsRunning.value) {
       stopBatchPolling()
@@ -2872,32 +2923,97 @@ async function refreshBatchRun() {
   }
 }
 
-async function loadLatestBatchRun() {
-  if (requestType.value !== 'HTTP' || !selectedRequestId.value || batchIsRunning.value) {
+async function loadBatchRunHistory(options = {}) {
+  if (requestType.value !== 'HTTP' || !selectedRequestId.value || batchRunHistoryLoading.value) {
     return
   }
+  const requestId = selectedRequestId.value
+  const loadSequence = ++batchRunHistoryLoadSequence
+  batchRunHistoryLoading.value = true
   try {
-    const page = await apiJson(`/api/http/batch-runs?requestId=${encodeURIComponent(selectedRequestId.value)}&size=1`)
-    const latest = page.items?.[0]
-    if (!latest) {
+    const page = await apiJson(`/api/http/batch-runs?requestId=${encodeURIComponent(requestId)}&page=${batchRunHistoryPage.value}&size=${BATCH_HISTORY_PAGE_SIZE}`)
+    if (loadSequence !== batchRunHistoryLoadSequence || selectedRequestId.value !== requestId) {
+      return
+    }
+    batchRunHistory.value = page.items || []
+    batchRunHistoryTotal.value = page.totalItems || 0
+    const preferredRunId = Object.hasOwn(options, 'preferredRunId')
+      ? options.preferredRunId
+      : (batchRun.value?.requestId === requestId ? batchRun.value.id : null)
+    const selected = batchRunHistory.value.find((run) => String(run.id) === String(preferredRunId))
+      || batchRunHistory.value[0]
+    if (!selected) {
       batchRun.value = null
       batchItems.value = []
       selectedBatchItemId.value = null
       return
     }
-    if (latest.id === batchRun.value?.id) {
+    if (selected.id === batchRun.value?.id) {
       return
     }
-    batchRun.value = latest
-    batchItems.value = []
-    selectedBatchItemId.value = null
-    await refreshBatchRun()
-    if (batchIsRunning.value) {
-      startBatchPolling()
-    }
+    await selectBatchRun(selected)
   } catch (error) {
-    workspaceStatus.value = readableError(error)
+    if (loadSequence === batchRunHistoryLoadSequence) {
+      workspaceStatus.value = readableError(error)
+    }
+  } finally {
+    if (loadSequence === batchRunHistoryLoadSequence) {
+      batchRunHistoryLoading.value = false
+    }
   }
+}
+
+async function selectBatchRunFromHistory(batchRunId) {
+  const selected = batchRunHistory.value.find((run) => String(run.id) === String(batchRunId))
+  if (selected) {
+    await selectBatchRun(selected)
+  }
+}
+
+function clearBatchRunHistory() {
+  stopBatchPolling()
+  batchRunHistoryLoadSequence += 1
+  batchRunHistoryLoading.value = false
+  batchRun.value = null
+  batchItems.value = []
+  selectedBatchItemId.value = null
+  batchRunHistory.value = []
+  batchRunHistoryPage.value = 0
+  batchRunHistoryTotal.value = 0
+}
+
+async function selectBatchRun(selected) {
+  if (selected.id === batchRun.value?.id) {
+    return
+  }
+  stopBatchPolling()
+  batchRun.value = selected
+  batchItems.value = []
+  selectedBatchItemId.value = null
+  await refreshBatchRun()
+  if (batchIsRunning.value) {
+    startBatchPolling()
+  }
+}
+
+async function changeBatchHistoryPage(direction) {
+  const page = batchRunHistoryPage.value + direction
+  if (page < 0 || page * BATCH_HISTORY_PAGE_SIZE >= batchRunHistoryTotal.value) {
+    return
+  }
+  batchRunHistoryPage.value = page
+  await loadBatchRunHistory({ preferredRunId: null })
+}
+
+function replaceBatchRunHistory(run) {
+  const index = batchRunHistory.value.findIndex((entry) => entry.id === run.id)
+  if (index >= 0) {
+    batchRunHistory.value.splice(index, 1, run)
+  }
+}
+
+function batchHistoryLabel(run) {
+  return `#${run.id} · ${batchStatusLabel(run.status)} · ${formatDateTime(run.createdAt)} · ${run.totalCount} 筆`
 }
 
 async function cancelBatchRun() {
@@ -3172,6 +3288,7 @@ function loadHistoryItem(item) {
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  clearBatchRunHistory()
   const payload = safeJsonParse(item.requestJson)
   selectedRequestId.value = payload.requestId || null
   requestName.value = item.method && item.url ? `${item.method} ${item.url}` : '歷史紀錄'
@@ -3287,75 +3404,6 @@ function executePayload() {
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
   }
-}
-
-function buildCurlCommand(payload, shell) {
-  const parts = [
-    `--request ${quoteCurlArgument(payload.method || 'GET', shell)}`,
-    `--url ${quoteCurlArgument(buildCurlUrl(payload.url, payload.params), shell)}`,
-  ]
-
-  for (const header of payload.headers || []) {
-    if (header?.enabled === false || !header?.name) {
-      continue
-    }
-    parts.push(`--header ${quoteCurlArgument(`${header.name}: ${header.value || ''}`, shell)}`)
-  }
-
-  if (payload.followRedirects) {
-    parts.push('--location')
-  }
-  if (payload.ignoreSslVerification) {
-    parts.push('--insecure')
-  }
-  parts.push(`--max-time ${formatCurlTimeout(payload.timeoutMillis)}`)
-
-  if (payload.bodyType === 'form-data') {
-    for (const part of payload.formData || []) {
-      if (!part?.name) {
-        continue
-      }
-      const value = part.type === 'file'
-        ? `${part.name}=@/path/to/file`
-        : `${part.name}=${part.value || ''}`
-      parts.push(`-F ${quoteCurlArgument(value, shell)}`)
-    }
-  } else if (payload.bodyType && payload.bodyType !== 'none' && payload.body) {
-    parts.push(`--data ${quoteCurlArgument(payload.body, shell)}`)
-  }
-
-  const command = shell === 'powershell' ? 'curl.exe' : 'curl'
-  const lineBreak = shell === 'powershell' ? ' `\n  ' : ' \\\n  '
-  return [command, ...parts].join(lineBreak)
-}
-
-function buildCurlUrl(baseUrl, params) {
-  const enabledParams = (params || []).filter((param) => param?.enabled !== false && param?.name)
-  if (!enabledParams.length) {
-    return baseUrl || ''
-  }
-  const query = enabledParams
-    .map((param) => `${encodeURIComponent(param.name)}=${encodeURIComponent(param.value || '')}`)
-    .join('&')
-  const hashIndex = String(baseUrl || '').indexOf('#')
-  const path = hashIndex >= 0 ? String(baseUrl).slice(0, hashIndex) : String(baseUrl || '')
-  const hash = hashIndex >= 0 ? String(baseUrl).slice(hashIndex) : ''
-  const separator = path.includes('?') ? (path.endsWith('?') || path.endsWith('&') ? '' : '&') : '?'
-  return `${path}${separator}${query}${hash}`
-}
-
-function formatCurlTimeout(timeoutMillis) {
-  const milliseconds = Number(timeoutMillis)
-  const seconds = Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds / 1000 : 30
-  return String(Number(seconds.toFixed(3)))
-}
-
-function quoteCurlArgument(value, shell) {
-  const text = String(value ?? '')
-  if (shell === 'powershell') {
-    return `'${text.replaceAll("'", "''")}'`
-  }
-  return `'${text.replaceAll("'", "'\"'\"'")}'`
 }
 
 function folderRows(collection) {
