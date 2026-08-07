@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-07-21
+最後整理日期：2026-08-07
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -24,6 +24,18 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | Environment variables | 完成 | CRUD、`{{variable}}`、獨立 ZIP 匯入匯出與複製 Environment |
 | JAR 同層 log 與關閉開關 | 完成 | bootJar 與啟動參數驗證 |
 | 離線 Maven repository task | 完成 | `zipOfflineMavenRepo` 與 `--offline` 流程 |
+| Maven POM 產生 | 完成 | `maven-publish`、`generatePomXml` 與離線 POM 產物驗證完成 |
+| 完整依賴 POM | 完成 | compile、runtime、test 與 Gradle buildscript POM；總 task 與 Maven 離線驗證完成 |
+| HTTP 批次執行 | 完成，待使用者驗收 | H2 Batch Run / Item、三種模式、期限/手動取消、批次 UI、結果還原與整合測試完成 |
+| HTTP 轉 cURL 匯出 | 完成，待使用者驗收 | Bash/zsh、PowerShell、Environment 模板/已解析值、form-data file placeholder 與本機剪貼簿複製 |
+
+## 下一階段
+
+1. 已完成 HTTP Batch Run / Batch Item H2 model、背景排程、三種模式與整批取消。
+2. 已完成批次 API、結果輪詢與 HTTP 整合測試，驗證併發限制、回應後間隔、期限取消、手動取消與不寫入單筆歷程。
+3. 已完成批次執行 UI、進度摘要、結果列表與單筆 headers/body preview；已儲存 HTTP Request 可載入最近一次 Batch Run。
+4. 已完成 HTTP 轉 cURL generator：工具列 icon 開啟預覽，支援 Bash/zsh 與 PowerShell，並能選擇保留或解析目前 Environment。
+5. 下一階段：待使用者驗收 HTTP 批次執行與 cURL 匯出，再依回饋處理修正或進入既有文件列出的後續項目。
 
 ## 已完成功能
 
@@ -49,6 +61,10 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - File upload 與 form-data file reference。
 - Timeout 預設 30 秒，可於 Settings 調整為 1 至 300 秒；redirect、忽略 SSL certificate verification。
 - 送出後可按取消；前端會停止等待，後端同步關閉對應 HTTP client。
+- HTTP 工具列提供批次執行 icon，可設定並行、回應後間隔或完成期限模式；Response 的 Batch 分頁顯示已排程、已送出、進行中、成功、失敗、取消、未送出、總耗時與平均/最快/最慢回應時間，可取消進行中批次並查看項目 headers/body preview。
+- 已儲存 HTTP Request 在開啟 Batch 分頁時會自動載入該 Request 最近一次 Batch Run；未儲存 Request 的批次結果只保留於本次瀏覽。
+- HTTP 工具列提供 cURL icon，可產生 Bash/zsh 或 PowerShell 指令並複製到剪貼簿。輸出保留啟用中的 Params、Headers 排序、redirect、HTTPS 憑證設定、timeout 與 Body；form-data file 使用 `@/path/to/file` placeholder。
+- cURL 預設保留 `{{variable}}`；可選擇套用目前 Environment 取得可直接執行的指令，畫面會提示可能包含敏感值。產生與複製完全在瀏覽器內進行，不寫入後端 log、History 或 Batch Result。
 - 新建 HTTP Request 預設略過 HTTPS 憑證驗證；已保存 Request 保留原設定。
 - 執行紀錄與歷史 request 載入。
 
@@ -121,6 +137,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | --- | --- |
 | `WorkspaceApiIntegrationTest` | Collection、Folder、Request CRUD、Collection 改名與排序、跨 Collection / Folder Request 移動、複製、錯誤格式 |
 | `HttpExecuteIntegrationTest` | 本機 HTTP GET、history、invalid URL、執行中 HTTP 取消 |
+| `HttpBatchIntegrationTest` | HTTP 批次併發、回應後間隔、完成期限取消、手動取消與單筆 history 隔離 |
 | `FileUploadIntegrationTest` | multipart upload、HTTP form-data file |
 | `WorkspaceArchiveIntegrationTest` | Workspace / Collection ZIP、file/proto reference、舊版 Environment schema v2、schema v1 相容與 zip slip |
 | `ProtoIntegrationTest` | Proto upload、list、inspect、rpc parsing |
@@ -162,6 +179,35 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - `./gradlew :post-bubi-ui:yarn_build_prod :post-bubi-api:bootJar` 成功。
 - 以 JAR 實測桌面工作台：sidebar 縮至 180px 以下會自動收合為 64px；收合後向右拖曳分隔列可展開至最小可用寬度，中央工作台未重疊。分隔列平時可見，hover 或拖曳時以品牌色強調。
 - 以 860px viewport 實測：sidebar 保持完整單欄內容，桌面版拖曳分隔列與收合控制均不顯示。
+
+2026-07-24 Maven POM 產生驗證結果：
+
+- `./gradlew generatePomXml --offline` 成功，產生 `build/maven-poms/pom.xml` 與 API、UI 子模組 POM。
+- 根 POM 為 `pom` packaging 並列出 `post-bubi-api`、`post-bubi-ui`；API POM 含 Spring Boot BOM 與 runtime 相依；UI POM 對應前端資源 JAR。
+- `./gradlew publishToMavenLocal --offline` 成功，根專案、API、UI 的 POM 與 JAR 均已發布至本機 Maven repository。
+- `./gradlew :post-bubi-api:generateResolvedRuntimePom --offline` 成功，產生列出所有 Gradle runtime Maven module 與固定版本的 POM。
+- `mvn -o -f post-bubi-api/build/maven-poms/post-bubi-api/resolved-runtime-pom.xml validate` 成功，確認最終 POM XML 與 Maven model 有效。
+- `generateAllResolvedDependencyPoms` 成功，產生 buildscript、compile、runtime、test 四份固定版本的依賴 POM；首次以隔離 Gradle user home 執行時，也完成前端正式建置。
+- 四份 POM 均以 `mvn -o -B -ntp -f <pom> validate` 驗證成功；依賴數依序為 buildscript 21、compile 70、runtime 89、test 114，且每一個 `<dependency>` 都有固定 `<version>`。
+- 即使四份 POM 已補齊 Maven 類型的 buildscript plugin，仍不可只用 POM 填滿新的 Maven `.m2` 後期待 Gradle 離線打包成功；Gradle plugin marker、wrapper distribution 與 Node / Yarn / npm 前端資源仍須依既有離線交付流程提供。完整結論已記錄於 `MAVEN_FULL_DEPENDENCY_POM_GUIDE.md`。
+- 2026-07-26 以全新 Maven repository（由四份 POM 從 Maven Central、Gradle Plugin Portal 下載）及全新 `GRADLE_USER_HOME` 實測 `:post-bubi-api:bootJar --rerun-tasks --offline`。補入 Node Plugin DSL marker POM 後，仍在 `org.nodejs:node:18.17.0` 無 Gradle cache 時失敗，證實 Maven repository 無法單獨完成此專案的 Gradle 離線打包。
+
+2026-08-07 HTTP 批次執行後端驗證結果：
+
+- `POST /api/http/batch-runs` 可建立最多 100 筆的 HTTP-only 批次；`GET /api/http/batch-runs/{id}` 輪詢摘要，`GET /api/http/batch-runs/{id}/items` 取得分頁結果，`POST /api/http/batch-runs/{id}/cancel` 取消整批。
+- `GET /api/http/batch-runs?requestId={requestId}` 可取得已儲存 HTTP Request 的最近 Batch Run；Batch UI 會以此還原重新整理前的結果。
+- H2 保存 Batch Run / Item 狀態、response headers、最多 4000 字元的 response body preview 與錯誤原因；批次子 Request 不寫入既有 HTTP Request History。
+- `./gradlew :post-bubi-api:test --tests com.postbubi.web.HttpBatchIntegrationTest` 成功，驗證併發模式、回應後間隔模式、完成期限取消、手動取消與 history 隔離。
+- `./gradlew :post-bubi-api:test --tests '*' --rerun-tasks` 成功，9 個整合測試類別共 28 個測試均無失敗或錯誤；`./gradlew :post-bubi-api:bootJar` 成功產生 `post-bubi-api/build/libs/post-bubi.jar`。
+- 前端以實際 JAR 驗證 HTTP 批次設定、發送、輪詢、完成摘要與項目結果；桌面與 390px viewport 均無水平溢位，窄版 Modal 可完整操作。
+
+2026-08-07 HTTP 轉 cURL 驗證結果：
+
+- `./gradlew :post-bubi-ui:yarn_build_prod` 成功。
+- `./gradlew :post-bubi-api:test --tests '*' --rerun-tasks` 成功，既有後端整合測試皆通過。
+- HTTP 工具列可開啟 cURL 對話框；Bash/zsh 使用 `curl`，PowerShell 使用 `curl.exe`，並以適合各 shell 的單引號規則輸出多行指令。
+- 產生器會納入啟用的 Params 與 Headers（維持 Header 順序）、`--location`、`--insecure`、`--max-time`、`--data` 或 `-F`。form-data file 一律輸出 `@/path/to/file`，不會洩漏上傳時的本機路徑。
+- cURL 預覽與複製不呼叫 API；Environment 解析僅在使用者勾選後執行，找不到或循環引用變數時會在對話框顯示錯誤。
 
 前端正式建置：
 
@@ -216,6 +262,7 @@ Gradle 會把它們放入 executable JAR。`data/proto/` 是開發與 proto impo
 - 本專案是單人離線工具，不包含登入、權限、雲端同步與多人協作。
 - 新版 Workspace / Collection ZIP 不含 Environment；分享 variable value 時必須使用 Environment ZIP，並確認其中沒有不應分享的敏感資訊。
 - Folder 僅支援同 Collection、同父層級排序；跨 Collection 移動 Folder 不在目前範圍。
+- HTTP Batch Run 第一版僅支援 HTTP 單一 Request；不支援 gRPC、gRPC BUR 或多 Request Collection Runner。
 
 ## 近期人工驗證重點
 

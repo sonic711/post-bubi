@@ -109,6 +109,10 @@ yarn dev
 
 `data/proto/common/*.proto` 使用 `proto/common/...` import path，因此直接解析樣本檔時 include root 是 `data`。一般使用者可從 UI 上傳 proto，系統會保存到本機 `data/protos/`。
 
+## Maven POM
+
+Gradle publication POM、Spring BOM 展開方式，以及產生 compile、runtime、test、Gradle buildscript 固定版本 POM 的操作，請參閱 [完整 Maven POM 指南](docs/MAVEN_FULL_DEPENDENCY_POM_GUIDE.md)。
+
 ## Log
 
 預設輸出至 JAR 同層：

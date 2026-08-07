@@ -24,10 +24,62 @@ buildscript {
 }
 
 apply from: "${rootDir}/gradle/offline-maven-repo.gradle"
+apply from: "${rootDir}/gradle/resolved-buildscript-pom.gradle"
+apply plugin: 'maven-publish'
 
 allprojects {
     group = 'com.postbubi'
     version = '0.1.0-SNAPSHOT'
+}
+
+publishing {
+    publications {
+        postBubiProject(MavenPublication) {
+            pom {
+                name = 'Post Bubi'
+                description = 'Post Bubi aggregate project descriptor.'
+                packaging = 'pom'
+                withXml {
+                    def modules = asNode().appendNode('modules')
+                    modules.appendNode('module', 'post-bubi-api')
+                    modules.appendNode('module', 'post-bubi-ui')
+                }
+            }
+        }
+    }
+}
+
+tasks.register('generatePomXml', Sync) {
+    group = 'publishing'
+    description = '產生根專案、API 與 UI 的 Maven pom.xml 檔案。'
+    dependsOn 'generatePomFileForPostBubiProjectPublication'
+    dependsOn ':post-bubi-api:generatePomFileForPostBubiApiPublication'
+    dependsOn ':post-bubi-ui:generatePomFileForPostBubiUiPublication'
+
+    from(layout.buildDirectory.dir('publications/postBubiProject')) {
+        include 'pom-default.xml'
+        rename { 'pom.xml' }
+    }
+    from(project(':post-bubi-api').layout.buildDirectory.dir('publications/postBubiApi')) {
+        include 'pom-default.xml'
+        rename { 'pom.xml' }
+        into 'post-bubi-api'
+    }
+    from(project(':post-bubi-ui').layout.buildDirectory.dir('publications/postBubiUi')) {
+        include 'pom-default.xml'
+        rename { 'pom.xml' }
+        into 'post-bubi-ui'
+    }
+    into layout.buildDirectory.dir('maven-poms')
+}
+
+tasks.register('generateAllResolvedDependencyPoms') {
+    group = 'publishing'
+    description = '產生 API compile、runtime、test 與 Gradle buildscript 的完整依賴 POM。'
+    dependsOn 'generateResolvedBuildscriptPom'
+    dependsOn ':post-bubi-api:generateResolvedCompilePom'
+    dependsOn ':post-bubi-api:generateResolvedRuntimePom'
+    dependsOn ':post-bubi-api:generateResolvedTestPom'
 }
 
 wrapper {

@@ -235,6 +235,38 @@ HTTP response viewer 必須顯示：
 - Image preview
 - Download binary response
 
+### 5.4 HTTP 批次執行
+
+HTTP 批次執行第一版只支援目前編輯中的單一 HTTP Request，不支援 gRPC、gRPC BUR 或多 Request 的 Collection Runner。
+
+- 使用目前 Request 與目前 Environment 在啟動當下的解析結果建立快照；批次開始後修改 Request 或 Environment 不影響執行中的批次。
+- 單批總筆數必須介於 `1` 至 `100`。
+- 批次提供以下互斥模式：
+  - **並行模式**：設定總筆數與最大同時執行數；第一批立即送出，之後每有一筆完成才補送下一筆。最大同時執行數預設 `1`，範圍 `1` 至 `100`。
+  - **回應後間隔模式**：每一筆收到 Response 或失敗結果後，等待指定間隔才送出下一筆；間隔範圍 `0` 至 `300000` 毫秒。
+  - **完成期限模式**：設定總筆數、最大同時執行數與完成期限；所有 Request 必須在期限內取得成功、失敗或取消結果。完成期限範圍 `1000` 至 `3600000` 毫秒。
+- 完成期限模式到達期限時，系統必須停止未送出的項目、取消正在執行的項目，並將批次標記為 `DEADLINE_EXCEEDED`。子 Request 的有效 timeout 不得超過剩餘完成期限。
+- 單筆 HTTP `4xx`、`5xx`、timeout、TLS 或連線錯誤只標記該項目失敗；第一版不自動重試，且仍繼續執行其他項目。
+- 使用者可取消整批；系統必須停止未送出的項目，並使用既有 HTTP cancellation 機制取消進行中的子 Request。
+- 批次與項目結果必須保存於 H2。批次狀態至少包括 `RUNNING`、`COMPLETED`、`DEADLINE_EXCEEDED`、`CANCELLED`；項目狀態至少包括 `SUCCESS`、`FAILED`、`CANCELLED`、`NOT_DISPATCHED`。
+- 結果畫面必須顯示已排程、已送出、進行中、成功、失敗、取消、未送出、總耗時、平均/最快/最慢回應時間。每筆可查看 status、耗時、錯誤原因、response headers 與最多 `4000` 字元的 body preview。
+- 後端以背景工作執行，不可占用啟動批次的 HTTP request thread；前端以輪詢取得批次狀態與分頁項目結果。
+- API 提供：`POST /api/http/batch-runs`、`GET /api/http/batch-runs?requestId={requestId}`、`GET /api/http/batch-runs/{id}`、`GET /api/http/batch-runs/{id}/items`、`POST /api/http/batch-runs/{id}/cancel`。
+- 後端批次執行完成後，批次子 Request 不得寫入既有單筆 Request History；避免批次測試洗掉使用者的單筆執行紀錄。
+- HTTP toolbar 必須提供批次執行 icon；Batch 分頁必須顯示進度統計、項目結果與可展開的 headers/body preview。已儲存 HTTP Request 開啟 Batch 分頁時，必須載入該 Request 最近一次已保存的 Batch Run。
+
+### 5.5 HTTP 轉 cURL
+
+HTTP Request editor 必須提供 cURL 匯出與複製功能，第一版只產生指令，不支援 cURL 匯入。
+
+- 支援 Bash/zsh 與 Windows PowerShell 兩種輸出格式；PowerShell 必須使用 `curl.exe`，避免使用 PowerShell 的 `curl` alias。
+- 指令必須包含 method、完整 URL 與啟用中的 query params/header，並維持 header 原本排序。
+- `followRedirects` 必須轉為 `--location`；`ignoreSslVerification` 必須轉為 `--insecure`；timeout 必須轉為 `--max-time`。
+- JSON、raw、`x-www-form-urlencoded` 必須轉為相應的 `--data`；`form-data` 必須轉為 `-F`。
+- 已上傳的 form-data file 不保存使用者原始本機路徑，cURL 必須輸出明確的 `@/path/to/file` placeholder。
+- 預設輸出保留 `{{variable}}`，避免將 Environment 的敏感值直接複製。使用者可選擇套用目前 Environment 產生可直接執行的指令，UI 必須先提示指令可能包含 Token、帳密或內網位址。
+- cURL 產生、顯示與複製不得寫入 application log、Request History 或 Batch Result。
+
 ## 6. gRPC 功能規格
 
 ### 6.1 第一版支援範圍
@@ -748,6 +780,20 @@ Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當
 
 不維護 Maven build。若需要離線建置，使用 `gradle/offline-maven-repo.gradle` 產生 Maven layout 離線依賴包，再用 `-PofflineRepo=/path/to/repo` 建置。
 
+專案必須套用 Gradle `maven-publish` 插件，並提供以下 POM 產生方式：
+
+```bash
+./gradlew generatePomXml
+```
+
+指令會在 `build/maven-poms/pom.xml` 產生根專案 POM，並在 `build/maven-poms/post-bubi-api/pom.xml`、`build/maven-poms/post-bubi-ui/pom.xml` 產生模組 POM。根專案 POM 為聚合描述；API POM 描述 Spring Boot 後端相依與 executable JAR；UI POM 描述前端靜態資源 JAR。POM 用於 Maven 相依資訊交換與發布，不取代既有 Gradle 建置、單一 JAR 打包或離線建置流程。
+
+`TBConvert.jar` 是專案內本機檔案相依，會隨 Spring Boot executable JAR 打包，但沒有可對應的 Maven 座標，因此不會列入 API POM 的 `<dependencies>`。若要讓 Maven 直接建置此專案，必須另行進行 Maven build migration，將前端 Vite 與 Spring Boot Gradle task 改寫為 Maven plugin 設定。
+
+若需產生已展開 BOM 且列出所有實際 compile、runtime、test Maven module 與 Gradle buildscript plugin 的最終 POM，必須依 [`MAVEN_FULL_DEPENDENCY_POM_GUIDE.md`](MAVEN_FULL_DEPENDENCY_POM_GUIDE.md) 執行 `generateAllResolvedDependencyPoms`；此產物僅供依賴交付與稽核，不可取代原始 Gradle build。
+
+`resolved-runtime-pom.xml` 不可用來單獨填滿 Maven `.m2` 後，期待全新的 Gradle user home 能完成離線打包。Gradle buildscript plugin、wrapper distribution 與 Node / Yarn / npm 前端資源必須依既有 Gradle 與 Yarn 離線交付流程另外提供。
+
 ## 15. 已完成開發里程碑
 
 以下核心里程碑已完成，後續異動以修正、驗證與使用者體驗改善為優先：
@@ -796,12 +842,12 @@ Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當
 
 - Authorization helpers
 - Postman Collection import / export
-- cURL import / export
+- cURL import
 - OpenAPI import
 - gRPC server streaming
 - gRPC client streaming
 - gRPC bidirectional streaming
-- Collection runner
+- 多 Request Collection runner
 - Test assertions
 - Request tabs
 - Cookie jar

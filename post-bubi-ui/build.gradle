@@ -16,6 +16,7 @@ buildscript {
 
 apply plugin: 'com.github.node-gradle.node'
 apply plugin: 'java'
+apply plugin: 'maven-publish'
 
 description = 'post-bubi-ui'
 
@@ -56,7 +57,7 @@ def skipUiBuildForTestOnly = isTestTask && !requiresUiBuild
 def yarnMirrorPath = project.findProperty('yarnMirrorPath') ?: ''
 
 yarn_check_config {
-    yarnCommand = ['config', 'list']
+    yarnCommand = ['config', 'get', 'yarn-offline-mirror']
     onlyIf { !skipUiBuildForTestOnly }
 }
 
@@ -140,5 +141,17 @@ artifacts {
     prod(tasks.named('prodJar').flatMap { it.archiveFile }) {
         builtBy tasks.named('prodJar')
         type 'jar'
+    }
+}
+
+publishing {
+    publications {
+        postBubiUi(MavenPublication) {
+            artifact tasks.named('prodJar')
+            pom {
+                name = 'Post Bubi UI'
+                description = 'Post Bubi Vue static resource JAR.'
+            }
+        }
     }
 }

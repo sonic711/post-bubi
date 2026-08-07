@@ -312,7 +312,7 @@
 
     <section ref="panelElement" class="panel" :style="panelStyle">
       <header class="toolbar" :class="`toolbar-${requestType.toLowerCase()}`">
-        <select v-model="requestType" class="type-select" aria-label="Request type">
+        <select v-model="requestType" class="type-select" aria-label="Request type" @change="handleRequestTypeChange">
           <option value="HTTP">HTTP</option>
           <option value="GRPC">gRPC</option>
           <option value="GRPC_BUR">gRPC BUR</option>
@@ -326,6 +326,22 @@
             <option>DELETE</option>
           </select>
           <input v-model="url" class="target-input" aria-label="URL" />
+          <button
+            class="icon-action-button toolbar-curl-button"
+            type="button"
+            title="產生 cURL"
+            aria-label="產生 cURL"
+            :disabled="sending"
+            @click="openCurlDialog"
+          ><Terminal :size="18" aria-hidden="true" /></button>
+          <button
+            class="icon-action-button toolbar-batch-button"
+            type="button"
+            title="HTTP 批次執行"
+            aria-label="HTTP 批次執行"
+            :disabled="sending"
+            @click="openBatchRunner"
+          ><Timer :size="18" aria-hidden="true" /></button>
         </template>
         <template v-else-if="requestType === 'GRPC'">
           <input v-model="grpcTarget" class="target-input" aria-label="gRPC target" placeholder="localhost:50051" />
@@ -650,7 +666,7 @@
             class="tab"
             :class="{ active: activeResponseTab === tab.key }"
             type="button"
-            @click="activeResponseTab = tab.key"
+            @click="selectResponseTab(tab.key)"
           >
             {{ tab.label }}
           </button>
@@ -662,6 +678,70 @@
           v-html="highlightedResponseBody"
         ></pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
+        <div v-else-if="activeResponseTab === 'batch'" class="batch-results">
+          <div v-if="!batchRun" class="batch-empty-state">
+            <Timer :size="22" aria-hidden="true" />
+            <span>尚無 HTTP 批次執行結果</span>
+          </div>
+          <template v-else>
+            <header class="batch-results-head">
+              <div>
+                <strong>Batch #{{ batchRun.id }}</strong>
+                <span :class="['batch-status', batchStatusClass(batchRun.status)]">{{ batchStatusLabel(batchRun.status) }}</span>
+              </div>
+              <button
+                v-if="batchIsRunning"
+                class="cancel-button compact-danger-button"
+                type="button"
+                :disabled="batchCancelling"
+                @click="cancelBatchRun"
+              ><X :size="16" aria-hidden="true" />{{ batchCancelling ? '取消中' : '取消批次' }}</button>
+              <button v-else class="icon-action-button" type="button" title="重新整理批次結果" aria-label="重新整理批次結果" @click="refreshBatchRun"><RefreshCw :size="16" aria-hidden="true" /></button>
+            </header>
+            <div class="batch-metrics" aria-label="批次執行統計">
+              <span><b>{{ batchRun.totalCount }}</b>已排程</span>
+              <span><b>{{ batchRun.dispatchedCount }}</b>已送出</span>
+              <span><b>{{ batchRun.inProgressCount }}</b>進行中</span>
+              <span class="metric-success"><b>{{ batchRun.successCount }}</b>成功</span>
+              <span class="metric-failed"><b>{{ batchRun.failedCount }}</b>失敗</span>
+              <span><b>{{ batchRun.cancelledCount }}</b>取消</span>
+              <span><b>{{ batchRun.notDispatchedCount }}</b>未送出</span>
+              <span><b>{{ formatMillis(batchRun.durationMillis) }}</b>總耗時</span>
+              <span><b>{{ formatMillis(batchRun.averageResponseMillis) }}</b>平均回應</span>
+              <span><b>{{ formatMillis(batchRun.fastestResponseMillis) }}</b>最快回應</span>
+              <span><b>{{ formatMillis(batchRun.slowestResponseMillis) }}</b>最慢回應</span>
+            </div>
+            <div class="batch-result-content">
+              <div class="batch-items-table" role="list" aria-label="批次項目結果">
+                <button
+                  v-for="item in batchItems"
+                  :key="item.id"
+                  class="batch-item-row"
+                  :class="{ active: selectedBatchItemId === item.id }"
+                  type="button"
+                  role="listitem"
+                  @click="selectedBatchItemId = selectedBatchItemId === item.id ? null : item.id"
+                >
+                  <span>#{{ item.sequenceNumber }}</span>
+                  <span :class="['batch-status', batchStatusClass(item.status)]">{{ batchStatusLabel(item.status) }}</span>
+                  <span>{{ item.statusCode || '-' }}</span>
+                  <span>{{ formatMillis(item.durationMillis) }}</span>
+                  <span>{{ item.sizeBytes == null ? '-' : `${item.sizeBytes} B` }}</span>
+                </button>
+              </div>
+              <section v-if="selectedBatchItem" class="batch-item-detail" aria-label="批次項目詳細結果">
+                <div class="batch-item-detail-head">
+                  <strong>#{{ selectedBatchItem.sequenceNumber }} {{ selectedBatchItem.statusCode || selectedBatchItem.status }}</strong>
+                  <span>{{ selectedBatchItem.reasonPhrase || selectedBatchItem.errorMessage || '' }}</span>
+                </div>
+                <div class="batch-item-detail-body">
+                  <pre>{{ batchItemHeaders(selectedBatchItem) }}</pre>
+                  <pre>{{ selectedBatchItem.responseBodyPreview || selectedBatchItem.errorMessage || '尚無 Response Body' }}</pre>
+                </div>
+              </section>
+            </div>
+          </template>
+        </div>
         <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response" :class="{ 'grpc-bur-decoded': requestType === 'GRPC_BUR' }">
           <div v-if="requestType === 'GRPC_BUR'" class="decoded-result-list">
             <p v-if="!grpcBurDecodedPayloads.length" class="empty-text">尚無 gRPC BUR 解碼結果</p>
@@ -740,6 +820,76 @@
         <pre v-else>{{ responseInfo }}</pre>
       </section>
     </section>
+    <div v-if="showBatchRunner" class="modal-backdrop" @click.self="closeBatchRunner">
+      <section class="batch-runner-modal" role="dialog" aria-modal="true" aria-labelledby="batch-runner-title">
+        <header class="environment-modal-head">
+          <div>
+            <h2 id="batch-runner-title">HTTP 批次執行</h2>
+            <p>{{ method }} {{ url }}</p>
+          </div>
+          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeBatchRunner"><X :size="18" aria-hidden="true" /></button>
+        </header>
+        <div class="batch-mode-control" role="group" aria-label="批次執行模式">
+          <button type="button" :class="{ active: batchMode === 'CONCURRENCY' }" @click="batchMode = 'CONCURRENCY'">並行</button>
+          <button type="button" :class="{ active: batchMode === 'RESPONSE_INTERVAL' }" @click="batchMode = 'RESPONSE_INTERVAL'">回應後間隔</button>
+          <button type="button" :class="{ active: batchMode === 'DEADLINE' }" @click="batchMode = 'DEADLINE'">完成期限</button>
+        </div>
+        <div class="batch-runner-fields">
+          <label>
+            總筆數
+            <input v-model.number="batchTotalCount" type="number" min="1" max="100" />
+          </label>
+          <label v-if="batchMode !== 'RESPONSE_INTERVAL'">
+            最大同時執行數
+            <input v-model.number="batchMaxConcurrency" type="number" min="1" max="100" />
+          </label>
+          <label v-if="batchMode === 'RESPONSE_INTERVAL'">
+            回應後間隔（ms）
+            <input v-model.number="batchIntervalMillis" type="number" min="0" max="300000" />
+          </label>
+          <label v-if="batchMode === 'DEADLINE'">
+            完成期限（ms）
+            <input v-model.number="batchDeadlineMillis" type="number" min="1000" max="3600000" />
+          </label>
+        </div>
+        <footer class="collection-rename-actions">
+          <span v-if="batchStartError" class="batch-form-error">{{ batchStartError }}</span>
+          <span></span>
+          <button class="secondary-button" type="button" :disabled="batchStarting" @click="closeBatchRunner">取消</button>
+          <button class="primary-button" type="button" :disabled="batchStarting" @click="startBatchRun">
+            <Timer :size="16" aria-hidden="true" />{{ batchStarting ? '建立中' : '開始批次' }}
+          </button>
+        </footer>
+      </section>
+    </div>
+    <div v-if="showCurlDialog" class="modal-backdrop" @click.self="closeCurlDialog">
+      <section class="curl-modal" role="dialog" aria-modal="true" aria-labelledby="curl-dialog-title">
+        <header class="environment-modal-head">
+          <div>
+            <h2 id="curl-dialog-title">產生 cURL</h2>
+            <p>依目前 HTTP Request 產生可複製的指令。</p>
+          </div>
+          <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeCurlDialog"><X :size="18" aria-hidden="true" /></button>
+        </header>
+        <div class="curl-shell-control" role="group" aria-label="cURL 指令格式">
+          <button type="button" :class="{ active: curlShell === 'bash' }" @click="curlShell = 'bash'">Bash / zsh</button>
+          <button type="button" :class="{ active: curlShell === 'powershell' }" @click="curlShell = 'powershell'">PowerShell</button>
+        </div>
+        <label class="curl-resolve-toggle">
+          <input v-model="curlResolveVariables" type="checkbox" />
+          套用目前 Environment
+        </label>
+        <p v-if="curlResolveVariables" class="curl-sensitive-warning">指令可能包含 Token、帳密或內網位址，請確認複製與分享的範圍。</p>
+        <p v-if="curlPreview.error" class="batch-form-error">{{ curlPreview.error }}</p>
+        <pre v-else class="curl-command-output">{{ curlPreview.command }}</pre>
+        <footer class="collection-rename-actions">
+          <button class="secondary-button" type="button" @click="closeCurlDialog">關閉</button>
+          <button class="primary-button" type="button" :disabled="!curlPreview.command" @click="copyCurlCommand">
+            <Copy :size="16" aria-hidden="true" />複製指令
+          </button>
+        </footer>
+      </section>
+    </div>
     <div v-if="showEnvironmentManager" class="modal-backdrop" @click.self="closeEnvironmentManager">
       <section class="environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-modal-title">
         <header class="environment-modal-head">
@@ -842,11 +992,14 @@ import {
   Pencil,
   Plus,
   RadioTower,
+  RefreshCw,
   Save,
   Send,
   Settings,
   Sun,
+  Terminal,
   Trash2,
+  Timer,
   Upload,
   X,
 } from '@lucide/vue'
@@ -862,7 +1015,7 @@ const requestTabs = [
   { key: 'settings', label: 'Settings' },
 ]
 
-const responseTabs = [
+const baseResponseTabs = [
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
   { key: 'decoded', label: 'Decoded' },
@@ -888,6 +1041,22 @@ const deletingEnvironment = ref(false)
 const showEnvironmentCopy = ref(false)
 const environmentCopyName = ref('')
 const copyingEnvironment = ref(false)
+const showBatchRunner = ref(false)
+const showCurlDialog = ref(false)
+const curlShell = ref('bash')
+const curlResolveVariables = ref(false)
+const batchMode = ref('CONCURRENCY')
+const batchTotalCount = ref(1)
+const batchMaxConcurrency = ref(1)
+const batchIntervalMillis = ref(0)
+const batchDeadlineMillis = ref(30000)
+const batchStarting = ref(false)
+const batchCancelling = ref(false)
+const batchStartError = ref('')
+const batchRun = ref(null)
+const batchItems = ref([])
+const selectedBatchItemId = ref(null)
+const batchPolling = ref(false)
 const selectedCollectionId = ref(null)
 const selectedFolderId = ref(null)
 const selectedRequestId = ref(null)
@@ -966,6 +1135,7 @@ const sidebarCollapsed = ref(false)
 const resizingSidebar = ref(false)
 const sidebarResizeStart = ref(null)
 let protoPanelPreferenceLoaded = false
+let batchPollTimer = null
 
 const grpcTarget = computed({
   get() {
@@ -1017,6 +1187,10 @@ const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || bodyType
 
 const highlightedBodyText = computed(() => highlightJson(activeBodyText.value))
 
+const responseTabs = computed(() => requestType.value === 'HTTP'
+  ? [...baseResponseTabs.slice(0, 2), { key: 'batch', label: 'Batch' }, ...baseResponseTabs.slice(2)]
+  : baseResponseTabs)
+
 const grpcBurDecodedResponseResults = computed(() => decodeGrpcBurResponseFields())
 
 const responseBodyDecodedResults = computed(() => {
@@ -1049,9 +1223,31 @@ const workspaceStyle = computed(() => ({
   '--sidebar-width': `${sidebarCollapsed.value ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth.value}px`,
 }))
 
+const batchIsRunning = computed(() => batchRun.value?.status === 'RUNNING')
+
+const displayingBatch = computed(() => requestType.value === 'HTTP' && activeResponseTab.value === 'batch')
+
+const curlPreview = computed(() => {
+  try {
+    const payload = curlResolveVariables.value
+      ? resolveExecutionPayload(executePayload())
+      : executePayload()
+    return { command: buildCurlCommand(payload, curlShell.value), error: '' }
+  } catch (error) {
+    return { command: '', error: readableError(error) }
+  }
+})
+
+const selectedBatchItem = computed(() => {
+  return batchItems.value.find((item) => item.id === selectedBatchItemId.value) || null
+})
+
 const hasUnsavedChanges = computed(() => savedEditorState.value !== snapshotEditorState())
 
 const responseSummary = computed(() => {
+  if (displayingBatch.value && batchRun.value) {
+    return `批次${batchStatusLabel(batchRun.value.status)} · ${batchRun.value.totalCount} 筆`
+  }
   if (sending.value) return '送出中'
   if (cancellationText.value) return '已取消'
   if (errorText.value) return '錯誤'
@@ -1063,10 +1259,11 @@ const responseSummary = computed(() => {
 })
 
 const responseSummaryClass = computed(() => ({
-  pending: sending.value,
-  cancelled: Boolean(cancellationText.value),
-  error: Boolean(errorText.value) || isResponseError(response.value),
-  ok: Boolean(response.value) && !errorText.value && !isResponseError(response.value),
+  pending: sending.value || (displayingBatch.value && batchIsRunning.value),
+  cancelled: Boolean(cancellationText.value) || (displayingBatch.value && batchRun.value?.status === 'CANCELLED'),
+  error: Boolean(errorText.value) || isResponseError(response.value) || (displayingBatch.value && batchRun.value?.status === 'DEADLINE_EXCEEDED'),
+  ok: (Boolean(response.value) && !errorText.value && !isResponseError(response.value))
+    || (displayingBatch.value && batchRun.value?.status === 'COMPLETED'),
 }))
 
 const responseBody = computed(() => {
@@ -1149,6 +1346,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activeExecution.value?.controller.abort()
+  stopBatchPolling()
   stopResponseResize()
   stopSidebarResize()
   window.removeEventListener('beforeunload', warnBeforeUnload)
@@ -2537,6 +2735,212 @@ async function sendCurrentRequest() {
   }
 }
 
+function openBatchRunner() {
+  if (requestType.value !== 'HTTP') {
+    return
+  }
+  batchStartError.value = ''
+  showBatchRunner.value = true
+}
+
+function openCurlDialog() {
+  if (requestType.value !== 'HTTP') {
+    return
+  }
+  curlShell.value = 'bash'
+  curlResolveVariables.value = false
+  showCurlDialog.value = true
+}
+
+function closeCurlDialog() {
+  showCurlDialog.value = false
+}
+
+async function copyCurlCommand() {
+  const command = curlPreview.value.command
+  if (!command) {
+    return
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(command)
+    } else {
+      const copyTarget = document.createElement('textarea')
+      copyTarget.value = command
+      copyTarget.setAttribute('readonly', '')
+      copyTarget.style.position = 'fixed'
+      copyTarget.style.opacity = '0'
+      document.body.appendChild(copyTarget)
+      copyTarget.select()
+      const copied = document.execCommand('copy')
+      copyTarget.remove()
+      if (!copied) {
+        throw new Error('瀏覽器拒絕存取剪貼簿')
+      }
+    }
+    workspaceStatus.value = 'cURL 指令已複製到剪貼簿'
+  } catch (error) {
+    workspaceStatus.value = `cURL 複製失敗：${readableError(error)}`
+  }
+}
+
+function handleRequestTypeChange() {
+  if (requestType.value !== 'HTTP' && activeResponseTab.value === 'batch') {
+    activeResponseTab.value = 'body'
+  }
+}
+
+async function selectResponseTab(tabKey) {
+  activeResponseTab.value = tabKey
+  if (tabKey === 'batch') {
+    await loadLatestBatchRun()
+  }
+}
+
+function closeBatchRunner() {
+  if (batchStarting.value) {
+    return
+  }
+  showBatchRunner.value = false
+  batchStartError.value = ''
+}
+
+async function startBatchRun() {
+  batchStarting.value = true
+  batchStartError.value = ''
+  try {
+    const payload = resolveExecutionPayload(executePayload())
+    const started = await apiJson('/api/http/batch-runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        httpRequest: payload,
+        mode: batchMode.value,
+        totalCount: batchTotalCount.value,
+        maxConcurrency: batchMode.value === 'RESPONSE_INTERVAL' ? null : batchMaxConcurrency.value,
+        intervalMillis: batchMode.value === 'RESPONSE_INTERVAL' ? batchIntervalMillis.value : null,
+        deadlineMillis: batchMode.value === 'DEADLINE' ? batchDeadlineMillis.value : null,
+      }),
+    })
+    batchRun.value = started
+    batchItems.value = []
+    selectedBatchItemId.value = null
+    showBatchRunner.value = false
+    activeResponseTab.value = 'batch'
+    workspaceStatus.value = `HTTP 批次已開始：${started.totalCount} 筆`
+    startBatchPolling()
+  } catch (error) {
+    batchStartError.value = readableError(error)
+  } finally {
+    batchStarting.value = false
+  }
+}
+
+function startBatchPolling() {
+  stopBatchPolling()
+  refreshBatchRun()
+  batchPollTimer = window.setInterval(refreshBatchRun, 700)
+}
+
+function stopBatchPolling() {
+  if (batchPollTimer !== null) {
+    window.clearInterval(batchPollTimer)
+    batchPollTimer = null
+  }
+}
+
+async function refreshBatchRun() {
+  if (!batchRun.value?.id || batchPolling.value) {
+    return
+  }
+  batchPolling.value = true
+  try {
+    const [run, page] = await Promise.all([
+      apiJson(`/api/http/batch-runs/${batchRun.value.id}`),
+      apiJson(`/api/http/batch-runs/${batchRun.value.id}/items?size=100`),
+    ])
+    batchRun.value = run
+    batchItems.value = page.items || []
+    if (!batchIsRunning.value) {
+      stopBatchPolling()
+    }
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+    stopBatchPolling()
+  } finally {
+    batchPolling.value = false
+  }
+}
+
+async function loadLatestBatchRun() {
+  if (requestType.value !== 'HTTP' || !selectedRequestId.value || batchIsRunning.value) {
+    return
+  }
+  try {
+    const page = await apiJson(`/api/http/batch-runs?requestId=${encodeURIComponent(selectedRequestId.value)}&size=1`)
+    const latest = page.items?.[0]
+    if (!latest) {
+      batchRun.value = null
+      batchItems.value = []
+      selectedBatchItemId.value = null
+      return
+    }
+    if (latest.id === batchRun.value?.id) {
+      return
+    }
+    batchRun.value = latest
+    batchItems.value = []
+    selectedBatchItemId.value = null
+    await refreshBatchRun()
+    if (batchIsRunning.value) {
+      startBatchPolling()
+    }
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
+async function cancelBatchRun() {
+  if (!batchRun.value?.id || !batchIsRunning.value || batchCancelling.value) {
+    return
+  }
+  batchCancelling.value = true
+  try {
+    batchRun.value = await apiJson(`/api/http/batch-runs/${batchRun.value.id}/cancel`, { method: 'POST' })
+    workspaceStatus.value = '已要求取消 HTTP 批次'
+    await refreshBatchRun()
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    batchCancelling.value = false
+  }
+}
+
+function batchStatusLabel(status) {
+  return {
+    RUNNING: '進行中',
+    COMPLETED: '已完成',
+    DEADLINE_EXCEEDED: '期限結束',
+    CANCELLED: '已取消',
+    NOT_DISPATCHED: '未送出',
+    SUCCESS: '成功',
+    FAILED: '失敗',
+  }[status] || status || '-'
+}
+
+function batchStatusClass(status) {
+  return `batch-status-${String(status || '').toLowerCase()}`
+}
+
+function batchItemHeaders(item) {
+  const headers = item?.responseHeaders || []
+  return headers.length ? headers.map((header) => `${header.name}: ${header.value}`).join('\n') : '尚無 Response Headers'
+}
+
+function formatMillis(value) {
+  return value == null ? '-' : `${value} ms`
+}
+
 async function sendHttpRequest() {
   sending.value = true
   errorText.value = ''
@@ -2883,6 +3287,75 @@ function executePayload() {
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
   }
+}
+
+function buildCurlCommand(payload, shell) {
+  const parts = [
+    `--request ${quoteCurlArgument(payload.method || 'GET', shell)}`,
+    `--url ${quoteCurlArgument(buildCurlUrl(payload.url, payload.params), shell)}`,
+  ]
+
+  for (const header of payload.headers || []) {
+    if (header?.enabled === false || !header?.name) {
+      continue
+    }
+    parts.push(`--header ${quoteCurlArgument(`${header.name}: ${header.value || ''}`, shell)}`)
+  }
+
+  if (payload.followRedirects) {
+    parts.push('--location')
+  }
+  if (payload.ignoreSslVerification) {
+    parts.push('--insecure')
+  }
+  parts.push(`--max-time ${formatCurlTimeout(payload.timeoutMillis)}`)
+
+  if (payload.bodyType === 'form-data') {
+    for (const part of payload.formData || []) {
+      if (!part?.name) {
+        continue
+      }
+      const value = part.type === 'file'
+        ? `${part.name}=@/path/to/file`
+        : `${part.name}=${part.value || ''}`
+      parts.push(`-F ${quoteCurlArgument(value, shell)}`)
+    }
+  } else if (payload.bodyType && payload.bodyType !== 'none' && payload.body) {
+    parts.push(`--data ${quoteCurlArgument(payload.body, shell)}`)
+  }
+
+  const command = shell === 'powershell' ? 'curl.exe' : 'curl'
+  const lineBreak = shell === 'powershell' ? ' `\n  ' : ' \\\n  '
+  return [command, ...parts].join(lineBreak)
+}
+
+function buildCurlUrl(baseUrl, params) {
+  const enabledParams = (params || []).filter((param) => param?.enabled !== false && param?.name)
+  if (!enabledParams.length) {
+    return baseUrl || ''
+  }
+  const query = enabledParams
+    .map((param) => `${encodeURIComponent(param.name)}=${encodeURIComponent(param.value || '')}`)
+    .join('&')
+  const hashIndex = String(baseUrl || '').indexOf('#')
+  const path = hashIndex >= 0 ? String(baseUrl).slice(0, hashIndex) : String(baseUrl || '')
+  const hash = hashIndex >= 0 ? String(baseUrl).slice(hashIndex) : ''
+  const separator = path.includes('?') ? (path.endsWith('?') || path.endsWith('&') ? '' : '&') : '?'
+  return `${path}${separator}${query}${hash}`
+}
+
+function formatCurlTimeout(timeoutMillis) {
+  const milliseconds = Number(timeoutMillis)
+  const seconds = Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds / 1000 : 30
+  return String(Number(seconds.toFixed(3)))
+}
+
+function quoteCurlArgument(value, shell) {
+  const text = String(value ?? '')
+  if (shell === 'powershell') {
+    return `'${text.replaceAll("'", "''")}'`
+  }
+  return `'${text.replaceAll("'", "'\"'\"'")}'`
 }
 
 function folderRows(collection) {

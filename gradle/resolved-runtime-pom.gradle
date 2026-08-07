@@ -1,0 +1,98 @@
+import groovy.xml.MarkupBuilder
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+
+def writeResolvedPom = { outputFile, artifactSuffix, title, scope, resolvedDependencies ->
+    outputFile.parentFile.mkdirs()
+    outputFile.withWriter('UTF-8') { writer ->
+        def xml = new MarkupBuilder(writer)
+        xml.project(
+                xmlns                : 'http://maven.apache.org/POM/4.0.0',
+                'xmlns:xsi'          : 'http://www.w3.org/2001/XMLSchema-instance',
+                'xsi:schemaLocation': 'http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd'
+        ) {
+            xml.modelVersion('4.0.0')
+            xml.groupId(project.group.toString())
+            xml.artifactId("${project.name}-${artifactSuffix}")
+            xml.version(project.version.toString())
+            xml.packaging('pom')
+            xml.name("${project.name} ${title} dependencies")
+            xml.description('Generated dependency closure. Do not use as a source build descriptor.')
+            xml.dependencies {
+                resolvedDependencies.each { resolvedDependency ->
+                    xml.dependency {
+                        xml.groupId(resolvedDependency.groupId)
+                        xml.artifactId(resolvedDependency.artifactId)
+                        xml.version(resolvedDependency.version)
+                        if (resolvedDependency.type && resolvedDependency.type != 'jar') {
+                            xml.type(resolvedDependency.type)
+                        }
+                        if (resolvedDependency.classifier) {
+                            xml.classifier(resolvedDependency.classifier)
+                        }
+                        xml.scope(scope)
+                    }
+                }
+            }
+        }
+    }
+}
+
+def registerResolvedClasspathPom = { taskName, configurationName, outputName, artifactSuffix, title, scope ->
+    def output = layout.buildDirectory.file("maven-poms/${project.name}/${outputName}")
+
+    tasks.register(taskName) {
+        group = 'publishing'
+        description = "產生列出所有已解析 ${configurationName} Maven module 與固定版本的 POM。"
+        inputs.files { configurations.getByName(configurationName) }
+        outputs.file(output)
+
+        doLast {
+            def resolvedDependencies = configurations.getByName(configurationName).resolvedConfiguration.resolvedArtifacts
+                .collect { artifact ->
+                    def module = artifact.moduleVersion.id
+                    [
+                            groupId   : module.group,
+                            artifactId: module.name,
+                            version   : module.version,
+                            type      : artifact.type,
+                            classifier: artifact.classifier,
+                            projectDependency: artifact.id.componentIdentifier instanceof ProjectComponentIdentifier
+                    ]
+                }
+                .findAll { dependency ->
+                    dependency.groupId && dependency.artifactId && dependency.version && !dependency.projectDependency
+                }
+                .unique { dependency -> "${dependency.groupId}:${dependency.artifactId}:${dependency.version}:${dependency.type}:${dependency.classifier ?: ''}" }
+                .sort { left, right ->
+                    "${left.groupId}:${left.artifactId}:${left.version}" <=> "${right.groupId}:${right.artifactId}:${right.version}"
+                }
+
+            writeResolvedPom(output.get().asFile, artifactSuffix, title, scope, resolvedDependencies)
+        }
+    }
+}
+
+registerResolvedClasspathPom(
+        'generateResolvedCompilePom',
+        'compileClasspath',
+        'resolved-compile-pom.xml',
+        'resolved-compile',
+        'resolved compile',
+        'compile'
+)
+registerResolvedClasspathPom(
+        'generateResolvedRuntimePom',
+        'runtimeClasspath',
+        'resolved-runtime-pom.xml',
+        'resolved-runtime',
+        'resolved runtime',
+        'runtime'
+)
+registerResolvedClasspathPom(
+        'generateResolvedTestPom',
+        'testRuntimeClasspath',
+        'resolved-test-pom.xml',
+        'resolved-test',
+        'resolved test',
+        'test'
+)

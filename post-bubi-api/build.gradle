@@ -3,6 +3,8 @@ import org.apache.tools.ant.filters.ReplaceTokens
 apply plugin: 'java'
 apply plugin: 'org.springframework.boot'
 apply plugin: 'io.spring.dependency-management'
+apply plugin: 'maven-publish'
+apply from: "${rootProject.projectDir}/gradle/resolved-runtime-pom.gradle"
 
 description = 'post-bubi-api'
 
@@ -69,4 +71,17 @@ jar {
 
 test {
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        postBubiApi(MavenPublication) {
+            from components.java
+            artifact tasks.named('bootJar')
+            pom {
+                name = 'Post Bubi API'
+                description = 'Post Bubi HTTP and gRPC API testing service.'
+            }
+        }
+    }
 }

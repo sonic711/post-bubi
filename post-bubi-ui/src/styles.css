@@ -935,7 +935,7 @@ textarea:focus-visible {
 }
 
 .toolbar-http {
-  grid-template-columns: 88px 118px minmax(0, 1fr) 136px 92px 92px;
+  grid-template-columns: 88px 118px minmax(0, 1fr) 38px 38px 136px 92px 92px;
 }
 
 .toolbar-grpc {
@@ -998,6 +998,13 @@ textarea:focus-visible {
 .target-input {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   min-width: 0;
+}
+
+.toolbar-batch-button,
+.toolbar-curl-button {
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
 }
 
 .request-meta {
@@ -1699,6 +1706,204 @@ textarea:disabled {
   scrollbar-width: thin;
 }
 
+.batch-results {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.batch-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.batch-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 49px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  padding: 8px 12px;
+}
+
+.batch-results-head > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.batch-results-head strong {
+  font-size: 13px;
+}
+
+.compact-danger-button {
+  height: 32px;
+  padding: 0 10px;
+}
+
+.batch-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.batch-status-running {
+  border-color: var(--brand-primary-border);
+  background: var(--brand-primary-soft);
+  color: var(--brand-primary);
+}
+
+.batch-status-success,
+.batch-status-completed {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.batch-status-failed,
+.batch-status-deadline_exceeded {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.batch-status-cancelled,
+.batch-status-not_dispatched {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.batch-metrics {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+}
+
+.batch-metrics span {
+  display: grid;
+  align-content: center;
+  min-width: 82px;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.25;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.batch-metrics b {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.batch-metrics .metric-success b {
+  color: var(--success);
+}
+
+.batch-metrics .metric-failed b {
+  color: var(--danger);
+}
+
+.batch-result-content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.batch-items-table {
+  min-height: 0;
+  overflow: auto;
+}
+
+.batch-item-row {
+  display: grid;
+  grid-template-columns: 48px minmax(88px, 1fr) 58px 78px 72px;
+  align-items: center;
+  width: 100%;
+  min-height: 39px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.batch-item-row:hover,
+.batch-item-row.active {
+  background: var(--surface-hover);
+}
+
+.batch-item-row.active {
+  box-shadow: inset 2px 0 0 var(--brand-primary);
+}
+
+.batch-item-detail {
+  border-top: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+}
+
+.batch-item-detail-head {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+}
+
+.batch-item-detail-head strong {
+  font-size: 13px;
+}
+
+.batch-item-detail-head span {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.batch-item-detail-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+  max-height: 240px;
+}
+
+.batch-item-detail-body pre {
+  min-height: 0;
+  max-height: 240px;
+  border-right: 1px solid var(--border-subtle);
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.batch-item-detail-body pre:last-child {
+  border-right: 0;
+}
+
 .history-actions {
   display: flex;
   justify-content: flex-end;
@@ -1829,6 +2034,161 @@ textarea:disabled {
   background: var(--surface-raised);
   box-shadow: var(--shadow-medium);
   padding: 20px;
+}
+
+.batch-runner-modal {
+  display: grid;
+  grid-template-rows: auto auto auto auto;
+  gap: 16px;
+  width: min(620px, 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-medium);
+  padding: 20px;
+}
+
+.curl-modal {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(120px, 1fr) auto;
+  gap: 14px;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-medium);
+  padding: 20px;
+}
+
+.curl-shell-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  padding: 4px;
+}
+
+.curl-shell-control button {
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.curl-shell-control button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.curl-shell-control button.active {
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-inset), 0 1px 3px rgba(0, 0, 0, 0.12);
+  color: var(--brand-primary);
+}
+
+.curl-resolve-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.curl-resolve-toggle input {
+  accent-color: var(--brand-primary);
+}
+
+.curl-sensitive-warning {
+  margin: -6px 0 0;
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.curl-command-output {
+  min-height: 120px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--code-background);
+  color: var(--text-primary);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.batch-mode-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  padding: 4px;
+}
+
+.batch-mode-control button {
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.batch-mode-control button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.batch-mode-control button.active {
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-inset), 0 1px 3px rgba(0, 0, 0, 0.12);
+  color: var(--brand-primary);
+}
+
+.batch-runner-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.batch-runner-fields label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.batch-runner-fields input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+}
+
+.batch-form-error {
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .collection-rename-actions {
@@ -2009,7 +2369,10 @@ pre {
     grid-template-columns: var(--sidebar-width, 260px) 10px minmax(0, 1fr);
   }
 
-  .toolbar-http,
+  .toolbar-http {
+    grid-template-columns: 82px minmax(108px, 0.42fr) minmax(180px, 1fr) 38px 38px 132px 84px 84px;
+  }
+
   .toolbar-grpc,
   .toolbar-grpc_bur {
     grid-template-columns: 82px minmax(108px, 0.42fr) minmax(180px, 1fr) 132px 84px 84px;
@@ -2092,6 +2455,11 @@ pre {
     grid-template-columns: minmax(92px, 0.32fr) minmax(120px, 0.45fr) minmax(180px, 1fr);
   }
 
+  .toolbar-batch-button,
+  .toolbar-curl-button {
+    width: 100%;
+  }
+
   .toolbar .secondary-button,
   .toolbar .send-button,
   .toolbar .cancel-button {
@@ -2114,6 +2482,20 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .batch-item-detail-body {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-item-detail-body pre {
+    max-height: 150px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .batch-item-detail-body pre:last-child {
+    border-bottom: 0;
+  }
+
   .decode-config {
     border-right: 0;
     border-bottom: 1px solid var(--border);
@@ -2125,6 +2507,14 @@ pre {
   }
 
   .environment-modal {
+    max-height: calc(100vh - 28px);
+  }
+
+  .batch-runner-modal {
+    max-height: calc(100vh - 28px);
+  }
+
+  .curl-modal {
     max-height: calc(100vh - 28px);
   }
 }
@@ -2241,6 +2631,30 @@ pre {
   .collection-rename-modal {
     gap: 14px;
     padding: 16px;
+  }
+
+  .batch-runner-modal {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .curl-modal {
+    gap: 14px;
+    max-height: calc(100vh - 16px);
+    padding: 16px;
+  }
+
+  .batch-mode-control,
+  .batch-runner-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-item-row {
+    grid-template-columns: 42px minmax(82px, 1fr) 54px 68px;
+  }
+
+  .batch-item-row > span:last-child {
+    display: none;
   }
 
   .environment-modal-actions {

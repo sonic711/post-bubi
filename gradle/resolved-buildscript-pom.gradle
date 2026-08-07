@@ -1,0 +1,76 @@
+import groovy.xml.MarkupBuilder
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+
+def resolvedBuildscriptPomOutput = layout.buildDirectory.file('maven-poms/resolved-buildscript-pom.xml')
+
+tasks.register('generateResolvedBuildscriptPom') {
+    group = 'publishing'
+    description = '產生列出 root 與所有子專案 Gradle buildscript plugin 的固定版本 POM。'
+    inputs.files {
+        rootProject.allprojects.collect { candidate ->
+            candidate.buildscript.configurations.findByName('classpath')
+        }.findAll { configuration -> configuration != null }
+    }
+    outputs.file(resolvedBuildscriptPomOutput)
+
+    doLast {
+        def classpathConfigurations = rootProject.allprojects.collect { candidate ->
+            candidate.buildscript.configurations.findByName('classpath')
+        }.findAll { configuration -> configuration != null }
+
+        def resolvedDependencies = classpathConfigurations.collectMany { configuration ->
+            configuration.resolvedConfiguration.resolvedArtifacts.collect { artifact ->
+                def module = artifact.moduleVersion.id
+                [
+                        groupId   : module.group,
+                        artifactId: module.name,
+                        version   : module.version,
+                        type      : artifact.type,
+                        classifier: artifact.classifier,
+                        projectDependency: artifact.id.componentIdentifier instanceof ProjectComponentIdentifier
+                ]
+            }
+        }.findAll { dependency ->
+            dependency.groupId && dependency.artifactId && dependency.version && !dependency.projectDependency
+        }.unique { dependency ->
+            "${dependency.groupId}:${dependency.artifactId}:${dependency.version}:${dependency.type}:${dependency.classifier ?: ''}"
+        }.sort { left, right ->
+            "${left.groupId}:${left.artifactId}:${left.version}" <=> "${right.groupId}:${right.artifactId}:${right.version}"
+        }
+
+        def outputFile = resolvedBuildscriptPomOutput.get().asFile
+        outputFile.parentFile.mkdirs()
+        outputFile.withWriter('UTF-8') { writer ->
+            def xml = new MarkupBuilder(writer)
+            xml.project(
+                    xmlns                : 'http://maven.apache.org/POM/4.0.0',
+                    'xmlns:xsi'          : 'http://www.w3.org/2001/XMLSchema-instance',
+                    'xsi:schemaLocation': 'http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd'
+            ) {
+                xml.modelVersion('4.0.0')
+                xml.groupId(project.group.toString())
+                xml.artifactId("${project.name}-resolved-buildscript")
+                xml.version(project.version.toString())
+                xml.packaging('pom')
+                xml.name("${project.name} resolved Gradle buildscript dependencies")
+                xml.description('Generated Gradle buildscript dependency closure. Do not use as a source build descriptor.')
+                xml.dependencies {
+                    resolvedDependencies.each { resolvedDependency ->
+                        xml.dependency {
+                            xml.groupId(resolvedDependency.groupId)
+                            xml.artifactId(resolvedDependency.artifactId)
+                            xml.version(resolvedDependency.version)
+                            if (resolvedDependency.type && resolvedDependency.type != 'jar') {
+                                xml.type(resolvedDependency.type)
+                            }
+                            if (resolvedDependency.classifier) {
+                                xml.classifier(resolvedDependency.classifier)
+                            }
+                            xml.scope('compile')
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

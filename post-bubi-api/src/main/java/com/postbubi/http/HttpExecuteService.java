@@ -57,6 +57,10 @@ public class HttpExecuteService {
     }
 
     public HttpExecuteResponse execute(HttpExecuteRequest request, ExecutionHandle execution) {
+        return execute(request, execution, true);
+    }
+
+    public HttpExecuteResponse execute(HttpExecuteRequest request, ExecutionHandle execution, boolean recordHistory) {
         String method = normalizeMethod(request.method());
         URI uri = buildUri(request.url(), request.params());
         int timeoutMillis = normalizeTimeout(request.timeoutMillis());
@@ -88,17 +92,23 @@ public class HttpExecuteService {
                         false
                 );
             });
-            requestHistoryService.record(request, executeResponse, null);
+            if (recordHistory) {
+                requestHistoryService.record(request, executeResponse, null);
+            }
             return executeResponse;
         } catch (ApiException exception) {
-            recordCancellationIfNeeded(request, execution);
+            recordCancellationIfNeeded(request, execution, recordHistory);
             throw exception;
         } catch (Exception exception) {
             if (execution.isCancelled()) {
-                requestHistoryService.record(request, null, "HTTP 請求已由使用者取消。");
+                if (recordHistory) {
+                    requestHistoryService.record(request, null, "HTTP 請求已由使用者取消。");
+                }
                 throw cancellationException();
             }
-            requestHistoryService.record(request, null, exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage());
+            if (recordHistory) {
+                requestHistoryService.record(request, null, exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage());
+            }
             throw new ApiException(
                     HttpStatus.BAD_GATEWAY,
                     "HTTP_EXECUTE_FAILED",
@@ -114,8 +124,8 @@ public class HttpExecuteService {
         }
     }
 
-    private void recordCancellationIfNeeded(HttpExecuteRequest request, ExecutionHandle execution) {
-        if (execution.isCancelled()) {
+    private void recordCancellationIfNeeded(HttpExecuteRequest request, ExecutionHandle execution, boolean recordHistory) {
+        if (recordHistory && execution.isCancelled()) {
             requestHistoryService.record(request, null, "HTTP 請求已由使用者取消。");
         }
     }
