@@ -151,6 +151,8 @@ Post Bubi 的品牌主色為酒紅色，必須用於標誌、主操作按鈕、�
 - Request 儲存、修改、刪除
 - Request history
 - Environment variables 與 `{{variable}}` 執行期替換
+- HTTP 單一 Request Batch 執行與歷程管理
+- HTTP Request 轉 Bash/zsh 或 PowerShell `curl.exe`
 - H2 持久化
 - 匯出 ZIP
 - 匯入 ZIP
@@ -176,7 +178,7 @@ Post Bubi 的品牌主色為酒紅色，必須用於標誌、主操作按鈕、�
 
 `gRPC BUR` request type 已依原始驗證腳本的組包概念完成。此模式與一般 gRPC JSON request 不同，使用者只需關注目標系統 host / port 與業務 input 內容，系統負責完成 TCPIP header、MCS header、Basic Label、Text Area 串接、UTF-8 / BUR 轉碼、`RqPayload` 建立與 `Service/rpcPeriphery` 呼叫。原始 notebook 不屬於建置或執行必要檔案，實際行為以 Java 實作與 `docs/GRPC_BUR_COMPOSER_FEATURE.md` 為準。
 
-詳細設計與待確認事項記錄於 `docs/GRPC_BUR_COMPOSER_FEATURE.md`。第一階段已完成 `GRPC_BUR` request type、payload preview、送出流程與 `TBConvert.jar` / CodeTable 正式 BUR codec 接入。CodeTable 與 `TBConvert.jar` 會包入 executable JAR，部署到其他主機時不需要額外攜帶 CodeTable；正式上線前仍需確認固定長度規則與 proto 提供方式。
+詳細設計記錄於 `docs/GRPC_BUR_COMPOSER_FEATURE.md`。第一階段已完成 `GRPC_BUR` request type、payload preview、送出流程與 `TBConvert.jar` / CodeTable 正式 BUR codec 接入。CodeTable 與 `TBConvert.jar` 會包入 executable JAR，部署到其他主機時不需要額外攜帶 CodeTable；實際目標系統驗收仍需使用正確業務資料、固定長度設定與相符 proto。
 
 ## 5. HTTP 功能規格
 
@@ -240,7 +242,7 @@ HTTP response viewer 必須顯示：
 HTTP 批次執行第一版只支援目前編輯中的單一 HTTP Request，不支援 gRPC、gRPC BUR 或多 Request 的 Collection Runner。
 
 - 使用目前 Request 與目前 Environment 在啟動當下的解析結果建立快照；批次開始後修改 Request 或 Environment 不影響執行中的批次。
-- 單批總筆數必須介於 `1` 至 `100`。
+- 單批總筆數必須為正整數，沒有產品層固定上限；實際可執行數量受 Java 整數範圍、H2 儲存空間、批次模式的完成期限與主機資源限制。
 - 批次提供以下互斥模式：
   - **並行模式**：設定總筆數與最大同時執行數；第一批立即送出，之後每有一筆完成才補送下一筆。最大同時執行數預設 `1`，範圍 `1` 至 `100`。
   - **回應後間隔模式**：每一筆收到 Response 或失敗結果後，等待指定間隔才送出下一筆；間隔範圍 `0` 至 `300000` 毫秒。
@@ -251,11 +253,14 @@ HTTP 批次執行第一版只支援目前編輯中的單一 HTTP Request，不�
 - 批次與項目結果必須保存於 H2。批次狀態至少包括 `RUNNING`、`COMPLETED`、`DEADLINE_EXCEEDED`、`CANCELLED`；項目狀態至少包括 `SUCCESS`、`FAILED`、`CANCELLED`、`NOT_DISPATCHED`。
 - 結果畫面必須顯示已排程、已送出、進行中、成功、失敗、取消、未送出、總耗時、平均/最快/最慢回應時間。每筆可查看 status、耗時、錯誤原因、response headers 與最多 `4000` 字元的 body preview。
 - 後端以背景工作執行，不可占用啟動批次的 HTTP request thread；前端以輪詢取得批次狀態與分頁項目結果。
-- API 提供：`POST /api/http/batch-runs`、`GET /api/http/batch-runs?requestId={requestId}`、`GET /api/http/batch-runs/{id}`、`GET /api/http/batch-runs/{id}/items`、`POST /api/http/batch-runs/{id}/cancel`。
+- Batch 項目結果每頁最多顯示 `100` 筆。畫面必須顯示目前起訖與總筆數，並提供前後頁切換；切換頁面或 Batch Run 時不得保留其他頁項目的詳細選取狀態。
+- API 提供：`POST /api/http/batch-runs`、`GET /api/http/batch-runs?requestId={requestId}`、`DELETE /api/http/batch-runs?requestId={requestId}`、`GET /api/http/batch-runs/{id}`、`GET /api/http/batch-runs/{id}/items`、`GET /api/http/batch-runs/{id}/export.csv`、`POST /api/http/batch-runs/{id}/cancel`。
 - 後端批次執行完成後，批次子 Request 不得寫入既有單筆 Request History；避免批次測試洗掉使用者的單筆執行紀錄。
 - HTTP toolbar 必須提供批次執行 icon；Batch 分頁必須顯示進度統計、項目結果與可展開的 headers/body preview。
 - Batch Run 歷程必須以 `requestId` 分隔保存。已儲存 HTTP Request 開啟 Batch 分頁時，必須載入該 Request 的歷程清單，預設選擇最新一筆；使用者可切換同一 Request 的任何已保存 Batch Run，且歷程要提供分頁瀏覽與總筆數。切換至其他 Request 時，不可顯示前一個 Request 的 Batch Run。
 - Batch Run 歷程與項目結果必須在重新整理、重新啟動 JAR 後可由 H2 還原。未儲存 Request 因沒有 `requestId`，其 Batch Run 只在目前瀏覽工作階段可查看。
+- 已儲存 HTTP Request 的 Batch 歷程工具列必須提供目前選取 Run 的 CSV 匯出。CSV 使用 UTF-8 BOM，供 Windows Excel 直接辨識中文字；每筆項目輸出 Run 識別、Request、時間、模式與狀態，以及序號、HTTP status、耗時、size、錯誤、response headers 及保存的 body preview，欄位中的逗號、雙引號與換行必須符合 CSV 跳脫規則。
+- Batch 歷程工具列必須提供清除記錄。清除範圍為目前 Request 的所有非 `RUNNING` Batch Run 與其項目資料；執行中的 Batch 必須保留，操作前需確認且不可復原。未儲存 Request 不顯示清除控制。
 
 ### 5.5 HTTP 轉 cURL
 
@@ -541,6 +546,41 @@ History 保存執行當下的 request 與 response snapshot，不應因 request 
 
 Environment 變數名稱需符合 `[A-Za-z_][A-Za-z0-9_.-]*`，同一 Environment 內不可重複。Request 保存原始 `{{variable}}` 模板；實際替換只發生在送出前。
 
+### 9.8 http_batch_runs
+
+- `id`
+- `request_id`，未儲存 Request 時可為 null
+- `mode`
+- `status`
+- `total_count`
+- `max_concurrency`
+- `interval_millis`
+- `deadline_millis`
+- `request_snapshot_json`
+- `created_at`
+- `started_at`
+- `completed_at`
+
+`status` values：`RUNNING`、`COMPLETED`、`DEADLINE_EXCEEDED`、`CANCELLED`。Batch Run 保存啟動當下的 HTTP Request snapshot，不因後續修改 Request 或 Environment 而改變。
+
+### 9.9 http_batch_items
+
+- `id`
+- `batch_run_id`
+- `sequence_number`
+- `status`
+- `status_code`
+- `reason_phrase`
+- `duration_millis`
+- `size_bytes`
+- `error_message`
+- `response_headers_json`
+- `response_body_preview`
+- `started_at`
+- `completed_at`
+
+`status` values：`NOT_DISPATCHED`、`RUNNING`、`SUCCESS`、`FAILED`、`CANCELLED`。Response body preview 最多保存 4000 字元。批次子 Request 不寫入 `request_history`。
+
 ## 10. 後端 API 規格方向
 
 所有 API path 使用 `/api` prefix。
@@ -607,16 +647,12 @@ Request 可選欄位：
 ### 10.6 File API
 
 - `POST /api/files`
-- `GET /api/files/{id}`
-- `DELETE /api/files/{id}`
 
 ### 10.7 Proto API
 
 - `POST /api/protos`
 - `GET /api/protos`
-- `GET /api/protos/{id}`
-- `DELETE /api/protos/{id}`
-- `POST /api/protos/{id}/inspect`
+- `GET /api/protos/{id}/inspect`
 
 ### 10.8 Import / Export API
 
@@ -631,7 +667,20 @@ Request 可選欄位：
 - `GET /api/environments`
 - `POST /api/environments`
 - `PUT /api/environments/{id}`
+- `POST /api/environments/{id}/copy`
 - `DELETE /api/environments/{id}`
+
+### 10.10 HTTP Batch API
+
+- `POST /api/http/batch-runs`
+- `GET /api/http/batch-runs?requestId={requestId}&page={page}&size={size}`
+- `DELETE /api/http/batch-runs?requestId={requestId}`：清除指定 Request 的所有非 `RUNNING` Batch Run 及其 Item；進行中的 Batch 保留。
+- `GET /api/http/batch-runs/{id}`
+- `GET /api/http/batch-runs/{id}/items?page={page}&size={size}`
+- `GET /api/http/batch-runs/{id}/export.csv`：下載目前 Run 的 UTF-8 BOM CSV。
+- `POST /api/http/batch-runs/{id}/cancel`
+
+單批總筆數沒有產品層固定上限；最大同時執行數仍為 100，Batch Run 與 Item 結果查詢以每頁最多 100 筆分頁，前端提供前後頁瀏覽與起訖筆數。實際批次規模受 Java 整數範圍、H2 儲存空間與主機資源限制。CSV 欄位包含 Batch Run 識別、Request、時間、模式與狀態，以及每筆序號與 HTTP 結果、response headers 及保存的 body preview；CSV 欄位遵守雙引號跳脫規則。
 
 ## 11. 前端畫面規格
 
@@ -818,6 +867,8 @@ Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當
 14. 實作 Environment variables、`{{variable}}` 執行期替換、timeout 與取消。
 15. 實作 gRPC BUR 組包、TBConvert/CodeTable JAR 內建與回應解碼。
 16. 實作 Collection/Request 拖拉管理、Response 暫存與工作台 UI/UX 整理。
+17. 實作 HTTP 單一 Request Batch 執行、H2 歷程、期限/手動取消、CSV 匯出與已完成記錄清除。
+18. 實作 HTTP Request 轉 Bash/zsh 與 PowerShell `curl.exe` 指令產生及複製。
 
 ## 16. 驗收條件
 
@@ -839,6 +890,8 @@ Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當
 - 可以建立 Environment，並在 HTTP、gRPC 與 gRPC BUR request 使用 `{{variable}}`。
 - HTTP、gRPC unary 與 gRPC BUR 預設 timeout 為 30 秒，送出中可取消。
 - gRPC BUR 可完成組包、預覽、送出與 payload BUR 解碼。
+- HTTP Batch 可執行沒有產品層固定上限的單一 Request，並可查看依 Request 保存的歷程、取消、匯出 CSV、清除已完成記錄及每頁最多 100 筆的項目結果；實際規模受 Java 整數範圍、H2 儲存空間與主機資源限制。
+- HTTP Request 可產生包含目前 Params、Headers、Body、timeout 與 TLS 設定的 Bash/zsh 或 PowerShell `curl.exe` 指令。
 
 ## 17. 後續版本候選功能
 

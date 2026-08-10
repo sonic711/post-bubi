@@ -713,6 +713,8 @@
               </label>
               <div class="batch-history-actions">
                 <span>{{ batchRunHistoryTotal }} 次</span>
+                <button class="icon-action-button" type="button" title="匯出目前 Batch 為 CSV" aria-label="匯出目前 Batch 為 CSV" :disabled="batchExporting" @click="exportBatchRunCsv"><Download :size="16" aria-hidden="true" /></button>
+                <button class="icon-action-button danger-icon-button" type="button" title="清除本 Request 的已完成 Batch 記錄" aria-label="清除本 Request 的已完成 Batch 記錄" :disabled="batchClearing" @click="clearCompletedBatchRuns"><Trash2 :size="16" aria-hidden="true" /></button>
                 <button class="icon-action-button" type="button" title="較新的批次紀錄" aria-label="較新的批次紀錄" :disabled="!batchHistoryHasPrevious || batchRunHistoryLoading" @click="changeBatchHistoryPage(-1)"><ChevronLeft :size="16" aria-hidden="true" /></button>
                 <button class="icon-action-button" type="button" title="較舊的批次紀錄" aria-label="較舊的批次紀錄" :disabled="!batchHistoryHasNext || batchRunHistoryLoading" @click="changeBatchHistoryPage(1)"><ChevronRight :size="16" aria-hidden="true" /></button>
               </div>
@@ -747,6 +749,13 @@
                   <span>{{ formatMillis(item.durationMillis) }}</span>
                   <span>{{ item.sizeBytes == null ? '-' : `${item.sizeBytes} B` }}</span>
                 </button>
+              </div>
+              <div v-if="batchItemsTotal" class="batch-items-pagination" aria-label="批次項目結果分頁">
+                <span>{{ batchItemsPageRange }}</span>
+                <div>
+                  <button class="icon-action-button" type="button" title="較前一頁批次項目" aria-label="較前一頁批次項目" :disabled="!batchItemsHasPrevious || batchPolling" @click="changeBatchItemsPage(-1)"><ChevronLeft :size="16" aria-hidden="true" /></button>
+                  <button class="icon-action-button" type="button" title="較後一頁批次項目" aria-label="較後一頁批次項目" :disabled="!batchItemsHasNext || batchPolling" @click="changeBatchItemsPage(1)"><ChevronRight :size="16" aria-hidden="true" /></button>
+                </div>
               </div>
               <section v-if="selectedBatchItem" class="batch-item-detail" aria-label="批次項目詳細結果">
                 <div class="batch-item-detail-head">
@@ -856,7 +865,7 @@
         <div class="batch-runner-fields">
           <label>
             總筆數
-            <input v-model.number="batchTotalCount" type="number" min="1" max="100" />
+            <input v-model.number="batchTotalCount" type="number" min="1" />
           </label>
           <label v-if="batchMode !== 'RESPONSE_INTERVAL'">
             最大同時執行數
@@ -1031,6 +1040,7 @@ import postBubiLogo from './assets/post-bubi-logo.png'
 const SIDEBAR_COLLAPSE_THRESHOLD = 180
 const SIDEBAR_COLLAPSED_WIDTH = 64
 const BATCH_HISTORY_PAGE_SIZE = 20
+const BATCH_ITEM_PAGE_SIZE = 100
 
 const requestTabs = [
   { key: 'params', label: 'Params' },
@@ -1076,9 +1086,13 @@ const batchIntervalMillis = ref(0)
 const batchDeadlineMillis = ref(30000)
 const batchStarting = ref(false)
 const batchCancelling = ref(false)
+const batchClearing = ref(false)
+const batchExporting = ref(false)
 const batchStartError = ref('')
 const batchRun = ref(null)
 const batchItems = ref([])
+const batchItemsPage = ref(0)
+const batchItemsTotal = ref(0)
 const selectedBatchItemId = ref(null)
 const batchPolling = ref(false)
 const batchRunHistory = ref([])
@@ -1257,6 +1271,19 @@ const batchIsRunning = computed(() => batchRun.value?.status === 'RUNNING')
 const batchHistoryHasPrevious = computed(() => batchRunHistoryPage.value > 0)
 
 const batchHistoryHasNext = computed(() => (batchRunHistoryPage.value + 1) * BATCH_HISTORY_PAGE_SIZE < batchRunHistoryTotal.value)
+
+const batchItemsHasPrevious = computed(() => batchItemsPage.value > 0)
+
+const batchItemsHasNext = computed(() => (batchItemsPage.value + 1) * BATCH_ITEM_PAGE_SIZE < batchItemsTotal.value)
+
+const batchItemsPageRange = computed(() => {
+  if (!batchItemsTotal.value) {
+    return '0 筆'
+  }
+  const start = batchItemsPage.value * BATCH_ITEM_PAGE_SIZE + 1
+  const end = Math.min(start + batchItems.value.length - 1, batchItemsTotal.value)
+  return `${start}-${end} / ${batchItemsTotal.value} 筆`
+})
 
 const displayingBatch = computed(() => requestType.value === 'HTTP' && activeResponseTab.value === 'batch')
 
@@ -2244,6 +2271,10 @@ async function importEnvironment(event) {
 }
 
 function downloadZip(blob, filename) {
+  downloadBlob(blob, filename)
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -2856,6 +2887,7 @@ function closeBatchRunner() {
 async function startBatchRun() {
   batchStarting.value = true
   batchStartError.value = ''
+  const savedRequestId = selectedRequestId.value
   try {
     const payload = resolveExecutionPayload(executePayload())
     const started = await apiJson('/api/http/batch-runs', {
@@ -2871,12 +2903,22 @@ async function startBatchRun() {
     })
     batchRun.value = started
     batchItems.value = []
+    batchItemsPage.value = 0
+    batchItemsTotal.value = 0
     selectedBatchItemId.value = null
     batchRunHistoryPage.value = 0
-    batchRunHistory.value = [started]
-    batchRunHistoryTotal.value += 1
+    if (savedRequestId) {
+      batchRunHistory.value = []
+      batchRunHistoryTotal.value = 0
+    } else {
+      batchRunHistory.value = [started]
+      batchRunHistoryTotal.value = 1
+    }
     showBatchRunner.value = false
     activeResponseTab.value = 'batch'
+    if (savedRequestId) {
+      await loadBatchRunHistory({ preferredRunId: started.id, force: true })
+    }
     workspaceStatus.value = `HTTP 批次已開始：${started.totalCount} 筆`
     startBatchPolling()
   } catch (error) {
@@ -2907,11 +2949,15 @@ async function refreshBatchRun() {
   try {
     const [run, page] = await Promise.all([
       apiJson(`/api/http/batch-runs/${batchRun.value.id}`),
-      apiJson(`/api/http/batch-runs/${batchRun.value.id}/items?size=100`),
+      apiJson(`/api/http/batch-runs/${batchRun.value.id}/items?page=${batchItemsPage.value}&size=${BATCH_ITEM_PAGE_SIZE}`),
     ])
     batchRun.value = run
     replaceBatchRunHistory(run)
     batchItems.value = page.items || []
+    batchItemsTotal.value = page.totalItems || 0
+    if (!batchItems.value.some((item) => item.id === selectedBatchItemId.value)) {
+      selectedBatchItemId.value = null
+    }
     if (!batchIsRunning.value) {
       stopBatchPolling()
     }
@@ -2924,7 +2970,7 @@ async function refreshBatchRun() {
 }
 
 async function loadBatchRunHistory(options = {}) {
-  if (requestType.value !== 'HTTP' || !selectedRequestId.value || batchRunHistoryLoading.value) {
+  if (requestType.value !== 'HTTP' || !selectedRequestId.value || (batchRunHistoryLoading.value && !options.force)) {
     return
   }
   const requestId = selectedRequestId.value
@@ -2945,6 +2991,8 @@ async function loadBatchRunHistory(options = {}) {
     if (!selected) {
       batchRun.value = null
       batchItems.value = []
+      batchItemsPage.value = 0
+      batchItemsTotal.value = 0
       selectedBatchItemId.value = null
       return
     }
@@ -2970,12 +3018,55 @@ async function selectBatchRunFromHistory(batchRunId) {
   }
 }
 
+async function exportBatchRunCsv() {
+  if (!batchRun.value?.id || batchExporting.value) {
+    return
+  }
+  batchExporting.value = true
+  try {
+    const response = await fetch(`/api/http/batch-runs/${batchRun.value.id}/export.csv`)
+    if (!response.ok) {
+      const payload = await response.json()
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    downloadBlob(await response.blob(), `post-bubi-batch-${batchRun.value.id}.csv`)
+    workspaceStatus.value = `Batch #${batchRun.value.id} 已匯出 CSV`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    batchExporting.value = false
+  }
+}
+
+async function clearCompletedBatchRuns() {
+  if (!selectedRequestId.value || batchClearing.value) {
+    return
+  }
+  const confirmed = window.confirm('確定清除本 Request 的所有已完成 Batch 記錄？進行中的批次會保留。此操作無法復原。')
+  if (!confirmed) {
+    return
+  }
+  batchClearing.value = true
+  try {
+    const result = await apiJson(`/api/http/batch-runs?requestId=${encodeURIComponent(selectedRequestId.value)}`, { method: 'DELETE' })
+    batchRunHistoryPage.value = 0
+    await loadBatchRunHistory({ preferredRunId: batchIsRunning.value ? batchRun.value?.id : null })
+    workspaceStatus.value = result.deletedCount ? `已清除 ${result.deletedCount} 筆 Batch 記錄` : '沒有可清除的已完成 Batch 記錄'
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    batchClearing.value = false
+  }
+}
+
 function clearBatchRunHistory() {
   stopBatchPolling()
   batchRunHistoryLoadSequence += 1
   batchRunHistoryLoading.value = false
   batchRun.value = null
   batchItems.value = []
+  batchItemsPage.value = 0
+  batchItemsTotal.value = 0
   selectedBatchItemId.value = null
   batchRunHistory.value = []
   batchRunHistoryPage.value = 0
@@ -2989,6 +3080,8 @@ async function selectBatchRun(selected) {
   stopBatchPolling()
   batchRun.value = selected
   batchItems.value = []
+  batchItemsPage.value = 0
+  batchItemsTotal.value = 0
   selectedBatchItemId.value = null
   await refreshBatchRun()
   if (batchIsRunning.value) {
@@ -3003,6 +3096,19 @@ async function changeBatchHistoryPage(direction) {
   }
   batchRunHistoryPage.value = page
   await loadBatchRunHistory({ preferredRunId: null })
+}
+
+async function changeBatchItemsPage(direction) {
+  if (batchPolling.value) {
+    return
+  }
+  const page = batchItemsPage.value + direction
+  if (page < 0 || page * BATCH_ITEM_PAGE_SIZE >= batchItemsTotal.value) {
+    return
+  }
+  batchItemsPage.value = page
+  selectedBatchItemId.value = null
+  await refreshBatchRun()
 }
 
 function replaceBatchRunHistory(run) {

@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-08-07
+最後整理日期：2026-08-10
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -26,16 +26,14 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | 離線 Maven repository task | 完成 | `zipOfflineMavenRepo` 與 `--offline` 流程 |
 | Maven POM 產生 | 完成 | `maven-publish`、`generatePomXml` 與離線 POM 產物驗證完成 |
 | 完整依賴 POM | 完成 | compile、runtime、test 與 Gradle buildscript POM；總 task 與 Maven 離線驗證完成 |
-| HTTP 批次執行 | 完成，待使用者驗收 | H2 Batch Run / Item、三種模式、依 Request 分隔的可選擇歷程、期限/手動取消與整合測試完成 |
+| HTTP 批次執行 | 完成，待使用者驗收 | H2 Batch Run / Item、三種模式、總筆數無固定 100 筆上限、依 Request 分隔的可選擇歷程、CSV 匯出、完成記錄清除、項目結果分頁、期限/手動取消與整合測試完成；最大併發仍為 100 |
 | HTTP 轉 cURL 匯出 | 完成，待使用者驗收 | Bash/zsh 實際執行測試、PowerShell、Environment 模板/已解析值、form-data file placeholder 與本機剪貼簿複製 |
 
 ## 下一階段
 
-1. 已完成 HTTP Batch Run / Batch Item H2 model、背景排程、三種模式與整批取消。
-2. 已完成批次 API、結果輪詢與 HTTP 整合測試，驗證併發限制、回應後間隔、期限取消、手動取消與不寫入單筆歷程。
-3. 已完成批次執行 UI、進度摘要、結果列表與單筆 headers/body preview；已儲存 HTTP Request 可瀏覽專屬的 Batch Run 歷程並切換任一筆。
-4. 已完成 HTTP 轉 cURL generator：工具列 icon 開啟預覽，支援 Bash/zsh 與 PowerShell，並能選擇保留或解析目前 Environment；Bash 指令已以本機 HTTP server 實際執行驗證。
-5. 下一階段：待使用者驗收 HTTP 批次執行與 cURL 匯出，再依回饋處理修正或進入既有文件列出的後續項目。
+1. 待使用者驗收 HTTP Batch 執行、歷程切換、CSV 匯出與已完成記錄清除。
+2. 待使用者驗收 HTTP 轉 cURL 在實際 Linux、Windows PowerShell 環境的複製與執行結果。
+3. 目前沒有排定新增協定；後續依使用者驗收回饋處理修正，或從既有文件的後續版本候選功能中排定工作。
 
 ## 已完成功能
 
@@ -61,8 +59,9 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - File upload 與 form-data file reference。
 - Timeout 預設 30 秒，可於 Settings 調整為 1 至 300 秒；redirect、忽略 SSL certificate verification。
 - 送出後可按取消；前端會停止等待，後端同步關閉對應 HTTP client。
-- HTTP 工具列提供批次執行 icon，可設定並行、回應後間隔或完成期限模式；Response 的 Batch 分頁顯示已排程、已送出、進行中、成功、失敗、取消、未送出、總耗時與平均/最快/最慢回應時間，可取消進行中批次並查看項目 headers/body preview。
+- HTTP 工具列提供批次執行 icon，可設定並行、回應後間隔或完成期限模式；Response 的 Batch 分頁顯示已排程、已送出、進行中、成功、失敗、取消、未送出、總耗時與平均/最快/最慢回應時間，可取消進行中批次並查看項目 headers/body preview。項目結果每頁最多 100 筆，提供起訖筆數與前後頁切換。
 - 已儲存 HTTP Request 的 Batch 分頁會載入同一 `requestId` 的歷程；預設顯示最新一筆，可切換任何已保存 Run 並以前後頁瀏覽，切換至其他 Request 不會混入前一測案結果。未儲存 Request 的批次結果只保留於本次瀏覽。
+- 已儲存 HTTP Request 的 Batch 歷程可匯出目前選取 Run 為 UTF-8 BOM CSV，包含每筆項目的 HTTP 結果與保存的 response preview；可清除目前 Request 的所有已完成 Run，進行中的批次會保留。
 - HTTP 工具列提供 cURL icon，可產生 Bash/zsh 或 PowerShell 指令並複製到剪貼簿。輸出保留啟用中的 Params、Headers 排序、redirect、HTTPS 憑證設定、timeout 與 Body；form-data file 使用 `@/path/to/file` placeholder。
 - cURL 預設保留 `{{variable}}`；若輸出含模板，畫面會提示 Linux shell 不會自動替換，必須套用目前 Environment 或自行替換後才能執行。套用 Environment 時會提示可能包含敏感值。產生與複製完全在瀏覽器內進行，不寫入後端 log、History 或 Batch Result。
 - 新建 HTTP Request 預設略過 HTTPS 憑證驗證；已保存 Request 保留原設定。
@@ -137,7 +136,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | --- | --- |
 | `WorkspaceApiIntegrationTest` | Collection、Folder、Request CRUD、Collection 改名與排序、跨 Collection / Folder Request 移動、複製、錯誤格式 |
 | `HttpExecuteIntegrationTest` | 本機 HTTP GET、history、invalid URL、執行中 HTTP 取消 |
-| `HttpBatchIntegrationTest` | HTTP 批次併發、回應後間隔、完成期限取消、手動取消與單筆 history 隔離 |
+| `HttpBatchIntegrationTest` | HTTP 批次併發、超過 100 筆的項目結果第 2 頁、回應後間隔、完成期限取消、手動取消、CSV 匯出與 Request 歷程隔離清除 |
 | `curl-command.test.mjs` | Bash cURL 實際執行、query、Header 順序、單引號/多行 JSON body、PowerShell 轉義與模板辨識 |
 | `FileUploadIntegrationTest` | multipart upload、HTTP form-data file |
 | `WorkspaceArchiveIntegrationTest` | Workspace / Collection ZIP、file/proto reference、舊版 Environment schema v2、schema v1 相容與 zip slip |
@@ -195,7 +194,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 2026-08-07 HTTP 批次執行後端驗證結果：
 
-- `POST /api/http/batch-runs` 可建立最多 100 筆的 HTTP-only 批次；`GET /api/http/batch-runs/{id}` 輪詢摘要，`GET /api/http/batch-runs/{id}/items` 取得分頁結果，`POST /api/http/batch-runs/{id}/cancel` 取消整批。
+- （2026-08-07 當時版本）`POST /api/http/batch-runs` 可建立最多 100 筆的 HTTP-only 批次；`GET /api/http/batch-runs/{id}` 輪詢摘要，`GET /api/http/batch-runs/{id}/items` 取得分頁結果，`POST /api/http/batch-runs/{id}/cancel` 取消整批。
 - `GET /api/http/batch-runs?requestId={requestId}` 可取得已儲存 HTTP Request 的最近 Batch Run；Batch UI 會以此還原重新整理前的結果。
 - H2 保存 Batch Run / Item 狀態、response headers、最多 4000 字元的 response body preview 與錯誤原因；批次子 Request 不寫入既有 HTTP Request History。
 - `./gradlew :post-bubi-api:test --tests com.postbubi.web.HttpBatchIntegrationTest` 成功，驗證併發模式、回應後間隔模式、完成期限取消、手動取消與 history 隔離。
@@ -215,6 +214,19 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - Batch 分頁改用 `GET /api/http/batch-runs?requestId={requestId}&page={page}&size=20` 載入歷程。實際 JAR 以 `測試Headers` 驗證兩筆已保存 Run 皆可顯示，且切換歷程選單後會載入對應的統計與項目結果。
 - 修正切換 HTTP Request 時停留在 Batch 分頁卻未顯示歷程的問題：切換前會保留 Batch 分頁狀態，載入目標 Request 後立即依新的 `requestId` 查詢歷程。實際 JAR 以「測試Headers -> 測試Headers 複本 -> 測試Headers」驗證，兩個測案均直接顯示各自的 Batch 結果。
 - `node --test src/curl-command.test.mjs` 成功。測試啟動本機 HTTP server 並由產生的 Bash 多行 cURL 指令實際呼叫，確認 query、Header 順序、含單引號與多行 JSON body 均正確傳送；同時驗證 PowerShell 使用 `curl.exe` 與模板辨識。
+
+2026-08-10 Batch 筆數上限、CSV 匯出與記錄清除驗證結果：
+
+- `GET /api/http/batch-runs/{id}/export.csv` 以 UTF-8 BOM attachment 輸出 Run 與所有 Item。`DELETE /api/http/batch-runs?requestId={requestId}` 只清除同一 Request 的非 `RUNNING` Run 與 Item；進行中的批次不受影響。
+- 移除總批次筆數的 100 筆產品限制；總筆數改為正整數，最大同時執行數與結果分頁大小仍各自維持 100。
+- `./gradlew :post-bubi-api:test --tests com.postbubi.web.HttpBatchIntegrationTest` 成功，驗證 CSV 的 content type、檔名、BOM、內容，以及清除不影響其他 Request 的 Batch 記錄。
+- `./gradlew :post-bubi-api:test --rerun-tasks` 成功，9 個整合測試類別共 30 個測試均通過；`./gradlew :post-bubi-ui:yarn_build_prod :post-bubi-api:bootJar` 成功。
+- 以總筆數 101、最大併發 10 的批次實際驗證，101 筆均完成且成功；API 第 1 頁回傳序號 1 至 100，第 2 頁回傳序號 101。前端總筆數輸入已移除 `max=100`，最大併發輸入仍保留 `max=100`，Batch 分頁可切換項目結果前後頁。
+- 以隔離 H2 記憶體資料庫啟動最新 JAR 實測：UI 第 1 頁顯示 `1-100 / 101 筆`，按下一頁後顯示唯一的 `#101` 項目，上一頁可用、下一頁正確停用；不會影響既有使用者資料。
+- 以最新 JAR 實測 Batch 歷程頁面，CSV 下載與清除記錄 icon 均可見；未執行清除操作，以保留既有使用者資料供人工驗收。
+- 修正建立新 Batch 後歷程只顯示當次 Run 的問題：已儲存 Request 會在 Batch 建立成功後強制依新的 Run ID 重新載入第 1 頁歷程，舊有 Run 會立即出現在選單，不需切換其他 Response tab。
+
+目前已知限制：Batch 總筆數沒有產品層固定上限，但後端會先將每筆 Item 保存至 H2，實際可執行規模仍受 Java `Integer` 範圍、H2 儲存空間、網路、timeout / deadline 與主機 CPU、記憶體限制；最大同時執行數為 100，Batch Run 與 Item 查詢每頁最多 100 筆。
 
 前端正式建置：
 
@@ -278,6 +290,7 @@ Gradle 會把它們放入 executable JAR。`data/proto/` 是開發與 proto impo
 3. 在長 JSON Request Body 從頂端捲至最底端後選取並複製文字，確認上色內容、游標位置與複製結果仍對齊；送出長 JSON Response 時，確認僅 Response 內容區捲動，標題與 tabs 保持可見；gRPC BUR 成功解碼時，Body 的 `payload.*.data` 顯示明碼與 `decoded` 標示。
 4. 送出已儲存 Request 後切換到其他 Request 再切回，確認 Response 與最後的 Response tab 還原；重新整理或刪除 Request 後確認暫存清除。
 5. 在 Light/Dark、1280px、620px 與 390px 寬度下確認樹狀列、Logo、Theme 切換、Request toolbar 與 Response 區塊均無重疊或非預期水平捲動。
+6. 選擇已有完成 Batch 的已儲存 HTTP Request，在 Batch 歷程按下載 icon，確認 CSV 能以 Excel 開啟且包含項目結果；按垃圾桶 icon 後確認提示，接受後只清除目前 Request 的完成記錄，其他 Request 與進行中的 Batch 不受影響。
 
 ## 維護規則
 

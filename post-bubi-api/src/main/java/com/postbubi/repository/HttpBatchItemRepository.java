@@ -13,4 +13,6 @@ public interface HttpBatchItemRepository extends JpaRepository<HttpBatchItemEnti
     List<HttpBatchItemEntity> findByBatchRunIdOrderBySequenceNumberAsc(Long batchRunId);
 
     Page<HttpBatchItemEntity> findByBatchRunIdOrderBySequenceNumberAsc(Long batchRunId, Pageable pageable);
+
+    long deleteByBatchRunIdIn(List<Long> batchRunIds);
 }

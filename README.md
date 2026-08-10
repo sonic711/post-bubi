@@ -11,6 +11,10 @@ Post Bubi 是可部署於離線主機、免登入使用的 API 測試工具。�
 - Collection、Folder、Request 保存、排序、複製與 ZIP 匯入匯出
 - Request history、JSON 語法上色、base64 response 欄位解碼
 - HTTP、gRPC unary 與 gRPC BUR 預設 30 秒 timeout、可調整並可取消送出中的請求
+- HTTP 單一 Request Batch 執行，支援並行、回應後間隔與完成期限模式
+- Batch Run 歷程依 Request 保存，可切換、取消、匯出目前 Run 為 CSV，並清除已完成記錄
+- Batch 總筆數沒有產品層固定的 100 筆上限；最大同時執行數仍為 100，實際批次規模受 Java 整數範圍、H2 儲存空間與主機資源限制
+- HTTP Request 轉換為 Bash/zsh 或 PowerShell `curl.exe` 指令
 - 命名 Environment、`{{variable}}` 執行期替換與 ZIP 匯入匯出
 - Light / Dark Theme
 

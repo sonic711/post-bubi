@@ -84,6 +84,36 @@ class HttpBatchIntegrationTest {
     }
 
     @Test
+    void acceptsBatchAboveFormerHundredRequestLimitAndPagesItemResults() throws Exception {
+        AtomicInteger requestCount = new AtomicInteger();
+        try (TargetServer target = TargetServer.start(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 200, "ok");
+        })) {
+            ResponseEntity<String> startResponse = startBatch(target.port(), "CONCURRENCY", 101, 10, null, null);
+            assertThat(startResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(startResponse.getBody()).path("totalCount").asInt()).isEqualTo(101);
+
+            JsonNode completed = awaitTerminal(runId(startResponse));
+            assertThat(completed.path("status").asText()).isEqualTo("COMPLETED");
+            assertThat(completed.path("successCount").asInt()).isEqualTo(101);
+            assertThat(completed.path("failedCount").asInt()).isZero();
+            assertThat(requestCount.get()).isEqualTo(101);
+
+            JsonNode firstPage = getItems(runId(startResponse), 0, 100);
+            assertThat(firstPage.path("totalItems").asInt()).isEqualTo(101);
+            assertThat(firstPage.path("items")).hasSize(100);
+            assertThat(firstPage.path("items").get(0).path("sequenceNumber").asInt()).isEqualTo(1);
+            assertThat(firstPage.path("items").get(99).path("sequenceNumber").asInt()).isEqualTo(100);
+
+            JsonNode secondPage = getItems(runId(startResponse), 1, 100);
+            assertThat(secondPage.path("totalItems").asInt()).isEqualTo(101);
+            assertThat(secondPage.path("items")).hasSize(1);
+            assertThat(secondPage.path("items").get(0).path("sequenceNumber").asInt()).isEqualTo(101);
+        }
+    }
+
+    @Test
     void waitsForResponseThenConfiguredIntervalBeforeNextRequest() throws Exception {
         List<Instant> requestStarts = new CopyOnWriteArrayList<>();
         try (TargetServer target = TargetServer.start(exchange -> {
@@ -133,10 +163,43 @@ class HttpBatchIntegrationTest {
             ResponseEntity<String> cancelResponse = postJson("/api/http/batch-runs/" + runId + "/cancel", "");
             assertThat(cancelResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
 
-            JsonNode completed = awaitTerminal(runId);
+            JsonNode completed = awaitCancelledItem(runId);
             assertThat(completed.path("status").asText()).isEqualTo("CANCELLED");
             assertThat(completed.path("notDispatchedCount").asInt()).isGreaterThanOrEqualTo(2);
             assertThat(completed.path("cancelledCount").asInt()).isGreaterThanOrEqualTo(1);
+        }
+    }
+
+    @Test
+    void exportsBatchCsvAndClearsOnlyCompletedRunsForCurrentRequest() throws Exception {
+        try (TargetServer target = TargetServer.start(exchange -> writeResponse(exchange, 200, "batch ok"))) {
+            ResponseEntity<String> currentRequestRun = startBatch(target.port(), "CONCURRENCY", 2, 1, null, null, 501L);
+            ResponseEntity<String> otherRequestRun = startBatch(target.port(), "CONCURRENCY", 1, 1, null, null, 502L);
+            Long currentRunId = runId(currentRequestRun);
+            awaitTerminal(currentRunId);
+            awaitTerminal(runId(otherRequestRun));
+
+            ResponseEntity<byte[]> exportResponse = restTemplate.getForEntity(
+                    "/api/http/batch-runs/" + currentRunId + "/export.csv", byte[].class);
+            assertThat(exportResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(exportResponse.getHeaders().getContentType().toString()).isEqualTo("text/csv;charset=UTF-8");
+            assertThat(exportResponse.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+                    .contains("post-bubi-batch-" + currentRunId + ".csv");
+            String csv = new String(exportResponse.getBody(), StandardCharsets.UTF_8);
+            assertThat(csv).startsWith("\uFEFFbatchRunId,requestId");
+            assertThat(csv).contains("\"501\"", "\"SUCCESS\"", "\"batch ok\"");
+
+            ResponseEntity<String> clearResponse = restTemplate.exchange(
+                    "/api/http/batch-runs?requestId=501", HttpMethod.DELETE, HttpEntity.EMPTY, String.class);
+            assertThat(clearResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(clearResponse.getBody()).path("deletedCount").asLong()).isEqualTo(1);
+
+            JsonNode currentHistory = objectMapper.readTree(restTemplate.getForEntity(
+                    "/api/http/batch-runs?requestId=501", String.class).getBody());
+            JsonNode otherHistory = objectMapper.readTree(restTemplate.getForEntity(
+                    "/api/http/batch-runs?requestId=502", String.class).getBody());
+            assertThat(currentHistory.path("totalItems").asInt()).isZero();
+            assertThat(otherHistory.path("totalItems").asInt()).isEqualTo(1);
         }
     }
 
@@ -148,12 +211,26 @@ class HttpBatchIntegrationTest {
             Integer intervalMillis,
             Integer deadlineMillis
     ) {
+        return startBatch(targetPort, mode, totalCount, maxConcurrency, intervalMillis, deadlineMillis, null);
+    }
+
+    private ResponseEntity<String> startBatch(
+            int targetPort,
+            String mode,
+            int totalCount,
+            Integer maxConcurrency,
+            Integer intervalMillis,
+            Integer deadlineMillis,
+            Long requestId
+    ) {
         String maxConcurrencyJson = maxConcurrency == null ? "null" : maxConcurrency.toString();
         String intervalJson = intervalMillis == null ? "null" : intervalMillis.toString();
         String deadlineJson = deadlineMillis == null ? "null" : deadlineMillis.toString();
+        String requestIdJson = requestId == null ? "" : "\"requestId\": " + requestId + ",";
         return postJson("/api/http/batch-runs", """
                 {
                   "httpRequest": {
+                    %s
                     "method": "GET",
                     "url": "http://127.0.0.1:%d/batch",
                     "bodyType": "none",
@@ -167,7 +244,7 @@ class HttpBatchIntegrationTest {
                   "intervalMillis": %s,
                   "deadlineMillis": %s
                 }
-                """.formatted(targetPort, mode, totalCount, maxConcurrencyJson, intervalJson, deadlineJson));
+                """.formatted(requestIdJson, targetPort, mode, totalCount, maxConcurrencyJson, intervalJson, deadlineJson));
     }
 
     private Long runId(ResponseEntity<String> startResponse) throws Exception {
@@ -187,8 +264,28 @@ class HttpBatchIntegrationTest {
         throw new AssertionError("HTTP 批次執行未在預期時間內完成");
     }
 
+    private JsonNode awaitCancelledItem(Long runId) throws Exception {
+        Instant deadline = Instant.now().plusSeconds(6);
+        while (Instant.now().isBefore(deadline)) {
+            ResponseEntity<String> response = restTemplate.getForEntity("/api/http/batch-runs/" + runId, String.class);
+            JsonNode body = objectMapper.readTree(response.getBody());
+            if ("CANCELLED".equals(body.path("status").asText()) && body.path("cancelledCount").asInt() >= 1) {
+                return body;
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError("HTTP 批次取消項目未在預期時間內完成");
+    }
+
     private JsonNode getItems(Long runId) throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/http/batch-runs/" + runId + "/items?size=100", String.class);
+        return getItems(runId, 0, 100);
+    }
+
+    private JsonNode getItems(Long runId, int page, int size) throws Exception {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "/api/http/batch-runs/" + runId + "/items?page=" + page + "&size=" + size,
+                String.class
+        );
         return objectMapper.readTree(response.getBody());
     }
 

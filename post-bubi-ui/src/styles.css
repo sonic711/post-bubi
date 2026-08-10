@@ -1849,6 +1849,15 @@ textarea:disabled {
   padding: 0;
 }
 
+.batch-history-actions .danger-icon-button {
+  color: var(--danger);
+}
+
+.batch-history-actions .danger-icon-button:hover:not(:disabled) {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
 .batch-metrics span {
   display: grid;
   align-content: center;
@@ -1876,7 +1885,7 @@ textarea:disabled {
 
 .batch-result-content {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   min-height: 0;
   overflow: auto;
 }
@@ -1884,6 +1893,32 @@ textarea:disabled {
 .batch-items-table {
   min-height: 0;
   overflow: auto;
+}
+
+.batch-items-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  padding: 5px 12px;
+}
+
+.batch-items-pagination > div {
+  display: flex;
+  gap: 4px;
+}
+
+.batch-items-pagination .icon-action-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
 }
 
 .batch-item-row {

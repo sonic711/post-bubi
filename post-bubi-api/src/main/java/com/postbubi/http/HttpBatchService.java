@@ -1,6 +1,7 @@
 package com.postbubi.http;
 
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,6 +34,7 @@ import com.postbubi.repository.HttpBatchItemRepository;
 import com.postbubi.repository.HttpBatchRunRepository;
 import com.postbubi.web.dto.HttpBatchItemPageResponse;
 import com.postbubi.web.dto.HttpBatchItemResponse;
+import com.postbubi.web.dto.HttpBatchClearResponse;
 import com.postbubi.web.dto.HttpBatchRunPageResponse;
 import com.postbubi.web.dto.HttpBatchRunResponse;
 import com.postbubi.web.dto.HttpBatchStartRequest;
@@ -45,7 +48,8 @@ import jakarta.annotation.PreDestroy;
 @Service
 public class HttpBatchService {
 
-    private static final int MAX_TOTAL_COUNT = 100;
+    private static final int MAX_CONCURRENCY = 100;
+    private static final int MAX_PAGE_SIZE = 100;
     private static final int DEFAULT_MAX_CONCURRENCY = 1;
     private static final int MAX_INTERVAL_MILLIS = 300000;
     private static final int MIN_DEADLINE_MILLIS = 1000;
@@ -60,7 +64,7 @@ public class HttpBatchService {
     private final HttpBatchItemRepository batchItemRepository;
     private final ObjectMapper objectMapper;
     private final ExecutorService runExecutor = Executors.newFixedThreadPool(2);
-    private final ExecutorService itemExecutor = Executors.newFixedThreadPool(MAX_TOTAL_COUNT);
+    private final ExecutorService itemExecutor = Executors.newFixedThreadPool(MAX_CONCURRENCY);
     private final ConcurrentMap<Long, ActiveBatch> activeBatches = new ConcurrentHashMap<>();
 
     public HttpBatchService(
@@ -93,7 +97,7 @@ public class HttpBatchService {
         run = batchRunRepository.save(run);
 
         List<HttpBatchItemEntity> items = new ArrayList<>();
-        for (int sequence = 1; sequence <= config.totalCount(); sequence++) {
+        for (int sequence = 1; sequence > 0 && sequence <= config.totalCount(); sequence++) {
             HttpBatchItemEntity item = new HttpBatchItemEntity();
             item.setBatchRunId(run.getId());
             item.setSequenceNumber(sequence);
@@ -115,7 +119,7 @@ public class HttpBatchService {
     }
 
     public HttpBatchRunPageResponse listRuns(Long requestId, int page, int size) {
-        if (page < 0 || size < 1 || size > MAX_TOTAL_COUNT) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw badRequest("HTTP_BATCH_PAGE_INVALID", "批次結果分頁參數錯誤。");
         }
         PageRequest pageable = PageRequest.of(page, size);
@@ -134,7 +138,7 @@ public class HttpBatchService {
 
     public HttpBatchItemPageResponse listItems(Long batchRunId, int page, int size) {
         findRun(batchRunId);
-        if (page < 0 || size < 1 || size > MAX_TOTAL_COUNT) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw badRequest("HTTP_BATCH_PAGE_INVALID", "批次結果分頁參數錯誤。");
         }
         Page<HttpBatchItemEntity> result = batchItemRepository.findByBatchRunIdOrderBySequenceNumberAsc(batchRunId, PageRequest.of(page, size));
@@ -144,6 +148,37 @@ public class HttpBatchService {
                 size,
                 result.getTotalElements()
         );
+    }
+
+    public byte[] exportCsv(Long batchRunId) {
+        HttpBatchRunEntity run = findRun(batchRunId);
+        List<HttpBatchItemEntity> items = batchItemRepository.findByBatchRunIdOrderBySequenceNumberAsc(batchRunId);
+        StringBuilder csv = new StringBuilder("\uFEFF");
+        csv.append("batchRunId,requestId,createdAt,startedAt,completedAt,mode,batchStatus,sequenceNumber,itemStatus,statusCode,reasonPhrase,durationMillis,sizeBytes,errorMessage,responseHeaders,responseBodyPreview\r\n");
+        for (HttpBatchItemEntity item : items) {
+            appendCsvRow(csv,
+                    run.getId(), run.getRequestId(), run.getCreatedAt(), run.getStartedAt(), run.getCompletedAt(),
+                    run.getMode(), run.getStatus(), item.getSequenceNumber(), item.getStatus(), item.getStatusCode(),
+                    item.getReasonPhrase(), item.getDurationMillis(), item.getSizeBytes(), item.getErrorMessage(),
+                    responseHeadersText(item), item.getResponseBodyPreview());
+        }
+        return csv.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Transactional
+    public HttpBatchClearResponse clearCompletedRuns(Long requestId) {
+        if (requestId == null) {
+            throw badRequest("HTTP_BATCH_REQUEST_ID_REQUIRED", "清除批次紀錄需要指定 Request。 ");
+        }
+        List<HttpBatchRunEntity> runs = batchRunRepository
+                .findByRequestIdAndStatusNotOrderByCreatedAtDesc(requestId, HttpBatchRunStatus.RUNNING);
+        if (runs.isEmpty()) {
+            return new HttpBatchClearResponse(0);
+        }
+        List<Long> runIds = runs.stream().map(HttpBatchRunEntity::getId).toList();
+        batchItemRepository.deleteByBatchRunIdIn(runIds);
+        batchRunRepository.deleteAll(runs);
+        return new HttpBatchClearResponse(runs.size());
     }
 
     public HttpBatchRunResponse cancel(Long batchRunId) {
@@ -398,12 +433,12 @@ public class HttpBatchService {
         if (request.mode() == null) {
             throw badRequest("HTTP_BATCH_MODE_REQUIRED", "請選擇批次執行模式。");
         }
-        if (request.totalCount() == null || request.totalCount() < 1 || request.totalCount() > MAX_TOTAL_COUNT) {
-            throw badRequest("HTTP_BATCH_TOTAL_COUNT_INVALID", "批次總筆數必須介於 1 到 100。 ");
+        if (request.totalCount() == null || request.totalCount() < 1) {
+            throw badRequest("HTTP_BATCH_TOTAL_COUNT_INVALID", "批次總筆數必須為正整數。 ");
         }
 
         int maxConcurrency = request.maxConcurrency() == null ? DEFAULT_MAX_CONCURRENCY : request.maxConcurrency();
-        if (maxConcurrency < 1 || maxConcurrency > MAX_TOTAL_COUNT) {
+        if (maxConcurrency < 1 || maxConcurrency > MAX_CONCURRENCY) {
             throw badRequest("HTTP_BATCH_CONCURRENCY_INVALID", "最大併發數必須介於 1 到 100。 ");
         }
         if (request.mode() == HttpBatchMode.RESPONSE_INTERVAL) {
@@ -491,6 +526,25 @@ public class HttpBatchService {
                 item.getDurationMillis(), item.getSizeBytes(), item.getErrorMessage(), readHeaders(item.getResponseHeadersJson()),
                 item.getResponseBodyPreview(), item.getStartedAt(), item.getCompletedAt()
         );
+    }
+
+    private String responseHeadersText(HttpBatchItemEntity item) {
+        return readHeaders(item.getResponseHeadersJson()).stream()
+                .filter(header -> header != null && header.name() != null)
+                .map(header -> header.name() + ": " + (header.value() == null ? "" : header.value()))
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("");
+    }
+
+    private void appendCsvRow(StringBuilder csv, Object... values) {
+        for (int index = 0; index < values.length; index++) {
+            if (index > 0) {
+                csv.append(',');
+            }
+            String value = values[index] == null ? "" : String.valueOf(values[index]);
+            csv.append('"').append(value.replace("\"", "\"\"")).append('"');
+        }
+        csv.append("\r\n");
     }
 
     private List<HttpNameValue> readHeaders(String json) {
