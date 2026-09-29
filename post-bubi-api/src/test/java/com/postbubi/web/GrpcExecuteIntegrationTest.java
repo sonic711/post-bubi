@@ -35,6 +35,8 @@ import org.springframework.util.MultiValueMap;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -146,6 +148,70 @@ class GrpcExecuteIntegrationTest {
     }
 
     @Test
+    void encodesPayloadDataAsUtf8Base64OnlyWhenEnabled() throws Exception {
+        Descriptors.FileDescriptor fileDescriptor = echoFileDescriptor();
+        Descriptors.MethodDescriptor echoMethod = fileDescriptor.findServiceByName("EchoService").findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0)
+                .addService(echoService(fileDescriptor, echoMethod))
+                .addService(ProtoReflectionService.newInstance())
+                .build()
+                .start();
+
+        String plainText = "繁體測試";
+        String encoded = Base64.getEncoder().encodeToString(plainText.getBytes(StandardCharsets.UTF_8));
+        ResponseEntity<String> encodedResponse = postJson("/api/grpc/execute", """
+                {
+                  "host": "127.0.0.1",
+                  "port": %d,
+                  "plaintext": true,
+                  "serviceName": "%s",
+                  "methodName": "%s",
+                  "body": "{\\"payload\\":{\\"data\\":\\"%s\\"}}",
+                  "encodePayloadDataBase64": true,
+                  "timeoutMillis": 30000
+                }
+                """.formatted(grpcServer.getPort(), SERVICE_NAME, METHOD_NAME, plainText));
+        ResponseEntity<String> plainResponse = postJson("/api/grpc/execute", """
+                {
+                  "host": "127.0.0.1",
+                  "port": %d,
+                  "plaintext": true,
+                  "serviceName": "%s",
+                  "methodName": "%s",
+                  "body": "{\\"payload\\":{\\"data\\":\\"%s\\"}}",
+                  "encodePayloadDataBase64": false,
+                  "timeoutMillis": 30000
+                }
+                """.formatted(grpcServer.getPort(), SERVICE_NAME, METHOD_NAME, plainText));
+
+        assertThat(encodedResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(encodedResponse.getBody()).path("body").asText()).contains("echo:" + encoded);
+        assertThat(plainResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(plainResponse.getBody()).path("body").asText()).contains("echo:" + plainText);
+    }
+
+    @Test
+    void rejectsBase64EncodingWhenPayloadDataIsMissingOrNotText() throws Exception {
+        ResponseEntity<String> response = postJson("/api/grpc/execute", """
+                {
+                  "host": "127.0.0.1",
+                  "port": 50051,
+                  "plaintext": true,
+                  "serviceName": "%s",
+                  "methodName": "%s",
+                  "body": "{\\"payload\\":{\\"data\\":123}}",
+                  "encodePayloadDataBase64": true,
+                  "timeoutMillis": 30000
+                }
+                """.formatted(SERVICE_NAME, METHOD_NAME));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode error = objectMapper.readTree(response.getBody());
+        assertThat(error.path("code").asText()).isEqualTo("GRPC_PAYLOAD_DATA_BASE64_INVALID");
+        assertThat(error.path("message").asText()).contains("payload.data");
+    }
+
+    @Test
     void executesUnaryGrpcMethodThroughUploadedProtoWithoutServerReflection() throws Exception {
         Descriptors.FileDescriptor fileDescriptor = echoFileDescriptor();
         Descriptors.ServiceDescriptor serviceDescriptor = fileDescriptor.findServiceByName("EchoService");
@@ -249,10 +315,16 @@ class GrpcExecuteIntegrationTest {
                 .addMethod(grpcMethod)
                 .build();
         Descriptors.FieldDescriptor requestText = echoMethod.getInputType().findFieldByName("text");
+        Descriptors.FieldDescriptor requestPayload = echoMethod.getInputType().findFieldByName("payload");
+        Descriptors.FieldDescriptor payloadData = requestPayload.getMessageType().findFieldByName("data");
         Descriptors.FieldDescriptor responseText = echoMethod.getOutputType().findFieldByName("text");
         return ServerServiceDefinition.builder(grpcService)
                 .addMethod(grpcMethod, ServerCalls.asyncUnaryCall((request, observer) -> {
                     String text = String.valueOf(request.getField(requestText));
+                    if (text.isEmpty() && request.hasField(requestPayload)) {
+                        DynamicMessage payload = (DynamicMessage) request.getField(requestPayload);
+                        text = String.valueOf(payload.getField(payloadData));
+                    }
                     DynamicMessage response = DynamicMessage.newBuilder(echoMethod.getOutputType())
                             .setField(responseText, "echo:" + text)
                             .build();
@@ -284,12 +356,26 @@ class GrpcExecuteIntegrationTest {
     }
 
     private Descriptors.FileDescriptor echoFileDescriptor() throws Descriptors.DescriptorValidationException {
+        DescriptorProtos.DescriptorProto payload = DescriptorProtos.DescriptorProto.newBuilder()
+                .setName("Payload")
+                .addField(DescriptorProtos.FieldDescriptorProto.newBuilder()
+                        .setName("data")
+                        .setNumber(1)
+                        .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING)
+                        .build())
+                .build();
         DescriptorProtos.DescriptorProto echoRequest = DescriptorProtos.DescriptorProto.newBuilder()
                 .setName("EchoRequest")
                 .addField(DescriptorProtos.FieldDescriptorProto.newBuilder()
                         .setName("text")
                         .setNumber(1)
                         .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING)
+                        .build())
+                .addField(DescriptorProtos.FieldDescriptorProto.newBuilder()
+                        .setName("payload")
+                        .setNumber(2)
+                        .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_MESSAGE)
+                        .setTypeName(".demo.Payload")
                         .build())
                 .build();
         DescriptorProtos.DescriptorProto echoResponse = DescriptorProtos.DescriptorProto.newBuilder()
@@ -313,6 +399,7 @@ class GrpcExecuteIntegrationTest {
                 .setName("demo/echo.proto")
                 .setSyntax("proto3")
                 .setPackage("demo")
+                .addMessageType(payload)
                 .addMessageType(echoRequest)
                 .addMessageType(echoResponse)
                 .addService(service)

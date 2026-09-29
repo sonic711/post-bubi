@@ -187,7 +187,7 @@ class HttpBatchIntegrationTest {
                     .contains("post-bubi-batch-" + currentRunId + ".csv");
             String csv = new String(exportResponse.getBody(), StandardCharsets.UTF_8);
             assertThat(csv).startsWith("\uFEFFbatchRunId,requestId");
-            assertThat(csv).contains("\"501\"", "\"SUCCESS\"", "\"batch ok\"");
+            assertThat(csv).contains("itemStartedAt,itemCompletedAt", "+08:00", "\"501\"", "\"SUCCESS\"", "\"batch ok\"");
 
             ResponseEntity<String> clearResponse = restTemplate.exchange(
                     "/api/http/batch-runs?requestId=501", HttpMethod.DELETE, HttpEntity.EMPTY, String.class);

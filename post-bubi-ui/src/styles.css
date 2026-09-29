@@ -1448,6 +1448,41 @@ textarea:disabled {
   vertical-align: 1px;
 }
 
+.json-base64-send-field {
+  position: relative;
+  background: var(--warning-soft);
+  box-decoration-break: clone;
+  outline: 1px solid var(--warning);
+  outline-offset: 1px;
+}
+
+.json-base64-send-field .json-string,
+.json-base64-send-field .json-key,
+.json-base64-send-field .json-number,
+.json-base64-send-field .json-boolean,
+.json-base64-send-field .json-null {
+  color: var(--warning);
+}
+
+.json-base64-send-badge {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 2px);
+  z-index: 2;
+  height: 14px;
+  border: 1px solid var(--warning);
+  border-radius: 3px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-family: "Inter", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 12px;
+  padding: 0 3px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .body-toolbar select,
 .settings-pane input[type="number"],
 .key-value-row input:not([type="checkbox"]),

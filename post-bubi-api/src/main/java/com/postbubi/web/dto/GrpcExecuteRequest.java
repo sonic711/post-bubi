@@ -13,6 +13,7 @@ public record GrpcExecuteRequest(
         String serviceName,
         String methodName,
         String body,
+        Boolean encodePayloadDataBase64,
         Integer timeoutMillis
 ) {
 }

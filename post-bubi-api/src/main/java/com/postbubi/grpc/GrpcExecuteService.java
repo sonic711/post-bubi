@@ -2,10 +2,14 @@ package com.postbubi.grpc;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.util.JsonFormat;
 import io.grpc.CallOptions;
@@ -37,13 +41,16 @@ public class GrpcExecuteService {
 
     private final GrpcReflectionDescriptorResolver descriptorResolver;
     private final GrpcProtoDescriptorResolver protoDescriptorResolver;
+    private final ObjectMapper objectMapper;
 
     public GrpcExecuteService(
             GrpcReflectionDescriptorResolver descriptorResolver,
-            GrpcProtoDescriptorResolver protoDescriptorResolver
+            GrpcProtoDescriptorResolver protoDescriptorResolver,
+            ObjectMapper objectMapper
     ) {
         this.descriptorResolver = descriptorResolver;
         this.protoDescriptorResolver = protoDescriptorResolver;
+        this.objectMapper = objectMapper;
     }
 
     public GrpcExecuteResponse execute(GrpcExecuteRequest request, ExecutionHandle execution) {
@@ -53,6 +60,7 @@ public class GrpcExecuteService {
         String serviceName = requiredText(request.serviceName(), "GRPC_SERVICE_REQUIRED", "Service name 不可空白。");
         String methodName = requiredText(request.methodName(), "GRPC_METHOD_REQUIRED", "Method name 不可空白。");
 
+        String body = prepareRequestBody(request);
         ManagedChannel channel = createChannel(host, port, request);
         long startNanos = System.nanoTime();
         try {
@@ -61,7 +69,7 @@ public class GrpcExecuteService {
                 return cancelledResponse(startNanos);
             }
             var grpcMethod = resolveMethod(channel, request, serviceName, methodName);
-            DynamicMessage requestMessage = toDynamicMessage(grpcMethod.getInputType(), request.body());
+            DynamicMessage requestMessage = toDynamicMessage(grpcMethod.getInputType(), body);
             MethodDescriptor<DynamicMessage, DynamicMessage> methodDescriptor = MethodDescriptor
                     .<DynamicMessage, DynamicMessage>newBuilder()
                     .setType(MethodDescriptor.MethodType.UNARY)
@@ -179,6 +187,37 @@ public class GrpcExecuteService {
                     "GRPC_REQUEST_JSON_INVALID",
                     "gRPC JSON request body 格式錯誤。",
                     java.util.Map.of("reason", exception.getMessage())
+            );
+        }
+    }
+
+    private String prepareRequestBody(GrpcExecuteRequest request) {
+        String body = request.body() == null || request.body().isBlank() ? "{}" : request.body();
+        if (!Boolean.TRUE.equals(request.encodePayloadDataBase64())) {
+            return body;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode payload = root == null ? null : root.path("payload");
+            JsonNode data = payload == null ? null : payload.path("data");
+            if (root == null || !root.isObject() || !payload.isObject() || !data.isTextual()) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "GRPC_PAYLOAD_DATA_BASE64_INVALID",
+                        "啟用 payload.data Base64 編碼時，Body 必須包含字串欄位 payload.data。"
+                );
+            }
+            ((ObjectNode) payload).put("data", Base64.getEncoder().encodeToString(data.textValue().getBytes(StandardCharsets.UTF_8)));
+            return objectMapper.writeValueAsString(root);
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "GRPC_REQUEST_JSON_INVALID",
+                    "gRPC JSON request body 格式錯誤。",
+                    java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
             );
         }
     }

@@ -1,6 +1,8 @@
 package com.postbubi.http;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +59,9 @@ public class HttpBatchService {
     private static final int DEFAULT_HTTP_TIMEOUT_MILLIS = 30000;
     private static final int RESPONSE_BODY_PREVIEW_LIMIT = 4000;
     private static final int ERROR_MESSAGE_LIMIT = 2000;
+    private static final DateTimeFormatter CSV_TIMESTAMP_FORMAT = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd HH:mm:ss.SSS XXX")
+            .withZone(ZoneId.of("Asia/Taipei"));
 
     private final HttpExecuteService httpExecuteService;
     private final ExecutionCancellationService executionCancellationService;
@@ -154,11 +159,11 @@ public class HttpBatchService {
         HttpBatchRunEntity run = findRun(batchRunId);
         List<HttpBatchItemEntity> items = batchItemRepository.findByBatchRunIdOrderBySequenceNumberAsc(batchRunId);
         StringBuilder csv = new StringBuilder("\uFEFF");
-        csv.append("batchRunId,requestId,createdAt,startedAt,completedAt,mode,batchStatus,sequenceNumber,itemStatus,statusCode,reasonPhrase,durationMillis,sizeBytes,errorMessage,responseHeaders,responseBodyPreview\r\n");
+        csv.append("batchRunId,requestId,createdAt,startedAt,completedAt,mode,batchStatus,sequenceNumber,itemStatus,itemStartedAt,itemCompletedAt,statusCode,reasonPhrase,durationMillis,sizeBytes,errorMessage,responseHeaders,responseBodyPreview\r\n");
         for (HttpBatchItemEntity item : items) {
             appendCsvRow(csv,
-                    run.getId(), run.getRequestId(), run.getCreatedAt(), run.getStartedAt(), run.getCompletedAt(),
-                    run.getMode(), run.getStatus(), item.getSequenceNumber(), item.getStatus(), item.getStatusCode(),
+                    run.getId(), run.getRequestId(), formatTimestamp(run.getCreatedAt()), formatTimestamp(run.getStartedAt()), formatTimestamp(run.getCompletedAt()),
+                    run.getMode(), run.getStatus(), item.getSequenceNumber(), item.getStatus(), formatTimestamp(item.getStartedAt()), formatTimestamp(item.getCompletedAt()), item.getStatusCode(),
                     item.getReasonPhrase(), item.getDurationMillis(), item.getSizeBytes(), item.getErrorMessage(),
                     responseHeadersText(item), item.getResponseBodyPreview());
         }
@@ -545,6 +550,10 @@ public class HttpBatchService {
             csv.append('"').append(value.replace("\"", "\"\"")).append('"');
         }
         csv.append("\r\n");
+    }
+
+    private String formatTimestamp(Instant timestamp) {
+        return timestamp == null ? null : CSV_TIMESTAMP_FORMAT.format(timestamp);
     }
 
     private List<HttpNameValue> readHeaders(String json) {

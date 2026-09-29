@@ -65,6 +65,7 @@ public class GrpcBurExecuteService {
                 defaultText(request.serviceName(), DEFAULT_SERVICE_NAME),
                 defaultText(request.methodName(), DEFAULT_METHOD_NAME),
                 requestBody(composedPayload.payload()),
+                false,
                 normalizeTimeout(request.timeoutMillis())
         );
         GrpcExecuteResponse grpcResponse = grpcExecuteService.execute(grpcRequest, execution);

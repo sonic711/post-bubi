@@ -346,10 +346,26 @@
         <template v-else-if="requestType === 'GRPC'">
           <input v-model="grpcTarget" class="target-input" aria-label="gRPC target" placeholder="localhost:50051" />
           <input v-model="grpcFullMethod" class="target-input" aria-label="gRPC method" placeholder="package.Service/Method" />
+          <button
+            class="icon-action-button toolbar-batch-button"
+            type="button"
+            title="gRPC 批次執行"
+            aria-label="gRPC 批次執行"
+            :disabled="sending"
+            @click="openBatchRunner"
+          ><Timer :size="18" aria-hidden="true" /></button>
         </template>
         <template v-else>
           <input v-model="grpcBurTarget" class="target-input" aria-label="gRPC BUR target" placeholder="10.1.11.34:50003" />
           <input class="target-input fixed-method-input" aria-label="gRPC BUR method" value="Service/rpcPeriphery" disabled />
+          <button
+            class="icon-action-button toolbar-batch-button"
+            type="button"
+            title="gRPC BUR 批次執行"
+            aria-label="gRPC BUR 批次執行"
+            :disabled="sending"
+            @click="openBatchRunner"
+          ><Timer :size="18" aria-hidden="true" /></button>
         </template>
         <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
           <Save class="button-icon" :size="16" aria-hidden="true" />
@@ -613,6 +629,10 @@
             <input v-model="grpcIgnoreTlsVerification" type="checkbox" />
             Ignore TLS certificate verification
           </label>
+          <label v-if="requestType === 'GRPC'" class="check-line">
+            <input v-model="grpcEncodePayloadDataBase64" type="checkbox" />
+            將 payload.data 編碼為 Base64 後送出
+          </label>
           <label v-if="requestType === 'GRPC_BUR'" class="check-line">
             <input v-model="grpcBurPlaintext" type="checkbox" />
             Plaintext
@@ -681,7 +701,7 @@
         <div v-else-if="activeResponseTab === 'batch'" class="batch-results">
           <div v-if="!batchRun" class="batch-empty-state">
             <Timer :size="22" aria-hidden="true" />
-            <span>尚無 HTTP 批次執行結果</span>
+            <span>尚無{{ batchProtocolLabel }}批次執行結果</span>
           </div>
           <template v-else>
             <header class="batch-results-head">
@@ -760,11 +780,13 @@
               <section v-if="selectedBatchItem" class="batch-item-detail" aria-label="批次項目詳細結果">
                 <div class="batch-item-detail-head">
                   <strong>#{{ selectedBatchItem.sequenceNumber }} {{ selectedBatchItem.statusCode || selectedBatchItem.status }}</strong>
-                  <span>{{ selectedBatchItem.reasonPhrase || selectedBatchItem.errorMessage || '' }}</span>
+                  <span>{{ selectedBatchItem.reasonPhrase || selectedBatchItem.statusDescription || selectedBatchItem.errorMessage || '' }}</span>
+                  <span>發送：{{ formatDateTime(selectedBatchItem.startedAt) || '-' }}　完成：{{ formatDateTime(selectedBatchItem.completedAt) || '-' }}</span>
                 </div>
                 <div class="batch-item-detail-body">
-                  <pre>{{ batchItemHeaders(selectedBatchItem) }}</pre>
+                  <pre>{{ batchItemMetadata(selectedBatchItem) }}</pre>
                   <pre>{{ selectedBatchItem.responseBodyPreview || selectedBatchItem.errorMessage || '尚無 Response Body' }}</pre>
+                  <pre v-if="selectedBatchItem.decodedPayloads?.length">{{ batchItemDecodedPayloads(selectedBatchItem) }}</pre>
                 </div>
               </section>
             </div>
@@ -848,12 +870,12 @@
         <pre v-else>{{ responseInfo }}</pre>
       </section>
     </section>
-    <div v-if="showBatchRunner" class="modal-backdrop" @click.self="closeBatchRunner">
+    <div v-if="showBatchRunner" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeBatchRunner)">
       <section class="batch-runner-modal" role="dialog" aria-modal="true" aria-labelledby="batch-runner-title">
         <header class="environment-modal-head">
           <div>
-            <h2 id="batch-runner-title">HTTP 批次執行</h2>
-            <p>{{ method }} {{ url }}</p>
+            <h2 id="batch-runner-title">{{ batchProtocolLabel }}批次執行</h2>
+            <p>{{ batchRequestSummary }}</p>
           </div>
           <button class="icon-action-button" type="button" title="關閉" aria-label="關閉" @click="closeBatchRunner"><X :size="18" aria-hidden="true" /></button>
         </header>
@@ -890,7 +912,7 @@
         </footer>
       </section>
     </div>
-    <div v-if="showCurlDialog" class="modal-backdrop" @click.self="closeCurlDialog">
+    <div v-if="showCurlDialog" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeCurlDialog)">
       <section class="curl-modal" role="dialog" aria-modal="true" aria-labelledby="curl-dialog-title">
         <header class="environment-modal-head">
           <div>
@@ -919,7 +941,7 @@
         </footer>
       </section>
     </div>
-    <div v-if="showEnvironmentManager" class="modal-backdrop" @click.self="closeEnvironmentManager">
+    <div v-if="showEnvironmentManager" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeEnvironmentManager)">
       <section class="environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-modal-title">
         <header class="environment-modal-head">
           <div>
@@ -957,7 +979,7 @@
         </footer>
       </section>
     </div>
-    <div v-if="showCollectionRename" class="modal-backdrop" @click.self="closeCollectionRename">
+    <div v-if="showCollectionRename" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeCollectionRename)">
       <section class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="collection-rename-title">
         <header class="environment-modal-head">
           <div>
@@ -978,7 +1000,7 @@
         </footer>
       </section>
     </div>
-    <div v-if="showEnvironmentCopy" class="modal-backdrop" @click.self="closeEnvironmentCopy">
+    <div v-if="showEnvironmentCopy" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeEnvironmentCopy)">
       <section class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="environment-copy-title">
         <header class="environment-modal-head">
           <div>
@@ -1118,6 +1140,7 @@ const grpcMetadataText = ref('')
 const grpcBodyText = ref('{}')
 const grpcPlaintext = ref(true)
 const grpcIgnoreTlsVerification = ref(false)
+const grpcEncodePayloadDataBase64 = ref(false)
 const grpcBurHost = ref('10.1.11.34')
 const grpcBurPort = ref(50003)
 const grpcBurMetadataText = ref('')
@@ -1179,6 +1202,7 @@ const sidebarResizeStart = ref(null)
 let protoPanelPreferenceLoaded = false
 let batchPollTimer = null
 let batchRunHistoryLoadSequence = 0
+let modalBackdropPointerDown = false
 
 const grpcTarget = computed({
   get() {
@@ -1228,9 +1252,9 @@ const activeBodyText = computed({
 
 const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || bodyType.value === 'json')
 
-const highlightedBodyText = computed(() => highlightJson(activeBodyText.value))
+const highlightedBodyText = computed(() => highlightRequestBody())
 
-const responseTabs = computed(() => requestType.value === 'HTTP'
+const responseTabs = computed(() => supportsBatch()
   ? [...baseResponseTabs.slice(0, 2), { key: 'batch', label: 'Batch' }, ...baseResponseTabs.slice(2)]
   : baseResponseTabs)
 
@@ -1285,7 +1309,19 @@ const batchItemsPageRange = computed(() => {
   return `${start}-${end} / ${batchItemsTotal.value} 筆`
 })
 
-const displayingBatch = computed(() => requestType.value === 'HTTP' && activeResponseTab.value === 'batch')
+const displayingBatch = computed(() => supportsBatch() && activeResponseTab.value === 'batch')
+
+const batchProtocolLabel = computed(() => ({
+  HTTP: 'HTTP ',
+  GRPC: 'gRPC ',
+  GRPC_BUR: 'gRPC BUR ',
+}[requestType.value] || ''))
+
+const batchRequestSummary = computed(() => {
+  if (requestType.value === 'HTTP') return `${method.value} ${url.value}`
+  if (requestType.value === 'GRPC') return `${grpcTarget.value} · ${grpcFullMethod.value || '尚未指定 Method'}`
+  return `${grpcBurTarget.value} · Service/rpcPeriphery`
+})
 
 const curlPreview = computed(() => {
   try {
@@ -1798,6 +1834,18 @@ function highlightJson(value) {
   return highlighted || '<span class="json-placeholder">{}</span>'
 }
 
+function highlightRequestBody() {
+  const body = activeBodyText.value
+  if (requestType.value !== 'GRPC' || !grpcEncodePayloadDataBase64.value) {
+    return highlightJson(body)
+  }
+  const parsed = tryJsonParse(body)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return highlightJson(body)
+  }
+  return renderJsonValue(parsed, '$', 0, new Map(), new Set(['$.payload.data']))
+}
+
 function highlightResponseBody() {
   if (errorText.value || !response.value || !rawResponseBody.value) {
     return highlightJson(responseBody.value)
@@ -1809,10 +1857,13 @@ function highlightResponseBody() {
   return renderJsonValue(parsed, '$', 0, decodedResponseMap.value)
 }
 
-function renderJsonValue(value, path, depth, decodedMap) {
+function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set()) {
   const decoded = decodedMap.get(path)
   if (decoded) {
     return renderDecodedJsonValue(decoded, depth)
+  }
+  if (encodedPaths.has(path)) {
+    return renderPayloadBase64JsonValue(value)
   }
   if (Array.isArray(value)) {
     if (!value.length) {
@@ -1820,7 +1871,7 @@ function renderJsonValue(value, path, depth, decodedMap) {
     }
     const childDepth = depth + 1
     const rows = value.map((item, index) => {
-      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap)}`
+      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap, encodedPaths)}`
     })
     return `[\n${rows.join(',\n')}\n${indent(depth)}]`
   }
@@ -1832,7 +1883,7 @@ function renderJsonValue(value, path, depth, decodedMap) {
     const childDepth = depth + 1
     const rows = entries.map(([key, item]) => {
       const keyPath = `${path}.${key}`
-      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap)}`
+      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap, encodedPaths)}`
     })
     return `{\n${rows.join(',\n')}\n${indent(depth)}}`
   }
@@ -1845,6 +1896,10 @@ function renderDecodedJsonValue(decoded, depth) {
     ? renderJsonValue(parsed, decoded.matchPath, depth, new Map())
     : renderJsonPrimitive(decoded.decoded)
   return `<span class="json-decoded-field" title="原始 base64: ${escapeAttribute(decoded.original || '')}">${rendered}</span><span class="json-decoded-badge">decoded</span>`
+}
+
+function renderPayloadBase64JsonValue(value) {
+  return `<span class="json-base64-send-field" title="送出時會將此值以 UTF-8 編碼為 Base64">${renderJsonPrimitive(value)}<span class="json-base64-send-badge">BASE64</span></span>`
 }
 
 function renderJsonPrimitive(value) {
@@ -2685,7 +2740,7 @@ async function selectRequest(request) {
   const restoredResponse = restoreCachedResponse(request.id)
   markEditorSaved()
   if (wasDisplayingBatch) {
-    if (requestType.value === 'HTTP') {
+    if (supportsBatch()) {
       activeResponseTab.value = 'batch'
       await loadBatchRunHistory()
     } else {
@@ -2814,11 +2869,23 @@ async function sendCurrentRequest() {
 }
 
 function openBatchRunner() {
-  if (requestType.value !== 'HTTP') {
+  if (!supportsBatch()) {
     return
   }
   batchStartError.value = ''
   showBatchRunner.value = true
+}
+
+function trackModalBackdropPointerDown(event) {
+  modalBackdropPointerDown = event.target === event.currentTarget
+}
+
+function dismissModalOnBackdropPointerUp(event, closeModal) {
+  const startedOnBackdrop = modalBackdropPointerDown
+  modalBackdropPointerDown = false
+  if (startedOnBackdrop && event.target === event.currentTarget) {
+    closeModal()
+  }
 }
 
 function openCurlDialog() {
@@ -2864,7 +2931,7 @@ async function copyCurlCommand() {
 }
 
 function handleRequestTypeChange() {
-  if (requestType.value !== 'HTTP' && activeResponseTab.value === 'batch') {
+  if (!supportsBatch() && activeResponseTab.value === 'batch') {
     activeResponseTab.value = 'body'
   }
 }
@@ -2889,11 +2956,12 @@ async function startBatchRun() {
   batchStartError.value = ''
   const savedRequestId = selectedRequestId.value
   try {
-    const payload = resolveExecutionPayload(executePayload())
-    const started = await apiJson('/api/http/batch-runs', {
+    const payload = batchExecutePayload()
+    const started = await apiJson(batchApiBase(), {
       method: 'POST',
       body: JSON.stringify({
-        httpRequest: payload,
+        requestId: savedRequestId,
+        ...batchRequestProperty(payload),
         mode: batchMode.value,
         totalCount: batchTotalCount.value,
         maxConcurrency: batchMode.value === 'RESPONSE_INTERVAL' ? null : batchMaxConcurrency.value,
@@ -2919,7 +2987,7 @@ async function startBatchRun() {
     if (savedRequestId) {
       await loadBatchRunHistory({ preferredRunId: started.id, force: true })
     }
-    workspaceStatus.value = `HTTP 批次已開始：${started.totalCount} 筆`
+    workspaceStatus.value = `${batchProtocolLabel.value}批次已開始：${started.totalCount} 筆`
     startBatchPolling()
   } catch (error) {
     batchStartError.value = readableError(error)
@@ -2948,8 +3016,8 @@ async function refreshBatchRun() {
   batchPolling.value = true
   try {
     const [run, page] = await Promise.all([
-      apiJson(`/api/http/batch-runs/${batchRun.value.id}`),
-      apiJson(`/api/http/batch-runs/${batchRun.value.id}/items?page=${batchItemsPage.value}&size=${BATCH_ITEM_PAGE_SIZE}`),
+      apiJson(`${batchApiBase()}/${batchRun.value.id}`),
+      apiJson(`${batchApiBase()}/${batchRun.value.id}/items?page=${batchItemsPage.value}&size=${BATCH_ITEM_PAGE_SIZE}`),
     ])
     batchRun.value = run
     replaceBatchRunHistory(run)
@@ -2970,14 +3038,14 @@ async function refreshBatchRun() {
 }
 
 async function loadBatchRunHistory(options = {}) {
-  if (requestType.value !== 'HTTP' || !selectedRequestId.value || (batchRunHistoryLoading.value && !options.force)) {
+  if (!supportsBatch() || !selectedRequestId.value || (batchRunHistoryLoading.value && !options.force)) {
     return
   }
   const requestId = selectedRequestId.value
   const loadSequence = ++batchRunHistoryLoadSequence
   batchRunHistoryLoading.value = true
   try {
-    const page = await apiJson(`/api/http/batch-runs?requestId=${encodeURIComponent(requestId)}&page=${batchRunHistoryPage.value}&size=${BATCH_HISTORY_PAGE_SIZE}`)
+    const page = await apiJson(`${batchApiBase()}?requestId=${encodeURIComponent(requestId)}&page=${batchRunHistoryPage.value}&size=${BATCH_HISTORY_PAGE_SIZE}`)
     if (loadSequence !== batchRunHistoryLoadSequence || selectedRequestId.value !== requestId) {
       return
     }
@@ -3024,12 +3092,12 @@ async function exportBatchRunCsv() {
   }
   batchExporting.value = true
   try {
-    const response = await fetch(`/api/http/batch-runs/${batchRun.value.id}/export.csv`)
+    const response = await fetch(`${batchApiBase()}/${batchRun.value.id}/export.csv`)
     if (!response.ok) {
       const payload = await response.json()
       throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
     }
-    downloadBlob(await response.blob(), `post-bubi-batch-${batchRun.value.id}.csv`)
+    downloadBlob(await response.blob(), `post-bubi-${requestType.value.toLowerCase().replace('_', '-')}-batch-${batchRun.value.id}.csv`)
     workspaceStatus.value = `Batch #${batchRun.value.id} 已匯出 CSV`
   } catch (error) {
     workspaceStatus.value = readableError(error)
@@ -3048,7 +3116,7 @@ async function clearCompletedBatchRuns() {
   }
   batchClearing.value = true
   try {
-    const result = await apiJson(`/api/http/batch-runs?requestId=${encodeURIComponent(selectedRequestId.value)}`, { method: 'DELETE' })
+    const result = await apiJson(`${batchApiBase()}?requestId=${encodeURIComponent(selectedRequestId.value)}`, { method: 'DELETE' })
     batchRunHistoryPage.value = 0
     await loadBatchRunHistory({ preferredRunId: batchIsRunning.value ? batchRun.value?.id : null })
     workspaceStatus.value = result.deletedCount ? `已清除 ${result.deletedCount} 筆 Batch 記錄` : '沒有可清除的已完成 Batch 記錄'
@@ -3128,8 +3196,8 @@ async function cancelBatchRun() {
   }
   batchCancelling.value = true
   try {
-    batchRun.value = await apiJson(`/api/http/batch-runs/${batchRun.value.id}/cancel`, { method: 'POST' })
-    workspaceStatus.value = '已要求取消 HTTP 批次'
+    batchRun.value = await apiJson(`${batchApiBase()}/${batchRun.value.id}/cancel`, { method: 'POST' })
+    workspaceStatus.value = `已要求取消${batchProtocolLabel.value}批次`
     await refreshBatchRun()
   } catch (error) {
     workspaceStatus.value = readableError(error)
@@ -3154,9 +3222,16 @@ function batchStatusClass(status) {
   return `batch-status-${String(status || '').toLowerCase()}`
 }
 
-function batchItemHeaders(item) {
-  const headers = item?.responseHeaders || []
-  return headers.length ? headers.map((header) => `${header.name}: ${header.value}`).join('\n') : '尚無 Response Headers'
+function batchItemMetadata(item) {
+  const metadata = item?.responseMetadata || item?.responseHeaders || []
+  return metadata.length ? metadata.map((header) => `${header.name}: ${header.value}`).join('\n') : '尚無 Response Metadata'
+}
+
+function batchItemDecodedPayloads(item) {
+  return item.decodedPayloads.map((payload) => {
+    const headline = `${payload.key || 'payload'} · ${payload.charsets || '-'} / ${payload.format || '-'} / ${payload.length ?? 0} bytes`
+    return `${headline}\n${payload.error || payload.text || ''}`
+  }).join('\n\n')
 }
 
 function formatMillis(value) {
@@ -3443,6 +3518,7 @@ function editorPayload() {
     grpcBody: grpcBodyText.value,
     grpcPlaintext: grpcPlaintext.value,
     grpcIgnoreTlsVerification: grpcIgnoreTlsVerification.value,
+    grpcEncodePayloadDataBase64: grpcEncodePayloadDataBase64.value,
     grpcBurHost: grpcBurHost.value,
     grpcBurPort: grpcBurPort.value,
     grpcBurMetadataText: grpcBurMetadataText.value,
@@ -3465,6 +3541,7 @@ function grpcExecutePayload() {
     port: grpcPort.value,
     plaintext: grpcPlaintext.value,
     ignoreTlsVerification: grpcIgnoreTlsVerification.value,
+    encodePayloadDataBase64: grpcEncodePayloadDataBase64.value,
     metadata: parseNameValueLines(grpcMetadataText.value),
     protoId: grpcProtoId.value || null,
     serviceName: grpcServiceName.value,
@@ -3494,6 +3571,28 @@ function grpcBurExecutePayload() {
       padTextAreaRight: grpcBurPadTextAreaRight.value,
     },
   }
+}
+
+function supportsBatch() {
+  return ['HTTP', 'GRPC', 'GRPC_BUR'].includes(requestType.value)
+}
+
+function batchApiBase() {
+  return requestType.value === 'GRPC_BUR' ? '/api/grpc-bur/batch-runs'
+    : requestType.value === 'GRPC' ? '/api/grpc/batch-runs'
+      : '/api/http/batch-runs'
+}
+
+function batchExecutePayload() {
+  if (requestType.value === 'GRPC_BUR') return resolveExecutionPayload(grpcBurExecutePayload())
+  if (requestType.value === 'GRPC') return resolveExecutionPayload(grpcExecutePayload())
+  return resolveExecutionPayload(executePayload())
+}
+
+function batchRequestProperty(payload) {
+  if (requestType.value === 'GRPC_BUR') return { grpcBurRequest: payload }
+  if (requestType.value === 'GRPC') return { grpcRequest: payload }
+  return { httpRequest: payload }
 }
 
 function executePayload() {
@@ -3586,6 +3685,7 @@ function loadPayloadToEditor(payload) {
   grpcBodyText.value = payload.grpcBody || '{}'
   grpcPlaintext.value = payload.grpcPlaintext !== false
   grpcIgnoreTlsVerification.value = payload.grpcIgnoreTlsVerification === true
+  grpcEncodePayloadDataBase64.value = payload.grpcEncodePayloadDataBase64 === true
   grpcBurHost.value = payload.grpcBurHost || '10.1.11.34'
   grpcBurPort.value = payload.grpcBurPort || 50003
   grpcBurMetadataText.value = payload.grpcBurMetadataText || ''
@@ -4021,10 +4121,14 @@ function formatDateTime(value) {
     return ''
   }
   return new Date(value).toLocaleString('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
   })
 }
 
