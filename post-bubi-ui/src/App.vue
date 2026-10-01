@@ -420,7 +420,7 @@
           </label>
           <label>
             Port
-            <input v-model.number="grpcPort" type="number" min="1" max="65535" />
+            <input v-model="grpcPort" placeholder="50051 或 {{grpcPort}}" />
           </label>
           <label>
             Service
@@ -439,7 +439,7 @@
           </label>
           <label>
             Port
-            <input v-model.number="grpcBurPort" type="number" min="1" max="65535" />
+            <input v-model="grpcBurPort" placeholder="50003 或 {{grpcBurPort}}" />
           </label>
           <label>
             Service
@@ -574,8 +574,22 @@
             </div>
             <label>
               Basic Label
-              <textarea v-model="grpcBurBasicLabel" spellcheck="false" aria-label="Basic Label"></textarea>
-              <span class="field-hint">{{ grpcBurBasicLabel.length }} / {{ grpcBurBasicLabelLength }} chars</span>
+              <div class="basic-label-editor">
+                <pre class="basic-label-highlight" aria-hidden="true" v-html="highlightedGrpcBurBasicLabel"></pre>
+                <textarea
+                  v-model="grpcBurBasicLabel"
+                  class="basic-label-input"
+                  spellcheck="false"
+                  aria-label="Basic Label"
+                  @scroll="syncJsonScroll"
+                ></textarea>
+              </div>
+              <span class="field-hint basic-label-hint">
+                <span>{{ grpcBurBasicLabel.length }} / {{ grpcBurBasicLabelLength }} chars</span>
+                <span v-if="grpcBurIncrementBasicLabelSequence" class="basic-label-chip sequence">8-14 遞增</span>
+                <span class="basic-label-chip fixed">37-46 固定標示</span>
+                <span v-if="grpcBurFillBasicLabelDayOfMonth" class="basic-label-chip day">88-89 今日 DD</span>
+              </span>
             </label>
             <label>
               Text Area
@@ -640,6 +654,14 @@
           <label v-if="requestType === 'GRPC_BUR' && !grpcBurPlaintext" class="check-line">
             <input v-model="grpcBurIgnoreTlsVerification" type="checkbox" />
             Ignore TLS certificate verification
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'" class="check-line">
+            <input v-model="grpcBurIncrementBasicLabelSequence" type="checkbox" />
+            Basic Label 第 8-14 碼送出前遞增
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'" class="check-line">
+            <input v-model="grpcBurFillBasicLabelDayOfMonth" type="checkbox" />
+            Basic Label 第 88-89 碼帶入今日 DD
           </label>
           <label v-if="requestType === 'GRPC_BUR'">
             Proto ID
@@ -902,6 +924,13 @@
             <input v-model.number="batchDeadlineMillis" type="number" min="1000" max="3600000" />
           </label>
         </div>
+        <label v-if="requestType === 'GRPC_BUR'" class="batch-basic-label-option">
+          <input v-model="batchUseGrpcBurBasicLabelAutomation" type="checkbox" />
+          <span>
+            <strong>套用 Basic Label 自動化</strong>
+            <small>套用第 8-14 碼遞增與第 88-89 碼今日 DD 設定。</small>
+          </span>
+        </label>
         <footer class="collection-rename-actions">
           <span v-if="batchStartError" class="batch-form-error">{{ batchStartError }}</span>
           <span></span>
@@ -1106,6 +1135,7 @@ const batchTotalCount = ref(1)
 const batchMaxConcurrency = ref(1)
 const batchIntervalMillis = ref(0)
 const batchDeadlineMillis = ref(30000)
+const batchUseGrpcBurBasicLabelAutomation = ref(true)
 const batchStarting = ref(false)
 const batchCancelling = ref(false)
 const batchClearing = ref(false)
@@ -1132,7 +1162,7 @@ const requestType = ref('HTTP')
 const method = ref('GET')
 const url = ref('http://localhost:18080/api/health')
 const grpcHost = ref('localhost')
-const grpcPort = ref(50051)
+const grpcPort = ref('50051')
 const grpcServiceName = ref('')
 const grpcMethodName = ref('')
 const grpcProtoId = ref('')
@@ -1142,18 +1172,20 @@ const grpcPlaintext = ref(true)
 const grpcIgnoreTlsVerification = ref(false)
 const grpcEncodePayloadDataBase64 = ref(false)
 const grpcBurHost = ref('10.1.11.34')
-const grpcBurPort = ref(50003)
+const grpcBurPort = ref('50003')
 const grpcBurMetadataText = ref('')
 const grpcBurProtoId = ref('')
 const grpcBurTcpipHeaderHex = ref('0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F')
 const grpcBurMcsHeader = ref('')
-const grpcBurBasicLabel = ref('983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000          ')
+const grpcBurBasicLabel = ref('983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000')
 const grpcBurTextArea = ref('yoman   00000000000000123         4000000')
 const grpcBurBasicLabelLength = ref(158)
 const grpcBurTextAreaLength = ref(0)
 const grpcBurPadTextAreaRight = ref(true)
 const grpcBurPlaintext = ref(true)
 const grpcBurIgnoreTlsVerification = ref(false)
+const grpcBurIncrementBasicLabelSequence = ref(false)
+const grpcBurFillBasicLabelDayOfMonth = ref(false)
 const grpcBurPreview = ref(null)
 const paramsText = ref('')
 const headersText = ref('Accept=application/json')
@@ -1209,9 +1241,9 @@ const grpcTarget = computed({
     return `${grpcHost.value}:${grpcPort.value}`
   },
   set(value) {
-    const [host, port] = value.split(':')
-    grpcHost.value = host || ''
-    grpcPort.value = Number(port || 50051)
+    const separator = value.lastIndexOf(':')
+    grpcHost.value = separator < 0 ? value : value.slice(0, separator)
+    grpcPort.value = separator < 0 ? '50051' : (value.slice(separator + 1) || '50051')
   },
 })
 
@@ -1231,9 +1263,9 @@ const grpcBurTarget = computed({
     return `${grpcBurHost.value}:${grpcBurPort.value}`
   },
   set(value) {
-    const [host, port] = value.split(':')
-    grpcBurHost.value = host || ''
-    grpcBurPort.value = Number(port || 50003)
+    const separator = value.lastIndexOf(':')
+    grpcBurHost.value = separator < 0 ? value : value.slice(0, separator)
+    grpcBurPort.value = separator < 0 ? '50003' : (value.slice(separator + 1) || '50003')
   },
 })
 
@@ -1253,6 +1285,8 @@ const activeBodyText = computed({
 const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || bodyType.value === 'json')
 
 const highlightedBodyText = computed(() => highlightRequestBody())
+
+const highlightedGrpcBurBasicLabel = computed(() => highlightGrpcBurBasicLabel())
 
 const responseTabs = computed(() => supportsBatch()
   ? [...baseResponseTabs.slice(0, 2), { key: 'batch', label: 'Batch' }, ...baseResponseTabs.slice(2)]
@@ -1844,6 +1878,47 @@ function highlightRequestBody() {
     return highlightJson(body)
   }
   return renderJsonValue(parsed, '$', 0, new Map(), new Set(['$.payload.data']))
+}
+
+function highlightGrpcBurBasicLabel() {
+  const value = String(grpcBurBasicLabel.value || '')
+  const ranges = [
+    grpcBurIncrementBasicLabelSequence.value && {
+      start: 7,
+      end: 14,
+      className: 'basic-label-sequence-field',
+      title: '第 8-14 碼：送出前自動遞增',
+    },
+    {
+      start: 36,
+      end: 46,
+      className: 'basic-label-fixed-field',
+      title: '第 37-46 碼：固定標示',
+    },
+    grpcBurFillBasicLabelDayOfMonth.value && {
+      start: 87,
+      end: 89,
+      className: 'basic-label-day-field',
+      title: '第 88-89 碼：送出前帶入 Asia/Taipei 當日 DD',
+    },
+  ].filter(Boolean)
+
+  if (!ranges.length) {
+    return escapeHtml(value)
+  }
+
+  let cursor = 0
+  let rendered = ''
+  for (const range of ranges) {
+    if (range.start >= value.length) {
+      continue
+    }
+    const end = Math.min(range.end, value.length)
+    rendered += escapeHtml(value.slice(cursor, range.start))
+    rendered += `<span class="${range.className}" title="${range.title}">${escapeHtml(value.slice(range.start, end))}</span>`
+    cursor = end
+  }
+  return `${rendered}${escapeHtml(value.slice(cursor))}`
 }
 
 function highlightResponseBody() {
@@ -2873,6 +2948,7 @@ function openBatchRunner() {
     return
   }
   batchStartError.value = ''
+  batchUseGrpcBurBasicLabelAutomation.value = true
   showBatchRunner.value = true
 }
 
@@ -2984,6 +3060,9 @@ async function startBatchRun() {
     }
     showBatchRunner.value = false
     activeResponseTab.value = 'batch'
+    if (requestType.value === 'GRPC_BUR' && batchUseGrpcBurBasicLabelAutomation.value) {
+      advanceGrpcBurBasicLabelAfterBatch(started.totalCount)
+    }
     if (savedRequestId) {
       await loadBatchRunHistory({ preferredRunId: started.id, force: true })
     }
@@ -3313,6 +3392,7 @@ async function sendGrpcBurRequest() {
       body: JSON.stringify(withExecutionId(resolveExecutionPayload(grpcBurExecutePayload()), execution.id)),
     })
     grpcBurPreview.value = response.value.requestPreview || null
+    syncGrpcBurBasicLabelFromPreview(grpcBurPreview.value)
   } catch (error) {
     if (!isExecutionCancelled(error, execution)) {
       errorText.value = readableError(error)
@@ -3532,6 +3612,8 @@ function editorPayload() {
     grpcBurPadTextAreaRight: grpcBurPadTextAreaRight.value,
     grpcBurPlaintext: grpcBurPlaintext.value,
     grpcBurIgnoreTlsVerification: grpcBurIgnoreTlsVerification.value,
+    grpcBurIncrementBasicLabelSequence: grpcBurIncrementBasicLabelSequence.value,
+    grpcBurFillBasicLabelDayOfMonth: grpcBurFillBasicLabelDayOfMonth.value,
   }
 }
 
@@ -3569,8 +3651,55 @@ function grpcBurExecutePayload() {
       basicLabelLength: grpcBurBasicLabelLength.value,
       textAreaLength: grpcBurTextAreaLength.value || null,
       padTextAreaRight: grpcBurPadTextAreaRight.value,
+      incrementBasicLabelSequence: grpcBurIncrementBasicLabelSequence.value,
+      fillBasicLabelDayOfMonth: grpcBurFillBasicLabelDayOfMonth.value,
     },
   }
+}
+
+function syncGrpcBurBasicLabelFromPreview(preview) {
+  if (!grpcBurIncrementBasicLabelSequence.value && !grpcBurFillBasicLabelDayOfMonth.value) {
+    return
+  }
+  if (preview?.effectiveBasicLabel) {
+    grpcBurBasicLabel.value = preview.effectiveBasicLabel
+  }
+}
+
+function advanceGrpcBurBasicLabelAfterBatch(totalCount) {
+  if (!grpcBurIncrementBasicLabelSequence.value && !grpcBurFillBasicLabelDayOfMonth.value) {
+    return
+  }
+  try {
+    grpcBurBasicLabel.value = automateGrpcBurBasicLabel(grpcBurBasicLabel.value, Number(totalCount))
+  } catch (error) {
+    // Backend retains structured validation for malformed labels and failed batch items.
+  }
+}
+
+function automateGrpcBurBasicLabel(label, increment) {
+  let result = String(label || '')
+  if (grpcBurIncrementBasicLabelSequence.value) {
+    if (result.length < 14 || !/^\d{7}$/.test(result.slice(7, 14))) {
+      throw new Error('Basic Label 第 8-14 碼必須為 7 碼數字')
+    }
+    const next = Number(result.slice(7, 14)) + increment
+    if (!Number.isSafeInteger(next) || next > 9999999) {
+      throw new Error('Basic Label 第 8-14 碼遞增後超過 9999999')
+    }
+    result = `${result.slice(0, 7)}${String(next).padStart(7, '0')}${result.slice(14)}`
+  }
+  if (grpcBurFillBasicLabelDayOfMonth.value) {
+    if (result.length < 89) {
+      throw new Error('Basic Label 至少需要 89 碼')
+    }
+    const dayOfMonth = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Taipei',
+      day: '2-digit',
+    }).format(new Date())
+    result = `${result.slice(0, 87)}${dayOfMonth}${result.slice(89)}`
+  }
+  return result
 }
 
 function supportsBatch() {
@@ -3584,7 +3713,17 @@ function batchApiBase() {
 }
 
 function batchExecutePayload() {
-  if (requestType.value === 'GRPC_BUR') return resolveExecutionPayload(grpcBurExecutePayload())
+  if (requestType.value === 'GRPC_BUR') {
+    const payload = grpcBurExecutePayload()
+    if (!batchUseGrpcBurBasicLabelAutomation.value) {
+      payload.settings = {
+        ...payload.settings,
+        incrementBasicLabelSequence: false,
+        fillBasicLabelDayOfMonth: false,
+      }
+    }
+    return resolveExecutionPayload(payload)
+  }
   if (requestType.value === 'GRPC') return resolveExecutionPayload(grpcExecutePayload())
   return resolveExecutionPayload(executePayload())
 }
@@ -3677,7 +3816,7 @@ function loadPayloadToEditor(payload) {
   followRedirects.value = payload.followRedirects !== false
   ignoreSslVerification.value = payload.ignoreSslVerification !== false
   grpcHost.value = payload.grpcHost || 'localhost'
-  grpcPort.value = payload.grpcPort || 50051
+  grpcPort.value = payload.grpcPort === undefined || payload.grpcPort === null || payload.grpcPort === '' ? '50051' : String(payload.grpcPort)
   grpcServiceName.value = payload.grpcServiceName || ''
   grpcMethodName.value = payload.grpcMethodName || ''
   grpcProtoId.value = payload.grpcProtoId || ''
@@ -3687,18 +3826,24 @@ function loadPayloadToEditor(payload) {
   grpcIgnoreTlsVerification.value = payload.grpcIgnoreTlsVerification === true
   grpcEncodePayloadDataBase64.value = payload.grpcEncodePayloadDataBase64 === true
   grpcBurHost.value = payload.grpcBurHost || '10.1.11.34'
-  grpcBurPort.value = payload.grpcBurPort || 50003
+  grpcBurPort.value = payload.grpcBurPort === undefined || payload.grpcBurPort === null || payload.grpcBurPort === '' ? '50003' : String(payload.grpcBurPort)
   grpcBurMetadataText.value = payload.grpcBurMetadataText || ''
   grpcBurProtoId.value = payload.grpcBurProtoId || ''
   grpcBurTcpipHeaderHex.value = payload.grpcBurTcpipHeaderHex || '0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F'
   grpcBurMcsHeader.value = payload.grpcBurMcsHeader || ''
-  grpcBurBasicLabel.value = payload.grpcBurBasicLabel || '983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000          '
+  const basicLabelLength = payload.grpcBurBasicLabelLength || 158
+  const storedBasicLabel = payload.grpcBurBasicLabel || '983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000'
+  grpcBurBasicLabel.value = storedBasicLabel.length > basicLabelLength && storedBasicLabel.slice(basicLabelLength).trim() === ''
+    ? storedBasicLabel.slice(0, basicLabelLength)
+    : storedBasicLabel
   grpcBurTextArea.value = payload.grpcBurTextArea || 'yoman   00000000000000123         4000000'
-  grpcBurBasicLabelLength.value = payload.grpcBurBasicLabelLength || 158
+  grpcBurBasicLabelLength.value = basicLabelLength
   grpcBurTextAreaLength.value = payload.grpcBurTextAreaLength || 0
   grpcBurPadTextAreaRight.value = payload.grpcBurPadTextAreaRight !== false
   grpcBurPlaintext.value = payload.grpcBurPlaintext !== false
   grpcBurIgnoreTlsVerification.value = payload.grpcBurIgnoreTlsVerification === true
+  grpcBurIncrementBasicLabelSequence.value = payload.grpcBurIncrementBasicLabelSequence === true
+  grpcBurFillBasicLabelDayOfMonth.value = payload.grpcBurFillBasicLabelDayOfMonth === true
   grpcBurPreview.value = null
   response.value = null
   errorText.value = ''

@@ -179,6 +179,8 @@ Post Bubi 的品牌主色為酒紅色，必須用於標誌、主操作按鈕、�
 
 `gRPC BUR` request type 已依原始驗證腳本的組包概念完成。此模式與一般 gRPC JSON request 不同，使用者只需關注目標系統 host / port 與業務 input 內容，系統負責完成 TCPIP header、MCS header、Basic Label、Text Area 串接、UTF-8 / BUR 轉碼、`RqPayload` 建立與 `Service/rpcPeriphery` 呼叫。原始 notebook 不屬於建置或執行必要檔案，實際行為以 Java 實作與 `docs/GRPC_BUR_COMPOSER_FEATURE.md` 為準。
 
+gRPC 與 gRPC BUR 的 Port editor 必須接受數字或 `{{variable}}`；Environment 解析後由後端驗證為 `1` 至 `65535` 的整數。gRPC BUR Settings 可啟用 Basic Label 自動化：第 8-14 位（人類習慣 1 起算）必須為 7 碼數字，單次送出與 Preview 先加 `1`，Batch 第 `N` 筆加 `N`，超過 7 碼上限時拒絕送出；第 88-89 位可覆寫為台灣時區 `Asia/Taipei` 的當日 `DD`。Preview 不保存序號。gRPC BUR Batch 視窗預設套用這兩項設定，使用者可在啟動前停用；停用時該批次不會進行遞增或日期覆寫，且不前推編輯器的 Basic Label。啟用時 Batch 啟動後前端將 Basic Label 前推到最後一筆預定序號，避免後續重複。
+
 詳細設計記錄於 `docs/GRPC_BUR_COMPOSER_FEATURE.md`。第一階段已完成 `GRPC_BUR` request type、payload preview、送出流程與 `TBConvert.jar` / CodeTable 正式 BUR codec 接入。CodeTable 與 `TBConvert.jar` 會包入 executable JAR，部署到其他主機時不需要額外攜帶 CodeTable；實際目標系統驗收仍需使用正確業務資料、固定長度設定與相符 proto。
 
 ## 5. HTTP 功能規格
@@ -721,6 +723,14 @@ Request 可選欄位：
 - `PUT /api/environments/{id}`
 - `POST /api/environments/{id}/copy`
 - `DELETE /api/environments/{id}`
+
+### 10.9.1 Headless gRPC CLI
+
+第一階段提供 `java -jar post-bubi.jar run-grpc`，讓無瀏覽器的 Linux 主機直接執行由 UI 匯出的 Collection 或 Workspace ZIP 中的一筆一般 `GRPC` unary Request。CLI 不建立 Spring Web context，不綁定 server port，也不得匯入、修改或依賴既有 H2 workspace。
+
+CLI 必須支援 ZIP、Request、可選 Collection / Folder、Environment、可重複 `--var key=value` 變數覆寫與可選 JSON output path。Request、Collection、Folder、Environment 的選擇必須精確且唯一，歧義時拒絕執行。ZIP 內嵌 proto 及其 imports 必須可在不使用 server reflection 時解析；未指定 proto 時才可回退 reflection。HTTP、gRPC BUR、Batch、Request History 與 multipart file 不屬於此階段。
+
+成功與 gRPC 非 `OK` response 必須輸出 UTF-8 JSON；參數、archive、選擇、變數與 proto 驗證錯誤輸出 stderr。exit code：`0` 為 `OK`、`1` 為 gRPC 非 `OK`、`2` 為使用或輸入驗證錯誤、`3` 為輸出或未預期內部錯誤。完整規格見 `docs/HEADLESS_GRPC_CLI_FEATURE.md`。
 
 ### 10.10 HTTP Batch API
 

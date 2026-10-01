@@ -320,7 +320,7 @@ public class GrpcBatchService {
             if (active.isStopped()) {
                 executionCancellationService.cancel(executionId);
             }
-            BatchExecutionResult result = executeSnapshot(run.getProtocol(), snapshot, executionId, remainingTimeout(snapshot, deadlineNanos), execution);
+            BatchExecutionResult result = executeSnapshot(run.getProtocol(), snapshot, executionId, remainingTimeout(snapshot, deadlineNanos), item.getSequenceNumber(), execution);
             item.setStatus(statusFor(result.statusCode(), execution, active));
             item.setStatusCode(result.statusCode());
             item.setStatusDescription(truncate(result.statusDescription(), ERROR_MESSAGE_LIMIT));
@@ -347,12 +347,12 @@ public class GrpcBatchService {
         }
     }
 
-    private BatchExecutionResult executeSnapshot(GrpcBatchProtocol protocol, Object snapshot, String executionId, int timeoutMillis, ExecutionHandle execution) {
+    private BatchExecutionResult executeSnapshot(GrpcBatchProtocol protocol, Object snapshot, String executionId, int timeoutMillis, int sequenceNumber, ExecutionHandle execution) {
         if (protocol == GrpcBatchProtocol.GRPC) {
             GrpcExecuteResponse response = grpcExecuteService.execute(withExecution((GrpcExecuteRequest) snapshot, executionId, timeoutMillis), execution);
             return new BatchExecutionResult(response.statusCode(), response.statusDescription(), response.durationMillis(), response.metadata(), response.body(), response.errorMessage(), null);
         }
-        GrpcBurExecuteResponse response = grpcBurExecuteService.execute(withExecution((GrpcBurExecuteRequest) snapshot, executionId, timeoutMillis), execution);
+        GrpcBurExecuteResponse response = grpcBurExecuteService.execute(withExecution((GrpcBurExecuteRequest) snapshot, executionId, timeoutMillis, sequenceNumber), execution);
         return new BatchExecutionResult(response.statusCode(), response.statusDescription(), response.durationMillis(), response.metadata(), response.body(), response.errorMessage(), response.decodedPayloads());
     }
 
@@ -499,15 +499,15 @@ public class GrpcBatchService {
     }
 
     private GrpcBurExecuteRequest withoutExecutionId(GrpcBurExecuteRequest request) {
-        return new GrpcBurExecuteRequest(null, request.host(), request.port(), request.timeoutMillis(), request.plaintext(), request.ignoreTlsVerification(), request.metadataText(), request.protoId(), request.serviceName(), request.methodName(), request.tcpipHeaderHex(), request.mcsHeader(), request.basicLabel(), request.textArea(), request.settings());
+        return new GrpcBurExecuteRequest(null, request.host(), request.port(), request.timeoutMillis(), request.plaintext(), request.ignoreTlsVerification(), request.metadataText(), request.protoId(), request.serviceName(), request.methodName(), request.tcpipHeaderHex(), request.mcsHeader(), request.basicLabel(), request.textArea(), request.settings(), null);
     }
 
     private GrpcExecuteRequest withExecution(GrpcExecuteRequest request, String executionId, int timeoutMillis) {
         return new GrpcExecuteRequest(executionId, request.host(), request.port(), request.plaintext(), request.ignoreTlsVerification(), request.metadata(), request.protoId(), request.serviceName(), request.methodName(), request.body(), request.encodePayloadDataBase64(), timeoutMillis);
     }
 
-    private GrpcBurExecuteRequest withExecution(GrpcBurExecuteRequest request, String executionId, int timeoutMillis) {
-        return new GrpcBurExecuteRequest(executionId, request.host(), request.port(), timeoutMillis, request.plaintext(), request.ignoreTlsVerification(), request.metadataText(), request.protoId(), request.serviceName(), request.methodName(), request.tcpipHeaderHex(), request.mcsHeader(), request.basicLabel(), request.textArea(), request.settings());
+    private GrpcBurExecuteRequest withExecution(GrpcBurExecuteRequest request, String executionId, int timeoutMillis, int sequenceNumber) {
+        return new GrpcBurExecuteRequest(executionId, request.host(), request.port(), timeoutMillis, request.plaintext(), request.ignoreTlsVerification(), request.metadataText(), request.protoId(), request.serviceName(), request.methodName(), request.tcpipHeaderHex(), request.mcsHeader(), request.basicLabel(), request.textArea(), request.settings(), sequenceNumber);
     }
 
     private int remainingTimeout(Object snapshot, long deadlineNanos) {

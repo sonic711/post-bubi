@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-08-10
+最後整理日期：2026-10-01
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -28,12 +28,14 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | 完整依賴 POM | 完成 | compile、runtime、test 與 Gradle buildscript POM；總 task 與 Maven 離線驗證完成 |
 | HTTP / gRPC / gRPC BUR 批次執行 | 自動化與 JAR 驗收完成，待目標系統使用者驗收 | 三種協定皆有 H2 Batch Run / Item、三種模式、總筆數無固定 100 筆上限、依 Request 與協定分隔的可選擇歷程、CSV 匯出（包含每筆發送與完成時間）、完成記錄清除、項目結果分頁、期限/手動取消；最大併發仍為 100 |
 | HTTP 轉 cURL 匯出 | Bash 實測完成，待 Windows 實機驗收 | Bash/zsh 實際執行測試、PowerShell 格式與跳脫測試、Environment 模板/已解析值、form-data file placeholder 與本機剪貼簿複製 |
+| Headless gRPC CLI Phase 1 | 完成 | `run-grpc` 讀取匯出 ZIP、精確選取一般 gRPC unary Request、Environment / `--var`、archive proto、JSON output 與非 Web `java -jar` 執行 |
 
 ## 下一階段
 
 1. 以實際目標系統驗收 HTTP、gRPC unary 與 gRPC BUR Batch 執行、歷程切換、CSV 匯出與已完成記錄清除。
 2. 取得 Windows 主機後，將 PowerShell 產生的 `curl.exe` 指令複製並實際執行；目前開發主機沒有 `pwsh`、`powershell` 或 `curl.exe`，不能替代該驗收。
-3. 目前沒有排定新增協定；後續依使用者驗收回饋處理修正，或從既有文件的後續版本候選功能中排定工作。
+3. 在實際 Linux 主機以匯出的 Collection ZIP 驗收 Headless gRPC CLI，確認目標網路、TLS、Environment 與 proto import dependency。
+4. 目前沒有排定新增協定；後續依使用者驗收回饋處理修正，或從既有文件的後續版本候選功能中排定工作。
 
 ## 已完成功能
 
@@ -86,8 +88,10 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 - 獨立 `GRPC_BUR` request type。
 - Target host、port、metadata、TLS 與 timeout（預設 30 秒，可調整）。
+- gRPC 與 gRPC BUR Port 可使用 `{{variable}}`；送出前解析為數字並由後端驗證範圍。
 - 送出後可按取消，沿用 gRPC channel 中止機制。
 - TCPIP Header、MCS Header、Basic Label、Text Area 組包。
+- Settings 可在組包前遞增 Basic Label 第 8-14 位的 7 碼交易代號，並以台灣當日 `DD` 填入第 88-89 位；單次與 Batch 均支援，Batch 會避免同批及下一批重複。
 - 固定長度檢查與右補空白。
 - UTF-8/BUR 雙向轉碼。
 - Payload hex 與 decoded preview。
@@ -144,7 +148,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | `WorkspaceArchiveIntegrationTest` | Workspace / Collection ZIP、file/proto reference、舊版 Environment schema v2、schema v1 相容與 zip slip |
 | `ProtoIntegrationTest` | Proto upload、list、inspect、rpc parsing |
 | `GrpcExecuteIntegrationTest` | reflection unary、本機 proto unary、JSON 錯誤、執行中 gRPC 取消、`payload.data` UTF-8 Base64 編碼與欄位驗證 |
-| `GrpcBurExecuteIntegrationTest` | BUR payload preview、固定長度、timeout 範圍、JAR 內建 CodeTable |
+| `GrpcBurExecuteIntegrationTest` | BUR payload preview、固定長度、timeout 範圍、JAR 內建 CodeTable、Basic Label 交易代號遞增、台灣當日 DD 與 Batch 序號 offset |
 | `GrpcBatchIntegrationTest` | reflection unary Batch、`payload.data` Base64 Batch snapshot、protocol 歷程隔離、item body preview、CSV 匯出、gRPC BUR 組包失敗保存 |
 | `EnvironmentIntegrationTest` | Environment CRUD、變數名稱驗證、複製與獨立 ZIP 匯入匯出 |
 
@@ -156,6 +160,15 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 ./gradlew :post-bubi-api:bootJar
 ```
 
+2026-10-01 Headless gRPC CLI Phase 1 驗證結果：
+
+- 新增 `java -jar post-bubi.jar run-grpc`，不啟動 Spring Web、H2 或既有 workspace；只讀取 UI 匯出的 Collection / Workspace ZIP，並執行一筆一般 gRPC unary Request。
+- CLI 支援 `--archive`、`--request`、可選 `--collection` / `--folder` / `--environment`、可重複 `--var key=value` 與 `--output`；選擇歧義、未定義變數與 archive path 異常會拒絕執行。
+- ZIP 內 proto 會寫入 JVM 專用暫存目錄，以保存的 proto ID 供既有 resolver 使用；未指定 proto 時才使用 server reflection。process 結束時清除暫存目錄。
+- `HeadlessGrpcCliIntegrationTest` 驗證 2 項、0 失敗：Environment 變數的 reflection unary gRPC，以及未開 reflection 時使用 ZIP 內 proto 的 unary gRPC。
+- `java -jar post-bubi-api/build/libs/post-bubi.jar run-grpc --help` 已實測直接輸出 CLI 用法；不存在 ZIP 時輸出結構化 JSON 並回傳 exit code `2`，未出現 Web server 啟動訊息。
+- 詳細操作與 exit code 見 `docs/HEADLESS_GRPC_CLI_FEATURE.md`。
+
 2026-09-29 gRPC `payload.data` Base64 編碼驗證結果：
 
 - 一般 gRPC Settings 新增「將 `payload.data` 編碼為 Base64 後送出」；Request 保存原始明碼與設定旗標。送出時先解析 Environment `{{variable}}`，後端才以 UTF-8 標準 Base64 取代精確路徑 `payload.data`。
@@ -164,6 +177,15 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - `payload.data` 缺失或非字串時，API 回傳 `400 GRPC_PAYLOAD_DATA_BASE64_INVALID`，不會發出未轉碼的 gRPC 呼叫；已經是 Base64 的內容仍會視為文字再次編碼。
 - `./gradlew --no-daemon :post-bubi-api:test --tests com.postbubi.web.GrpcExecuteIntegrationTest --tests com.postbubi.web.GrpcBatchIntegrationTest` 的測試報表為 10 項、0 失敗；涵蓋 UTF-8 中文編碼、未啟用時保留原文、欄位驗證與每個 Batch item 的轉換。
 - `./gradlew --no-daemon :post-bubi-ui:yarn_build_prod :post-bubi-api:bootJar` 成功，已產生最新 `post-bubi-api/build/libs/post-bubi.jar`。
+
+2026-09-29 gRPC BUR Basic Label 自動化與 Port 變數驗證結果：
+
+- gRPC 與 gRPC BUR 的 Port 改為一般文字欄位，支援 `{{variable}}`；Environment 解析後仍由既有後端驗證 Port 範圍。
+- gRPC BUR Settings 新增第 8-14 碼交易代號遞增與第 88-89 碼台灣當日 `DD`。單次與 Preview 預設先加 1；Batch 各 item 使用自身 sequence number，並在 Batch 成功建立後將編輯器前推至最後預定序號。
+- gRPC BUR Batch 視窗可選擇是否套用 Basic Label 自動化，預設勾選以維持既有行為；未勾選時，該批次快照會停用交易代號遞增與日期覆寫，且不會前推編輯器 Basic Label。
+- 啟用遞增或日期設定時，Basic Label 編輯器分別以酒紅色標記第 8-14 碼、藍色標記第 88-89 碼；第 37-46 碼則固定以綠色標示。欄位下方會顯示對應標籤，並保留原生文字選取、複製、游標與捲動行為。
+- `GrpcBurExecuteIntegrationTest` 驗證 5 項、0 失敗，涵蓋 UTF-8/BUR 組包、交易代號加 1、台灣日期、Batch sequence offset 與 Port JSON 字串相容性。
+- `./gradlew --no-daemon :post-bubi-api:test --tests com.postbubi.web.GrpcBurExecuteIntegrationTest :post-bubi-ui:yarn_build_prod :post-bubi-api:bootJar` 成功。
 
 2026-07-10 清理後驗證結果：
 

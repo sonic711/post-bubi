@@ -1,6 +1,6 @@
 # gRPC BUR 組包功能
 
-最後整理日期：2026-08-10
+最後整理日期：2026-09-29
 
 本功能已完成第一個可用版本。設計源自原始驗證 notebook 的組包流程；notebook 已不再是建置或執行必要檔案，實際行為以目前 Java 實作與本文件為準。
 
@@ -8,7 +8,7 @@
 
 一般使用者只需要處理：
 
-- 目標系統 host 與 port
+- 目標系統 host 與 port；port 可填數字或 Environment `{{variable}}`，送出前解析並驗證為 `1` 至 `65535`
 - Basic Label
 - Text Area
 - 必要的 metadata、TLS 與 timeout
@@ -27,7 +27,7 @@ com.bot.fsap.model.grpc.common.Service/rpcPeriphery
 2. 填寫 target `host:port`。
 3. 在 Body 編輯 Basic Label 與 Text Area。
 4. 使用「產生預覽」檢查各段長度、最終 hex 與 decoded text。
-5. 必要時在 Settings 指定 protoId、TLS、TCPIP Header 與固定長度。
+5. 必要時在 Settings 指定 protoId、TLS、TCPIP Header、固定長度與 Basic Label 自動化規則。
 6. 送出後在 Body 查看 protobuf JSON，在 Decoded 查看各 payload 的 BUR 明碼。
 
 Request 可以保存到 Collection，載入後會還原所有 gRPC BUR 欄位。
@@ -59,6 +59,9 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 - Text Area 使用 TBConvert 從 UTF-8 轉 BUR；設定正整數長度時依設定右補空白。
 - 任一固定欄位超過設定長度時拒絕送出，不自動截斷。
 - 串接結果放入 protobuf JSON 的 `payload.data`，使用 base64 表示。
+- Settings 可啟用「Basic Label 第 8-14 碼送出前遞增」：位置採人類習慣的 1 起算，該區段必須是 7 碼數字。單次送出與 Preview 都以目前值先加 `1` 組包；Preview 不會保存或消耗序號。Batch 第 `N` 筆以起始值加 `N` 組包，完成啟動後編輯器會前推至第 `N` 筆的值，避免下一次送出重複交易代號。超過 `9999999` 時拒絕送出。
+- Settings 可啟用「Basic Label 第 88-89 碼帶入今日 DD」：位置同樣採 1 起算，送出與 Preview 時以台灣時區 `Asia/Taipei` 的兩碼日期 `DD` 覆寫該區段。
+- gRPC BUR Batch 視窗可選擇是否套用這兩項 Basic Label 自動化，預設勾選。未勾選時，Batch snapshot 會明確停用兩項設定，不遞增、不覆寫日期，也不前推編輯器的 Basic Label。
 
 傳給共用 gRPC executor 的 body：
 
@@ -109,7 +112,9 @@ Request 主要欄位：
     "mcsHeaderLength": 72,
     "basicLabelLength": 158,
     "textAreaLength": 0,
-    "padTextAreaRight": true
+    "padTextAreaRight": true,
+    "incrementBasicLabelSequence": false,
+    "fillBasicLabelDayOfMonth": false
   }
 }
 ```

@@ -15,13 +15,16 @@ public record GrpcBurExecuteRequest(
         String mcsHeader,
         String basicLabel,
         String textArea,
-        GrpcBurSettings settings
+        GrpcBurSettings settings,
+        Integer basicLabelSequenceIncrement
 ) {
     public record GrpcBurSettings(
             Integer mcsHeaderLength,
             Integer basicLabelLength,
             Integer textAreaLength,
-            Boolean padTextAreaRight
+            Boolean padTextAreaRight,
+            Boolean incrementBasicLabelSequence,
+            Boolean fillBasicLabelDayOfMonth
     ) {
     }
 }

@@ -17,6 +17,7 @@ public record GrpcBurExecuteResponse(
             int tcpipHeaderLength,
             int mcsHeaderLength,
             int basicLabelLength,
+            String effectiveBasicLabel,
             int textAreaLength,
             int payloadLength,
             String payloadHex,

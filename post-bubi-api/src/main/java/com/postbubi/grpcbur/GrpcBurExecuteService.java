@@ -3,7 +3,11 @@ package com.postbubi.grpcbur;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +38,12 @@ public class GrpcBurExecuteService {
     private static final int DEFAULT_TIMEOUT_MILLIS = 30000;
     private static final int MIN_TIMEOUT_MILLIS = 1;
     private static final int MAX_TIMEOUT_MILLIS = 300000;
+    private static final int BASIC_LABEL_SEQUENCE_START = 7;
+    private static final int BASIC_LABEL_SEQUENCE_END = 14;
+    private static final int BASIC_LABEL_DAY_START = 87;
+    private static final int BASIC_LABEL_DAY_END = 89;
+    private static final ZoneId TAIPEI_ZONE_ID = ZoneId.of("Asia/Taipei");
+    private static final DateTimeFormatter DAY_OF_MONTH_FORMATTER = DateTimeFormatter.ofPattern("dd");
 
     private final BurCodecService burCodecService;
     private final GrpcExecuteService grpcExecuteService;
@@ -99,6 +109,12 @@ public class GrpcBurExecuteService {
         byte[] tcpipHeader = decodeHex(defaultText(request.tcpipHeaderHex(), DEFAULT_TCPIP_HEADER_HEX), "TCPIP Header");
         String mcsHeader = normalizeFixedText(defaultText(request.mcsHeader(), ""), mcsHeaderLength, "MCS Header");
         String basicLabel = normalizeFixedText(defaultText(request.basicLabel(), ""), basicLabelLength, "Basic Label");
+        basicLabel = applyBasicLabelAutomation(
+                basicLabel,
+                settings != null && Boolean.TRUE.equals(settings.incrementBasicLabelSequence()),
+                settings != null && Boolean.TRUE.equals(settings.fillBasicLabelDayOfMonth()),
+                basicLabelSequenceIncrement(request, settings)
+        );
         String textArea = normalizeTextArea(defaultText(request.textArea(), ""), textAreaLength, padTextAreaRight);
 
         byte[] mcsHeaderBytes = mcsHeader.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -111,12 +127,77 @@ public class GrpcBurExecuteService {
                 tcpipHeader.length,
                 mcsHeaderBytes.length,
                 basicLabelBytes.length,
+                basicLabel,
                 textAreaBytes.length,
                 payload.length,
                 encodeHex(payload),
                 burCodecService.decode(payload)
         );
         return new ComposedPayload(payload, preview);
+    }
+
+    private int basicLabelSequenceIncrement(
+            GrpcBurExecuteRequest request,
+            GrpcBurExecuteRequest.GrpcBurSettings settings
+    ) {
+        if (settings == null || !Boolean.TRUE.equals(settings.incrementBasicLabelSequence())) {
+            return 0;
+        }
+        int increment = request.basicLabelSequenceIncrement() == null ? 1 : request.basicLabelSequenceIncrement();
+        if (increment <= 0) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "GRPC_BUR_BASIC_LABEL_SEQUENCE_INCREMENT_INVALID",
+                    "Basic Label 交易代號遞增值必須為正整數。"
+            );
+        }
+        return increment;
+    }
+
+    private String applyBasicLabelAutomation(
+            String basicLabel,
+            boolean incrementSequence,
+            boolean fillDayOfMonth,
+            int increment
+    ) {
+        StringBuilder result = new StringBuilder(basicLabel);
+        if (incrementSequence) {
+            if (result.length() < BASIC_LABEL_SEQUENCE_END) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "GRPC_BUR_BASIC_LABEL_SEQUENCE_INVALID",
+                        "啟用交易代號遞增時，Basic Label 第 8-14 碼必須為 7 碼數字。"
+                );
+            }
+            String sequence = result.substring(BASIC_LABEL_SEQUENCE_START, BASIC_LABEL_SEQUENCE_END);
+            if (!sequence.matches("\\d{7}")) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "GRPC_BUR_BASIC_LABEL_SEQUENCE_INVALID",
+                        "啟用交易代號遞增時，Basic Label 第 8-14 碼必須為 7 碼數字。"
+                );
+            }
+            long nextSequence = Long.parseLong(sequence) + increment;
+            if (nextSequence > 9_999_999L) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "GRPC_BUR_BASIC_LABEL_SEQUENCE_OVERFLOW",
+                        "Basic Label 第 8-14 碼遞增後超過 9999999。"
+                );
+            }
+            result.replace(BASIC_LABEL_SEQUENCE_START, BASIC_LABEL_SEQUENCE_END, String.format(Locale.ROOT, "%07d", nextSequence));
+        }
+        if (fillDayOfMonth) {
+            if (result.length() < BASIC_LABEL_DAY_END) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "GRPC_BUR_BASIC_LABEL_DAY_INVALID",
+                        "啟用今日日期時，Basic Label 至少需要 89 碼。"
+                );
+            }
+            result.replace(BASIC_LABEL_DAY_START, BASIC_LABEL_DAY_END, DAY_OF_MONTH_FORMATTER.format(LocalDate.now(TAIPEI_ZONE_ID)));
+        }
+        return result.toString();
     }
 
     private String requestBody(byte[] payload) {

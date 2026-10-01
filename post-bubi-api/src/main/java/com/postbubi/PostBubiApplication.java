@@ -9,11 +9,17 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.system.ApplicationHome;
 
+import com.postbubi.cli.HeadlessGrpcCli;
+
 @SpringBootApplication
 public class PostBubiApplication {
 
     public static void main(String[] args) {
         configureFileLogging(args);
+        if (HeadlessGrpcCli.isCommand(args)) {
+            System.exit(new HeadlessGrpcCli().run(args));
+            return;
+        }
         SpringApplication.run(PostBubiApplication.class, args);
     }
 
