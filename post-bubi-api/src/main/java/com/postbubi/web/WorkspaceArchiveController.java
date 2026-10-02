@@ -37,7 +37,11 @@ public class WorkspaceArchiveController {
     }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ImportResult importWorkspace(@RequestParam("file") MultipartFile file) {
-        return workspaceArchiveService.importWorkspace(file);
+    public ImportResult importWorkspace(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "targetCollectionId", required = false) Long targetCollectionId,
+            @RequestParam(value = "targetFolderId", required = false) Long targetFolderId
+    ) {
+        return workspaceArchiveService.importWorkspace(file, targetCollectionId, targetFolderId);
     }
 }

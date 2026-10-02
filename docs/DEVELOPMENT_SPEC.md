@@ -404,15 +404,16 @@ Request 類型：
 
 ### 8.1 格式
 
-第一版不需要相容 Postman Collection。匯入與匯出採用 Post Bubi 自訂 ZIP 格式，並區分下列三種封存檔：
+第一版不需要相容 Postman Collection。匯入與匯出採用 Post Bubi 自訂 ZIP 格式，並區分下列四種封存檔：
 
 | 封存類型 | 匯出範圍 | 根描述檔 |
 | --- | --- | --- |
 | Workspace ZIP | 全部 Collection、Folder、Request、其引用檔案與 Proto | `collection.json` |
 | Collection ZIP | 單一指定 Collection、其 Folder、Request、引用檔案與 Proto | `collection.json` |
+| Request ZIP | 單一指定 Request、其必要來源 Collection／Folder 階層、引用檔案與 Proto | `collection.json` |
 | Environment ZIP | 單一指定 Environment 與其全部 key/value variables | `environment.json` |
 
-Workspace ZIP 與 Collection ZIP **不包含 Environment**。Environment value 可能含有 token、帳密或內網位址，必須由使用者在 Environment 區塊另行匯出與分享。
+Workspace ZIP、Collection ZIP 與 Request ZIP **不包含 Environment**。Environment value 可能含有 token、帳密或內網位址，必須由使用者在 Environment 區塊另行匯出與分享。
 
 Collection 類封存 ZIP 內容：
 
@@ -433,7 +434,7 @@ environment.json
 `collection.json` 必須包含：
 
 - schema version
-- archive type（Workspace 或 Collection）
+- archive type（Workspace、Collection 或 Request）
 - collections
 - folders
 - HTTP requests
@@ -454,6 +455,8 @@ environment.json
 - 本次瀏覽期間的 Response 暫存
 - Environment 與其 variables
 
+Request ZIP 的 `requests` 必須恰有一筆；`collections` 僅保留該 Request 所屬的 Collection，`folders` 僅保留該 Request 所在 Folder 及所有父層 Folder，不得帶出兄弟 Folder 或其他 Request。Request 位於 Collection 根層時，`folders` 為空陣列。
+
 `environment.json` 必須包含 schema version、archive type（Environment），以及一個命名 Environment 與其 key/value variables。Environment ZIP 僅含目前選定的單一 Environment，不含任何 Collection、Request、Proto 或上傳檔案。
 
 ### 8.3 檔案處理
@@ -461,18 +464,21 @@ environment.json
 匯出 ZIP 時：
 
 - HTTP file upload 相關檔案放入 `files/`
-- gRPC proto 檔案只匯出該 Workspace / Collection Request 實際引用的 Proto，放入 `protos/`
+- gRPC proto 檔案只匯出該 Workspace / Collection / Request 實際引用的 Proto，放入 `protos/`
 - `collection.json` 使用相對路徑引用檔案
-- Collection 匯出不得包含任何 Environment，即使 Request 內容包含 `{{variable}}` 模板。
+- Collection 與 Request 匯出不得包含任何 Environment，即使 Request 內容包含 `{{variable}}` 模板。
 - Environment 匯出前介面必須提示該檔案包含 variable value，使用者需確認可安全分享。
 
 匯入 ZIP 時：
 
-- 自動依根描述檔識別 Workspace、Collection 或 Environment ZIP。
+- 自動依根描述檔識別 Workspace、Collection、Request 或 Environment ZIP。
 - 解壓並驗證 `collection.json` 或 `environment.json`
 - 將檔案複製到本機資料目錄
 - 建立新的 Collection 或 Environment，不覆蓋既有資料；後續若需覆蓋，必須新增明確選項。
 - Collection 或 Environment 名稱重複時，自動使用「原名稱 匯入 2」、「原名稱 匯入 3」等未使用名稱。
+- 自左側 Workspace 匯入 Request ZIP 時，系統會建立來源 Collection（同名時追加「匯入 N」），並還原該 Request 的最小 Folder 階層。
+- 自 Collection 或 Folder 的操作選單匯入 Request ZIP 時，系統將 Request 放入使用者指定的 Collection 根層或 Folder；不建立來源 Collection，不還原來源 Folder 階層，且匯入檔必須為 Request ZIP。
+- 指定目標 Folder 時，後端必須驗證該 Folder 屬於指定 Collection；目標不存在、兩者不相屬，或將 Workspace / Collection ZIP 指定目標位置時，必須拒絕匯入。
 - 匯入 Environment 後不自動切換目前選用的 Environment，避免意外以新設定送出 Request。
 - 為相容既有使用者資料，仍可匯入舊版 schema v1 與 schema v2 Workspace ZIP；其中 schema v2 內嵌的 Environment 會依既有規則一併匯入。
 
@@ -654,6 +660,7 @@ Environment 變數名稱需符合 `[A-Za-z_][A-Za-z0-9_.-]*`，同一 Environmen
 ### 10.3 Request API
 
 - `GET /api/requests/{id}`
+- `GET /api/requests/{id}/export`
 - `POST /api/requests`
 - `PUT /api/requests/{id}`
 - `DELETE /api/requests/{id}`
@@ -711,7 +718,7 @@ Request 可選欄位：
 ### 10.8 Import / Export API
 
 - `GET /api/workspace/export`
-- `POST /api/workspace/import`
+- `POST /api/workspace/import`：可選 `targetCollectionId` 與 `targetFolderId`；兩者只適用 Request ZIP。
 - `GET /api/collections/{id}/export`
 - `GET /api/environments/{id}/export`
 - `POST /api/environments/import`
@@ -726,7 +733,7 @@ Request 可選欄位：
 
 ### 10.9.1 Headless gRPC CLI
 
-第一階段提供 `java -jar post-bubi.jar run-grpc`，讓無瀏覽器的 Linux 主機直接執行由 UI 匯出的 Collection 或 Workspace ZIP 中的一筆一般 `GRPC` unary Request。CLI 不建立 Spring Web context，不綁定 server port，也不得匯入、修改或依賴既有 H2 workspace。
+第一階段提供 `java -jar post-bubi.jar run-grpc`，讓無瀏覽器的 Linux 主機直接執行由 UI 匯出的 Request、Collection 或 Workspace ZIP 中的一筆一般 `GRPC` unary Request。CLI 不建立 Spring Web context，不綁定 server port，也不得匯入、修改或依賴既有 H2 workspace。
 
 CLI 必須支援 ZIP、Request、可選 Collection / Folder、Environment、可重複 `--var key=value` 變數覆寫與可選 JSON output path。Request、Collection、Folder、Environment 的選擇必須精確且唯一，歧義時拒絕執行。ZIP 內嵌 proto 及其 imports 必須可在不使用 server reflection 時解析；未指定 proto 時才可回退 reflection。HTTP、gRPC BUR、Batch、Request History 與 multipart file 不屬於此階段。
 
@@ -793,6 +800,8 @@ Environment 切換、Workspace 匯入/匯出與全域操作位於左側工作台
 
 - Collection 的三點選單必須提供重新命名。
 - Collection 的三點選單必須提供「匯出 Collection」，下載單一 Collection ZIP。
+- Request 的三點選單必須提供「匯出 Request」，下載只含該 Request 所需資源的 Request ZIP。
+- Collection 與 Folder 的三點選單必須提供「匯入 Request」檔案選擇；匯入成功後應開啟該 Request，並保留使用者選取的目標 Collection／Folder。
 - Collection 列提供獨立收合控制，不得將收合與選取 Collection 混為同一操作；收合控制應有清楚的展開/收合圖示與無障礙標籤。
 - 左側樹狀列、主要動作按鈕、三點選單與輸入列的操作圖示必須使用一致的 icon system；保留文字標籤的控制可顯示 icon 加文字，純圖示控制必須提供 tooltip。
 - 已上傳 Proto 時，Proto 區塊預設收合，只保留數量與目前選擇的檔名摘要；使用者可展開查看、上傳及套用 service / method。
@@ -804,7 +813,7 @@ Environment 切換、Workspace 匯入/匯出與全域操作位於左側工作台
 - 變數使用 `{{variable}}` 語法，保存 Request 時保留模板，送出時才解析；HTTP、gRPC、gRPC BUR 的可輸入字串欄位皆可替換。
 - Environment 操作選單提供「匯出 Environment」、「匯入 Environment」與「複製 Environment」。
 - 複製 Environment 時，使用者輸入目標名稱；名稱不可與既有 Environment 重複。複製成功後保留目前選用的 Environment，不自動切換。
-- 新版 Workspace / Collection ZIP 不包含 Environment；需使用 Environment ZIP 分享變數值。
+- 新版 Workspace / Collection / Request ZIP 不包含 Environment；需使用 Environment ZIP 分享變數值。
 
 ### 11.2 Request Editor
 

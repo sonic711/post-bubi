@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-10-01
+最後整理日期：2026-10-02
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -18,7 +18,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | gRPC unary | 完成 | reflection、本機 proto、timeout、取消與可選 `payload.data` UTF-8 Base64 編碼整合測試 |
 | gRPC BUR | 完成 | preview、固定長度組包、TBConvert、內建 CodeTable 與取消機制 |
 | Proto 管理 | 完成 | upload、list、inspect、ZIP import/export 測試 |
-| Workspace / Collection ZIP | 完成 | schema v3、單一 Collection 封存、資源與 Proto ID 重映射、舊版相容 |
+| Workspace / Collection / Request ZIP | 完成 | schema v3、單一 Request 最小封存、指定位置匯入、資源與 Proto ID 重映射、舊版相容 |
 | Response 工具 | 完成 | JSON 上色、headers、info、history、base64 decoded、BUR 解碼與本次瀏覽暫存 |
 | Light / Dark 與響應式 UI | 完成 | Sidebar 拖拉自動收合、拖曳展開、可見分隔列與窄版驗證 |
 | Environment variables | 完成 | CRUD、`{{variable}}`、獨立 ZIP 匯入匯出與複製 Environment |
@@ -49,8 +49,10 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - 未保存內容切換提示。
 - Workspace ZIP 匯入與匯出，包含 uploaded files 與實際引用的 protos；新版 schema v3 不包含 Environment，仍可匯入 schema v1 / v2 既有封存檔。
 - Collection 三點選單可匯出單一 Collection ZIP；匯入後若同名，自動使用「原名稱 匯入 N」，不覆蓋既有 Collection。
+- Request 三點選單可匯出單一 Request ZIP，僅保留該 Request、其最小來源 Folder 階層、實際引用的 file / proto；不包含其他 Request、Environment、Response 或 Batch 資料。
+- Workspace 匯入 Request ZIP 時會建立來源 Collection 並還原最小 Folder 階層；從 Collection／Folder 三點選單匯入時，Request 會直接加入指定位置，不建立多餘的 Collection 或 Folder，成功後自動開啟該 Request。
 - 匯入時會重建 file ID 與 proto ID，Request 的 form-data 與 gRPC / gRPC BUR proto 引用會改為新資源 ID。
-- Environment 可獨立匯出與匯入 ZIP，並可複製既有 Environment 後指定新名稱；Collection ZIP 不會包含 Environment value。
+- Environment 可獨立匯出與匯入 ZIP，並可複製既有 Environment 後指定新名稱；Collection 與 Request ZIP 不會包含 Environment value。
 
 ### HTTP
 
@@ -133,7 +135,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - 不存在或循環引用的變數會阻止送出並顯示變數名稱。
 - 可獨立匯出與匯入單一 Environment；ZIP 會含 variable value，匯出前必須確認可安全分享。
 - 可複製既有 Environment 以快速建立新環境，且不自動切換目前使用中的 Environment。
-- 新版 Workspace / Collection ZIP 不會包含 Environment；仍可匯入 schema v1 / v2 舊封存檔中的 Environment。
+- 新版 Workspace / Collection / Request ZIP 不會包含 Environment；仍可匯入 schema v1 / v2 舊封存檔中的 Environment。
 - 匯入名稱重複的 Environment 會新增副本，不覆蓋既有資料。
 
 ## 自動化測試
@@ -145,7 +147,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | `HttpBatchIntegrationTest` | HTTP 批次併發、超過 100 筆的項目結果第 2 頁、回應後間隔、完成期限取消、手動取消、CSV 匯出與 Request 歷程隔離清除 |
 | `curl-command.test.mjs` | Bash cURL 實際執行、query、Header 順序、單引號/多行 JSON body、PowerShell 轉義與模板辨識 |
 | `FileUploadIntegrationTest` | multipart upload、HTTP form-data file |
-| `WorkspaceArchiveIntegrationTest` | Workspace / Collection ZIP、file/proto reference、舊版 Environment schema v2、schema v1 相容與 zip slip |
+| `WorkspaceArchiveIntegrationTest` | Workspace / Collection / Request ZIP、巢狀 Folder 最小封存、指定 Collection／Folder 匯入、file/proto reference、舊版 Environment schema v2、schema v1 相容與 zip slip |
 | `ProtoIntegrationTest` | Proto upload、list、inspect、rpc parsing |
 | `GrpcExecuteIntegrationTest` | reflection unary、本機 proto unary、JSON 錯誤、執行中 gRPC 取消、`payload.data` UTF-8 Base64 編碼與欄位驗證 |
 | `GrpcBurExecuteIntegrationTest` | BUR payload preview、固定長度、timeout 範圍、JAR 內建 CodeTable、Basic Label 交易代號遞增、台灣當日 DD 與 Batch 序號 offset |
@@ -162,10 +164,10 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 2026-10-01 Headless gRPC CLI Phase 1 驗證結果：
 
-- 新增 `java -jar post-bubi.jar run-grpc`，不啟動 Spring Web、H2 或既有 workspace；只讀取 UI 匯出的 Collection / Workspace ZIP，並執行一筆一般 gRPC unary Request。
+- 新增 `java -jar post-bubi.jar run-grpc`，不啟動 Spring Web、H2 或既有 workspace；可讀取 UI 匯出的 Request / Collection / Workspace ZIP，並執行一筆一般 gRPC unary Request。
 - CLI 支援 `--archive`、`--request`、可選 `--collection` / `--folder` / `--environment`、可重複 `--var key=value` 與 `--output`；選擇歧義、未定義變數與 archive path 異常會拒絕執行。
 - ZIP 內 proto 會寫入 JVM 專用暫存目錄，以保存的 proto ID 供既有 resolver 使用；未指定 proto 時才使用 server reflection。process 結束時清除暫存目錄。
-- `HeadlessGrpcCliIntegrationTest` 驗證 2 項、0 失敗：Environment 變數的 reflection unary gRPC，以及未開 reflection 時使用 ZIP 內 proto 的 unary gRPC。
+- `HeadlessGrpcCliIntegrationTest` 驗證 3 項、0 失敗：Environment 變數的 reflection unary gRPC、未開 reflection 時使用 ZIP 內 proto 的 unary gRPC，以及不含 Environment 的 Request ZIP unary gRPC。
 - `java -jar post-bubi-api/build/libs/post-bubi.jar run-grpc --help` 已實測直接輸出 CLI 用法；不存在 ZIP 時輸出結構化 JSON 並回傳 exit code `2`，未出現 Web server 啟動訊息。
 - 詳細操作與 exit code 見 `docs/HEADLESS_GRPC_CLI_FEATURE.md`。
 
@@ -341,7 +343,7 @@ Gradle 會把它們放入 executable JAR。`data/proto/` 是開發與 proto impo
 - Proto method 套用後 request body 預設為 `{}`，尚未依 message schema 自動產生完整欄位範本。
 - gRPC BUR 已完成自動化組包與轉碼驗證；實際目標系統成功回應仍取決於正確業務資料與可連線環境。
 - 本專案是單人離線工具，不包含登入、權限、雲端同步與多人協作。
-- 新版 Workspace / Collection ZIP 不含 Environment；分享 variable value 時必須使用 Environment ZIP，並確認其中沒有不應分享的敏感資訊。
+- 新版 Workspace / Collection / Request ZIP 不含 Environment；分享 variable value 時必須使用 Environment ZIP，並確認其中沒有不應分享的敏感資訊。
 - Folder 僅支援同 Collection、同父層級排序；跨 Collection 移動 Folder 不在目前範圍。
 - 多 Request Collection Runner 與 gRPC streaming RPC 仍不在目前範圍。
 

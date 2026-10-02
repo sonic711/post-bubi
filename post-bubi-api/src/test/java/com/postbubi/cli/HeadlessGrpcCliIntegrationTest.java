@@ -89,30 +89,64 @@ class HeadlessGrpcCliIntegrationTest {
         }
     }
 
+    @Test
+    void executesSingleRequestArchiveWithoutEnvironment() throws Exception {
+        Descriptors.FileDescriptor descriptor = echoFileDescriptor();
+        Descriptors.MethodDescriptor method = descriptor.findServiceByName("EchoService").findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0)
+                .addService(echoService(descriptor, method))
+                .addService(ProtoReflectionService.newInstance())
+                .build()
+                .start();
+
+        Path archive = Files.createTempFile("post-bubi-cli-request-test-", ".zip");
+        Path output = Files.createTempFile("post-bubi-cli-request-output-", ".json");
+        try {
+            writeArchive(archive, grpcServer.getPort(), false, "REQUEST", false);
+            int exitCode = new HeadlessGrpcCli().run(new String[] {
+                    "run-grpc", "--archive", archive.toString(), "--request", "CLI Echo", "--output", output.toString()
+            });
+
+            assertThat(exitCode).isZero();
+            assertThat(objectMapper.readTree(Files.readString(output)).path("body").asText()).contains("echo:request-archive");
+        } finally {
+            Files.deleteIfExists(archive);
+            Files.deleteIfExists(output);
+        }
+    }
+
     private void writeArchive(Path path, int port, boolean includeProto) throws Exception {
+        writeArchive(path, port, includeProto, "COLLECTION", true);
+    }
+
+    private void writeArchive(Path path, int port, boolean includeProto, String archiveType, boolean includeEnvironment) throws Exception {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("schemaVersion", 3);
-        root.put("archiveType", "COLLECTION");
+        root.put("archiveType", archiveType);
         ArrayNode collections = root.putArray("collections");
         collections.addObject().put("id", 1).put("name", "CLI Tests");
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("requestType", "GRPC");
-        payload.put("grpcHost", "{{host}}");
-        payload.put("grpcPort", "{{port}}");
+        payload.put("grpcHost", includeEnvironment ? "{{host}}" : "127.0.0.1");
+        payload.put("grpcPort", includeEnvironment ? "{{port}}" : String.valueOf(port));
         payload.put("grpcPlaintext", true);
         if (includeProto) payload.put("grpcProtoId", "cli-echo");
         payload.put("grpcServiceName", SERVICE_NAME);
         payload.put("grpcMethodName", METHOD_NAME);
-        payload.put("grpcBody", "{\"text\":\"{{message}}\"}");
+        payload.put("grpcBody", includeEnvironment ? "{\"text\":\"{{message}}\"}" : "{\"text\":\"request-archive\"}");
         payload.put("timeoutMillis", 30000);
         ArrayNode requests = root.putArray("requests");
         requests.addObject().put("id", 1).put("collectionId", 1).put("type", "GRPC").put("name", "CLI Echo")
                 .put("payloadJson", objectMapper.writeValueAsString(payload));
-        ArrayNode environments = root.putArray("environments");
-        ArrayNode variables = environments.addObject().put("name", "sit").putArray("variables");
-        variables.addObject().put("key", "host").put("value", "127.0.0.1");
-        variables.addObject().put("key", "port").put("value", String.valueOf(port));
-        variables.addObject().put("key", "message").put("value", "from-environment");
+        if (includeEnvironment) {
+            ArrayNode environments = root.putArray("environments");
+            ArrayNode variables = environments.addObject().put("name", "sit").putArray("variables");
+            variables.addObject().put("key", "host").put("value", "127.0.0.1");
+            variables.addObject().put("key", "port").put("value", String.valueOf(port));
+            variables.addObject().put("key", "message").put("value", "from-environment");
+        } else {
+            root.putArray("environments");
+        }
         if (includeProto) root.putArray("protos").addObject()
                 .put("protoId", "cli-echo")
                 .put("path", "protos/cli-echo-echo.proto")

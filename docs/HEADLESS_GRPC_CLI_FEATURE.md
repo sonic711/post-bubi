@@ -2,7 +2,7 @@
 
 ## 目的
 
-正式 Linux 主機無法以瀏覽器操作時，使用者只攜帶 Post Bubi executable JAR 與由 UI 匯出的 Collection 或 Workspace ZIP，即可在終端執行一筆一般 `GRPC` unary 測試案例。
+正式 Linux 主機無法以瀏覽器操作時，使用者只攜帶 Post Bubi executable JAR 與由 UI 匯出的 Request、Collection 或 Workspace ZIP，即可在終端執行一筆一般 `GRPC` unary 測試案例。
 
 此功能不啟動 Web server、不匯入或修改既有 H2 workspace，也不需要 UI。HTTP、gRPC BUR、Batch 與 Request History 不屬於本階段。
 
@@ -20,12 +20,12 @@ java -jar post-bubi.jar run-grpc \
 必要參數：
 
 - `run-grpc`：第一個位置參數，啟用 headless gRPC CLI。
-- `--archive <path>`：Collection 或 Workspace export ZIP。
+- `--archive <path>`：Request、Collection 或 Workspace export ZIP。
 - `--request <name>`：要執行的 Request 名稱。
 
 選用參數：
 
-- `--collection <name>`：Workspace ZIP 內 Request 名稱重複時，用於限定 Collection。
+- `--collection <name>`：Workspace ZIP 內 Request 名稱重複時，用於限定 Collection；Request ZIP 僅有一筆 Request 時不需要提供。
 - `--folder <path>`：同一 Collection 仍有同名 Request 時，以 `/` 分隔的 Folder 路徑限定，例如 `付款/查詢`；根目錄使用 `/`。
 - `--environment <name>`：指定 ZIP 中的 Environment；未指定時只允許 Request 不含 `{{variable}}`。
 - `--var <key=value>`：可重複使用，優先覆寫指定 Environment 的變數；不得輸出其值至終端或 log。
@@ -66,7 +66,7 @@ Request、Collection 或 Environment 名稱必須完全相符。找不到、重�
 ## 驗證範圍
 
 - `--help` 與參數缺失的 exit code。
-- ZIP 內一般 gRPC request 透過 reflection 執行成功。
+- Request、Collection、Workspace ZIP 內一般 gRPC request 均可透過 reflection 執行成功。
 - ZIP 內 proto 及 import dependency 可在 server 未啟用 reflection 時執行。
 - Environment 與 `--var` 覆寫、未定義變數、同名 Request/Folders 選擇錯誤。
 - 非 `GRPC` request、streaming method、惡意 ZIP path 與輸出檔錯誤。

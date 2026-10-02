@@ -1,6 +1,10 @@
 package com.postbubi.web;
 
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.postbubi.service.WorkspaceService;
+import com.postbubi.workspace.WorkspaceArchiveService;
 import com.postbubi.web.dto.RequestCreateRequest;
 import com.postbubi.web.dto.RequestResponse;
 import com.postbubi.web.dto.RequestUpdateRequest;
@@ -21,14 +26,28 @@ import com.postbubi.web.dto.RequestUpdateRequest;
 public class RequestController {
 
     private final WorkspaceService workspaceService;
+    private final WorkspaceArchiveService workspaceArchiveService;
 
-    public RequestController(WorkspaceService workspaceService) {
+    public RequestController(WorkspaceService workspaceService, WorkspaceArchiveService workspaceArchiveService) {
         this.workspaceService = workspaceService;
+        this.workspaceArchiveService = workspaceArchiveService;
     }
 
     @GetMapping("/{id}")
     public RequestResponse getRequest(@PathVariable Long id) {
         return workspaceService.getRequest(id);
+    }
+
+    @GetMapping("/{id}/export")
+    public ResponseEntity<byte[]> exportRequest(@PathVariable Long id) {
+        byte[] content = workspaceArchiveService.exportRequest(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename("post-bubi-request.zip")
+                        .build()
+                        .toString())
+                .body(content);
     }
 
     @PostMapping

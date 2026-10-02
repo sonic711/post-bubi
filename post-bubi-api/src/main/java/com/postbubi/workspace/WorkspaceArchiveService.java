@@ -43,6 +43,7 @@ public class WorkspaceArchiveService {
     private static final String COLLECTION_JSON = "collection.json";
     private static final String ARCHIVE_TYPE_WORKSPACE = "WORKSPACE";
     private static final String ARCHIVE_TYPE_COLLECTION = "COLLECTION";
+    private static final String ARCHIVE_TYPE_REQUEST = "REQUEST";
 
     private final CollectionRepository collectionRepository;
     private final FolderRepository folderRepository;
@@ -84,6 +85,15 @@ public class WorkspaceArchiveService {
         return writeArchive(archive);
     }
 
+    @Transactional(readOnly = true)
+    public byte[] exportRequest(Long requestId) {
+        RequestEntity request = requestRepository.findById(requestId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "REQUEST_NOT_FOUND", "找不到指定的 Request。", Map.of("id", requestId)));
+        CollectionEntity collection = collectionRepository.findById(request.getCollectionId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "COLLECTION_NOT_FOUND", "找不到 Request 所屬的 Collection。", Map.of("id", request.getCollectionId())));
+        return writeArchive(buildRequestArchive(collection, request));
+    }
+
     private byte[] writeArchive(Archive archive) {
         Map<String, byte[]> fileEntries = collectReferencedFiles(archive.requests());
         Map<String, byte[]> protoEntries = collectProtoFiles(archive.protos());
@@ -122,6 +132,11 @@ public class WorkspaceArchiveService {
 
     @Transactional
     public ImportResult importWorkspace(MultipartFile file) {
+        return importWorkspace(file, null, null);
+    }
+
+    @Transactional
+    public ImportResult importWorkspace(MultipartFile file, Long targetCollectionId, Long targetFolderId) {
         if (file == null || file.isEmpty()) {
             throw badRequest("WORKSPACE_IMPORT_FILE_REQUIRED", "請選擇要匯入的 ZIP 檔。");
         }
@@ -133,8 +148,16 @@ public class WorkspaceArchiveService {
         }
         if (archive.schemaVersion() >= 3
                 && !ARCHIVE_TYPE_WORKSPACE.equals(archive.archiveType())
-                && !ARCHIVE_TYPE_COLLECTION.equals(archive.archiveType())) {
+                && !ARCHIVE_TYPE_COLLECTION.equals(archive.archiveType())
+                && !ARCHIVE_TYPE_REQUEST.equals(archive.archiveType())) {
             throw badRequest("WORKSPACE_ARCHIVE_TYPE_INVALID", "不支援的 Collection 封存檔類型。");
+        }
+
+        if (ARCHIVE_TYPE_REQUEST.equals(archive.archiveType())) {
+            return importRequestArchive(archive, zipContent, targetCollectionId, targetFolderId);
+        }
+        if (targetCollectionId != null || targetFolderId != null) {
+            throw badRequest("WORKSPACE_IMPORT_TARGET_NOT_SUPPORTED", "只有 Request ZIP 可以指定匯入位置。");
         }
 
         Map<Long, Long> collectionIds = new HashMap<>();
@@ -147,13 +170,23 @@ public class WorkspaceArchiveService {
             collectionIds.put(source.id(), entity.getId());
         }
 
-        Map<Long, Long> folderIds = importFolders(archive.folders(), collectionIds);
+        Map<Long, Long> folderIds = importFolders(safeList(archive.folders()), collectionIds);
         Map<String, String> fileIds = importFiles(zipContent.entries(), archive.files());
         Map<String, String> protoIds = importProtos(zipContent.entries(), archive.protos());
         int environmentCount = environmentService.importArchivedEnvironments(toStoredEnvironments(archive.environments()));
-        int requestCount = importRequests(archive.requests(), collectionIds, folderIds, fileIds, protoIds);
+        ImportedRequests importedRequests = importRequests(safeList(archive.requests()), collectionIds, folderIds, fileIds, protoIds);
 
-        return new ImportResult(collectionIds.size(), folderIds.size(), requestCount, protoIds.size(), environmentCount);
+        return new ImportResult(
+                collectionIds.size(),
+                folderIds.size(),
+                importedRequests.count(),
+                protoIds.size(),
+                environmentCount,
+                archive.archiveType(),
+                null,
+                null,
+                importedRequests.lastRequestId()
+        );
     }
 
     private Archive buildWorkspaceArchive() {
@@ -205,6 +238,49 @@ public class WorkspaceArchiveService {
         List<FileArchive> files = archiveFilesFromRequests(requests);
         List<ProtoArchive> protos = archiveProtosFromRequests(requests);
         return new Archive(SCHEMA_VERSION, ARCHIVE_TYPE_COLLECTION, Instant.now().toString(), collections, folders, requests, files, protos, List.of());
+    }
+
+    private Archive buildRequestArchive(CollectionEntity collection, RequestEntity request) {
+        List<CollectionArchive> collections = List.of(new CollectionArchive(
+                collection.getId(), collection.getName(), collection.getDescription(), collection.getSortOrder()
+        ));
+        Map<Long, FolderEntity> foldersById = new HashMap<>();
+        for (FolderEntity folder : folderRepository.findByCollectionIdOrderBySortOrderAscIdAsc(collection.getId())) {
+            foldersById.put(folder.getId(), folder);
+        }
+        List<FolderArchive> folders = new ArrayList<>();
+        Set<Long> visitedFolderIds = new HashSet<>();
+        Long folderId = request.getFolderId();
+        while (folderId != null) {
+            if (!visitedFolderIds.add(folderId)) {
+                throw new ApiException(
+                        HttpStatus.CONFLICT,
+                        "REQUEST_FOLDER_TREE_INVALID",
+                        "Request 所屬的 Folder 階層存在循環。",
+                        Map.of("requestId", request.getId(), "folderId", folderId)
+                );
+            }
+            FolderEntity folder = foldersById.get(folderId);
+            if (folder == null) {
+                throw new ApiException(
+                        HttpStatus.CONFLICT,
+                        "REQUEST_FOLDER_NOT_FOUND",
+                        "Request 所屬的 Folder 不存在或不屬於其 Collection。",
+                        Map.of("requestId", request.getId(), "folderId", folderId)
+                );
+            }
+            folders.add(0, new FolderArchive(
+                    folder.getId(), folder.getCollectionId(), folder.getParentFolderId(), folder.getName(), folder.getSortOrder()
+            ));
+            folderId = folder.getParentFolderId();
+        }
+        List<RequestArchive> requests = List.of(new RequestArchive(
+                request.getId(), request.getCollectionId(), request.getFolderId(), request.getType(), request.getName(),
+                request.getSortOrder(), replaceFileIdsWithArchivePaths(request.getPayloadJson(), null)
+        ));
+        List<FileArchive> files = archiveFilesFromRequests(requests);
+        List<ProtoArchive> protos = archiveProtosFromRequests(requests);
+        return new Archive(SCHEMA_VERSION, ARCHIVE_TYPE_REQUEST, Instant.now().toString(), collections, folders, requests, files, protos, List.of());
     }
 
     private List<ProtoArchive> archiveProtosFromRequests(List<RequestArchive> requests) {
@@ -447,7 +523,78 @@ public class WorkspaceArchiveService {
         return protoIds;
     }
 
-    private int importRequests(
+    private ImportResult importRequestArchive(
+            Archive archive,
+            ZipContent zipContent,
+            Long targetCollectionId,
+            Long targetFolderId
+    ) {
+        RequestArchive sourceRequest = requireSingleRequestArchive(archive);
+        CollectionArchive sourceCollection = findSourceCollection(archive, sourceRequest.collectionId());
+
+        if (targetCollectionId == null && targetFolderId != null) {
+            throw badRequest("WORKSPACE_IMPORT_TARGET_COLLECTION_REQUIRED", "指定目標 Folder 時必須同時指定目標 Collection。");
+        }
+        if (targetCollectionId == null) {
+            CollectionEntity collection = new CollectionEntity();
+            collection.setName(uniqueImportedCollectionName(sourceCollection.name()));
+            collection.setDescription(sourceCollection.description());
+            collection.setSortOrder(sourceCollection.sortOrder() == null ? 0 : sourceCollection.sortOrder());
+            collectionRepository.saveAndFlush(collection);
+
+            Map<String, String> fileIds = importFiles(zipContent.entries(), archive.files());
+            Map<String, String> protoIds = importProtos(zipContent.entries(), archive.protos());
+            Map<Long, Long> collectionIds = Map.of(sourceCollection.id(), collection.getId());
+            Map<Long, Long> folderIds = importFolders(safeList(archive.folders()), collectionIds);
+            if (sourceRequest.folderId() != null && !folderIds.containsKey(sourceRequest.folderId())) {
+                throw badRequest("WORKSPACE_REQUEST_FOLDER_INVALID", "Request ZIP 缺少所屬的 Folder。");
+            }
+            RequestEntity imported = importRequest(sourceRequest, collection.getId(),
+                    sourceRequest.folderId() == null ? null : folderIds.get(sourceRequest.folderId()), fileIds, protoIds);
+            return new ImportResult(1, folderIds.size(), 1, protoIds.size(), 0, ARCHIVE_TYPE_REQUEST,
+                    collection.getId(), imported.getFolderId(), imported.getId());
+        }
+
+        CollectionEntity targetCollection = collectionRepository.findById(targetCollectionId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "COLLECTION_NOT_FOUND", "找不到指定的目標 Collection。", Map.of("id", targetCollectionId)));
+        validateTargetFolder(targetCollection.getId(), targetFolderId);
+        Map<String, String> fileIds = importFiles(zipContent.entries(), archive.files());
+        Map<String, String> protoIds = importProtos(zipContent.entries(), archive.protos());
+        RequestEntity imported = importRequest(sourceRequest, targetCollection.getId(), targetFolderId, fileIds, protoIds);
+        return new ImportResult(0, 0, 1, protoIds.size(), 0, ARCHIVE_TYPE_REQUEST,
+                targetCollection.getId(), targetFolderId, imported.getId());
+    }
+
+    private RequestArchive requireSingleRequestArchive(Archive archive) {
+        List<RequestArchive> requests = safeList(archive.requests());
+        if (requests.size() != 1) {
+            throw badRequest("WORKSPACE_REQUEST_ARCHIVE_INVALID", "Request ZIP 必須恰好包含一筆 Request。");
+        }
+        return requests.get(0);
+    }
+
+    private CollectionArchive findSourceCollection(Archive archive, Long collectionId) {
+        if (collectionId == null) {
+            throw badRequest("WORKSPACE_REQUEST_ARCHIVE_INVALID", "Request ZIP 缺少所屬 Collection ID。");
+        }
+        return safeList(archive.collections()).stream()
+                .filter(collection -> collection.id() != null && collection.id().equals(collectionId))
+                .findFirst()
+                .orElseThrow(() -> badRequest("WORKSPACE_REQUEST_ARCHIVE_INVALID", "Request ZIP 缺少所屬 Collection。"));
+    }
+
+    private void validateTargetFolder(Long targetCollectionId, Long targetFolderId) {
+        if (targetFolderId == null) {
+            return;
+        }
+        FolderEntity folder = folderRepository.findById(targetFolderId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FOLDER_NOT_FOUND", "找不到指定的目標 Folder。", Map.of("id", targetFolderId)));
+        if (!targetCollectionId.equals(folder.getCollectionId())) {
+            throw badRequest("WORKSPACE_IMPORT_TARGET_FOLDER_INVALID", "目標 Folder 不屬於指定的 Collection。");
+        }
+    }
+
+    private ImportedRequests importRequests(
             List<RequestArchive> requests,
             Map<Long, Long> collectionIds,
             Map<Long, Long> folderIds,
@@ -455,18 +602,38 @@ public class WorkspaceArchiveService {
             Map<String, String> protoIds
     ) {
         int requestCount = 0;
+        Long lastRequestId = null;
         for (RequestArchive source : requests) {
-            RequestEntity entity = new RequestEntity();
-            entity.setCollectionId(collectionIds.get(source.collectionId()));
-            entity.setFolderId(source.folderId() == null ? null : folderIds.get(source.folderId()));
-            entity.setType(source.type());
-            entity.setName(source.name());
-            entity.setSortOrder(source.sortOrder() == null ? 0 : source.sortOrder());
-            entity.setPayloadJson(replaceProtoIds(replaceFileIdsWithArchivePaths(source.payloadJson(), fileIds), protoIds));
-            requestRepository.saveAndFlush(entity);
+            Long collectionId = collectionIds.get(source.collectionId());
+            if (collectionId == null) {
+                throw badRequest("WORKSPACE_REQUEST_COLLECTION_INVALID", "Request 所屬的 Collection 不存在。");
+            }
+            Long folderId = source.folderId() == null ? null : folderIds.get(source.folderId());
+            if (source.folderId() != null && folderId == null) {
+                throw badRequest("WORKSPACE_REQUEST_FOLDER_INVALID", "Request 所屬的 Folder 不存在。");
+            }
+            RequestEntity entity = importRequest(source, collectionId, folderId, fileIds, protoIds);
             requestCount++;
+            lastRequestId = entity.getId();
         }
-        return requestCount;
+        return new ImportedRequests(requestCount, lastRequestId);
+    }
+
+    private RequestEntity importRequest(
+            RequestArchive source,
+            Long collectionId,
+            Long folderId,
+            Map<String, String> fileIds,
+            Map<String, String> protoIds
+    ) {
+        RequestEntity entity = new RequestEntity();
+        entity.setCollectionId(collectionId);
+        entity.setFolderId(folderId);
+        entity.setType(source.type());
+        entity.setName(source.name());
+        entity.setSortOrder(source.sortOrder() == null ? 0 : source.sortOrder());
+        entity.setPayloadJson(replaceProtoIds(replaceFileIdsWithArchivePaths(source.payloadJson(), fileIds), protoIds));
+        return requestRepository.saveAndFlush(entity);
     }
 
     private List<EnvironmentService.StoredEnvironment> toStoredEnvironments(List<EnvironmentArchive> environments) {
@@ -502,7 +669,20 @@ public class WorkspaceArchiveService {
         return values == null ? List.of() : values;
     }
 
-    public record ImportResult(int collections, int folders, int requests, int protos, int environments) {
+    public record ImportResult(
+            int collections,
+            int folders,
+            int requests,
+            int protos,
+            int environments,
+            String archiveType,
+            Long importedCollectionId,
+            Long importedFolderId,
+            Long importedRequestId
+    ) {
+    }
+
+    private record ImportedRequests(int count, Long lastRequestId) {
     }
 
     private record ZipContent(Map<String, byte[]> entries) {

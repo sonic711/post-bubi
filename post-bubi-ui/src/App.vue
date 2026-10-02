@@ -126,6 +126,10 @@
             <div v-if="openTreeMenu === treeMenuId('collection', collection.id)" class="tree-action-menu">
               <button type="button" @click="prepareNewRequest(collection.id, null)"><Plus :size="15" aria-hidden="true" />新增 Request</button>
               <button type="button" @click="createFolderFromMenu(collection.id, null)"><FolderPlus :size="15" aria-hidden="true" />新增 Folder</button>
+              <label class="menu-file-action" @click.stop>
+                <Upload :size="15" aria-hidden="true" />匯入 Request
+                <input type="file" accept=".zip,application/zip" @change="importRequestToTarget($event, collection.id, null)" />
+              </label>
               <button type="button" @click="exportCollection(collection)"><Download :size="15" aria-hidden="true" />匯出 Collection</button>
               <button type="button" @click="openCollectionRename(collection)"><Pencil :size="15" aria-hidden="true" />重新命名</button>
               <button type="button" class="danger-menu-item" :disabled="deletingCollection" @click="deleteCollectionFromMenu(collection)"><Trash2 :size="15" aria-hidden="true" />刪除 Collection</button>
@@ -166,6 +170,10 @@
               <div v-if="openTreeMenu === treeMenuId('folder', folder.id)" class="tree-action-menu">
                 <button type="button" @click="prepareNewRequest(collection.id, folder.id)"><Plus :size="15" aria-hidden="true" />新增 Request</button>
                 <button type="button" @click="createFolderFromMenu(collection.id, folder.id)"><FolderPlus :size="15" aria-hidden="true" />新增子 Folder</button>
+                <label class="menu-file-action" @click.stop>
+                  <Upload :size="15" aria-hidden="true" />匯入 Request
+                  <input type="file" accept=".zip,application/zip" @change="importRequestToTarget($event, collection.id, folder.id)" />
+                </label>
                 <button type="button" class="danger-menu-item" :disabled="deletingFolder" @click="deleteFolderFromMenu(collection, folder)"><Trash2 :size="15" aria-hidden="true" />刪除 Folder</button>
               </div>
             </div>
@@ -203,6 +211,7 @@
                 <MoreHorizontal :size="18" aria-hidden="true" />
               </button>
               <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
+                <button type="button" @click="exportRequest(request)"><Download :size="15" aria-hidden="true" />匯出 Request</button>
                 <button type="button" @click="duplicateRequestFromMenu(request)"><Copy :size="15" aria-hidden="true" />複製 Request</button>
                 <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)"><Trash2 :size="15" aria-hidden="true" />刪除 Request</button>
               </div>
@@ -241,6 +250,7 @@
               <MoreHorizontal :size="18" aria-hidden="true" />
             </button>
             <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
+              <button type="button" @click="exportRequest(request)"><Download :size="15" aria-hidden="true" />匯出 Request</button>
               <button type="button" @click="duplicateRequestFromMenu(request)"><Copy :size="15" aria-hidden="true" />複製 Request</button>
               <button type="button" class="danger-menu-item" :disabled="deleting" @click="deleteRequestFromMenu(request)"><Trash2 :size="15" aria-hidden="true" />刪除 Request</button>
             </div>
@@ -2355,6 +2365,21 @@ async function exportCollection(collection) {
   }
 }
 
+async function exportRequest(request) {
+  closeTreeMenu()
+  try {
+    const response = await fetch(`/api/requests/${request.id}/export`)
+    if (!response.ok) {
+      const payload = await response.json()
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    downloadZip(await response.blob(), `post-bubi-request-${safeDownloadName(request.name)}.zip`)
+    workspaceStatus.value = `Request 已匯出：${request.name}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  }
+}
+
 async function exportEnvironment() {
   if (!activeEnvironment.value) {
     return
@@ -2450,6 +2475,61 @@ async function importWorkspace(event) {
   } finally {
     event.target.value = ''
   }
+}
+
+async function importRequestToTarget(event, targetCollectionId, targetFolderId) {
+  const file = event.target.files?.[0]
+  if (!file) {
+    return
+  }
+  closeTreeMenu()
+  if (!confirmDiscardUnsavedChanges()) {
+    event.target.value = ''
+    return
+  }
+  cacheCurrentResponse()
+  newDraftRequest({ force: true })
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const query = new URLSearchParams({ targetCollectionId: String(targetCollectionId) })
+    if (targetFolderId) {
+      query.set('targetFolderId', String(targetFolderId))
+    }
+    const response = await fetch(`/api/workspace/import?${query}`, {
+      method: 'POST',
+      body: formData,
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      throw new Error(`${payload.code || response.status}: ${payload.message || response.statusText}`)
+    }
+    await loadCollections()
+    await loadProtos()
+    const importedRequest = findRequestById(payload.importedRequestId)
+    if (importedRequest) {
+      await selectRequest(importedRequest)
+    }
+    workspaceStatus.value = `Request 已匯入：${importedRequest?.name || '已加入指定位置'}`
+  } catch (error) {
+    workspaceStatus.value = readableError(error)
+  } finally {
+    event.target.value = ''
+  }
+}
+
+function findRequestById(requestId) {
+  if (!requestId) {
+    return null
+  }
+  for (const collection of collections.value) {
+    const request = (collection.requests || []).find((item) => item.id === requestId)
+    if (request) {
+      return request
+    }
+  }
+  return null
 }
 
 async function deleteCollection(collection) {

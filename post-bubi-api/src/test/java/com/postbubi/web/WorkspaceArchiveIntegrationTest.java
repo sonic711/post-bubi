@@ -199,6 +199,111 @@ class WorkspaceArchiveIntegrationTest {
     }
 
     @Test
+    void exportsSingleRequestWithRequiredResourcesAndImportsItToNewOrSelectedLocation() throws Exception {
+        long sourceCollectionId = postJson("/api/collections", """
+                {"name": "來源 Collection", "description": "request archive"}
+                """).path("id").asLong();
+        long parentFolderId = postJson("/api/folders", """
+                {"collectionId": %d, "parentFolderId": null, "name": "Parent", "sortOrder": 1}
+                """.formatted(sourceCollectionId)).path("id").asLong();
+        long childFolderId = postJson("/api/folders", """
+                {"collectionId": %d, "parentFolderId": %d, "name": "Child", "sortOrder": 1}
+                """.formatted(sourceCollectionId, parentFolderId)).path("id").asLong();
+        String fileId = objectMapper.readTree(uploadFile("only-request.txt", "request archive payload").getBody())
+                .path("fileId").asText();
+        String protoId = objectMapper.readTree(uploadProto("only-request.proto", """
+                syntax = "proto3";
+                package archive.demo;
+                message OnlyRequest { string value = 1; }
+                """).getBody()).path("protoId").asText();
+        long requestId = postJson("/api/requests", """
+                {
+                  "collectionId": %d,
+                  "folderId": %d,
+                  "type": "HTTP",
+                  "name": "Only Request",
+                  "sortOrder": 2,
+                  "payloadJson": "{\\"requestType\\":\\"HTTP\\",\\"grpcProtoId\\":\\"%s\\",\\"bodyType\\":\\"form-data\\",\\"formData\\":[{\\"type\\":\\"file\\",\\"name\\":\\"file\\",\\"fileId\\":\\"%s\\",\\"fileName\\":\\"only-request.txt\\",\\"contentType\\":\\"text/plain\\",\\"enabled\\":true}]}"
+                }
+                """.formatted(sourceCollectionId, childFolderId, protoId, fileId)).path("id").asLong();
+        postJson("/api/requests", """
+                {"collectionId": %d, "folderId": null, "type": "HTTP", "name": "Do not export", "sortOrder": 3, "payloadJson": "{\\"requestType\\":\\"HTTP\\"}"}
+                """.formatted(sourceCollectionId));
+
+        ResponseEntity<byte[]> exportResponse = restTemplate.getForEntity("/api/requests/{id}/export", byte[].class, requestId);
+        assertThat(exportResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Set<String> entries = zipEntries(exportResponse.getBody());
+        assertThat(entries).contains(
+                "collection.json",
+                "files/" + fileId + "-only-request.txt",
+                "protos/" + protoId + "-only-request.proto"
+        );
+        JsonNode archive = collectionJson(exportResponse.getBody());
+        assertThat(archive.path("archiveType").asText()).isEqualTo("REQUEST");
+        assertThat(archive.path("collections")).hasSize(1);
+        assertThat(archive.path("folders")).hasSize(2);
+        assertThat(archive.path("requests")).hasSize(1);
+        assertThat(archive.path("requests").get(0).path("name").asText()).isEqualTo("Only Request");
+        assertThat(archive.path("environments")).isEmpty();
+
+        JsonNode globalImport = objectMapper.readTree(importWorkspace(exportResponse.getBody()).getBody());
+        assertThat(globalImport.path("archiveType").asText()).isEqualTo("REQUEST");
+        assertThat(globalImport.path("collections").asInt()).isEqualTo(1);
+        assertThat(globalImport.path("folders").asInt()).isEqualTo(2);
+        assertThat(globalImport.path("requests").asInt()).isEqualTo(1);
+
+        long targetCollectionId = postJson("/api/collections", """
+                {"name": "目標 Collection", "description": "target"}
+                """).path("id").asLong();
+        long targetFolderId = postJson("/api/folders", """
+                {"collectionId": %d, "parentFolderId": null, "name": "目標 Folder", "sortOrder": 1}
+                """.formatted(targetCollectionId)).path("id").asLong();
+        JsonNode targetImport = objectMapper.readTree(importWorkspace(
+                exportResponse.getBody(),
+                "/api/workspace/import?targetCollectionId=%d&targetFolderId=%d".formatted(targetCollectionId, targetFolderId)
+        ).getBody());
+        assertThat(targetImport.path("collections").asInt()).isZero();
+        assertThat(targetImport.path("folders").asInt()).isZero();
+        assertThat(targetImport.path("requests").asInt()).isEqualTo(1);
+        assertThat(targetImport.path("importedCollectionId").asLong()).isEqualTo(targetCollectionId);
+        assertThat(targetImport.path("importedFolderId").asLong()).isEqualTo(targetFolderId);
+
+        JsonNode collections = objectMapper.readTree(restTemplate.getForEntity("/api/collections", String.class).getBody());
+        JsonNode target = java.util.stream.StreamSupport.stream(collections.spliterator(), false)
+                .filter(collection -> collection.path("id").asLong() == targetCollectionId)
+                .findFirst()
+                .orElseThrow();
+        assertThat(target.path("folders")).hasSize(1);
+        JsonNode imported = java.util.stream.StreamSupport.stream(target.path("requests").spliterator(), false)
+                .filter(request -> request.path("id").asLong() == targetImport.path("importedRequestId").asLong())
+                .findFirst()
+                .orElseThrow();
+        assertThat(imported.path("folderId").asLong()).isEqualTo(targetFolderId);
+        JsonNode payload = objectMapper.readTree(imported.path("payloadJson").asText());
+        assertThat(payload.path("formData").get(0).path("fileId").asText()).isNotEqualTo(fileId);
+        assertThat(payload.path("grpcProtoId").asText()).isNotEqualTo(protoId);
+    }
+
+    @Test
+    void rejectsTargetLocationForCollectionZip() throws Exception {
+        long collectionId = postJson("/api/collections", """
+                {"name": "一般 Collection", "description": "source"}
+                """).path("id").asLong();
+        long targetCollectionId = postJson("/api/collections", """
+                {"name": "目標 Collection", "description": "target"}
+                """).path("id").asLong();
+        ResponseEntity<byte[]> exportResponse = restTemplate.getForEntity("/api/collections/{id}/export", byte[].class, collectionId);
+
+        ResponseEntity<String> response = importWorkspace(
+                exportResponse.getBody(),
+                "/api/workspace/import?targetCollectionId=" + targetCollectionId
+        );
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(objectMapper.readTree(response.getBody()).path("code").asText())
+                .isEqualTo("WORKSPACE_IMPORT_TARGET_NOT_SUPPORTED");
+    }
+
+    @Test
     void rejectsWorkspaceImportZipWithUnsafePath() throws Exception {
         byte[] zipBytes = zipWithUnsafePath();
         ResponseEntity<String> response = importWorkspace(zipBytes);
@@ -274,11 +379,15 @@ class WorkspaceArchiveIntegrationTest {
     }
 
     private ResponseEntity<String> importWorkspace(byte[] zipBytes) {
+        return importWorkspace(zipBytes, "/api/workspace/import");
+    }
+
+    private ResponseEntity<String> importWorkspace(byte[] zipBytes, String path) {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", new NamedByteArrayResource("workspace.zip", zipBytes));
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        return restTemplate.exchange("/api/workspace/import", HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+        return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }
 
     private HttpHeaders jsonHeaders() {
