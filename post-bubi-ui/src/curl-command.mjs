@@ -1,4 +1,7 @@
+import { applyHttpFieldRules } from './http-field-rules.mjs'
+
 export function buildCurlCommand(payload, shell) {
+  payload = applyHttpFieldRules(payload)
   const parts = [
     `--request ${quoteCurlArgument(payload.method || 'GET', shell)}`,
     `--url ${quoteCurlArgument(buildCurlUrl(payload.url, payload.params), shell)}`,

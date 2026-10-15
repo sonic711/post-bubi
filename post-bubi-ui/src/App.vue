@@ -1197,6 +1197,7 @@ import {
   X,
 } from '@lucide/vue'
 import { buildCurlCommand as createCurlCommand, hasCurlTemplateVariables } from './curl-command.mjs'
+import { formatJsonSource, renderJsonSource, utf8SourceRanges } from './json-source.mjs'
 import postBubiLogo from './assets/post-bubi-logo.png'
 import { copyText, filterCollections, handleTabKeydown, workspaceDialog as vWorkspaceDialog } from './workspace-ui.mjs'
 
@@ -1488,6 +1489,7 @@ const batchRequestSummary = computed(() => {
 })
 
 const curlPreview = computed(() => {
+  if (!showCurlDialog.value) return { command: '', error: '' }
   try {
     const payload = curlResolveVariables.value
       ? resolveExecutionPayload(executePayload())
@@ -1977,7 +1979,7 @@ function formatActiveJson(options = {}) {
     return
   }
   try {
-    activeBodyText.value = `${JSON.stringify(JSON.parse(value), null, 2)}\n`
+    activeBodyText.value = formatJsonSource(value)
     if (!options.silent) {
       workspaceStatus.value = 'JSON 已自動排版'
     }
@@ -2020,12 +2022,35 @@ function highlightJson(value) {
 
 function highlightRequestBody() {
   const body = activeBodyText.value
-  const parsed = tryJsonParse(body)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return highlightJson(body)
+  if (!body) return ''
+  const rules = activeJsonFieldRuleMap()
+  const rendered = renderJsonSource(body, {
+    escape: escapeHtml,
+    key: (raw) => `<span class="json-key">${escapeHtml(raw)}</span>`,
+    literal: (raw, node, pointer) => {
+      const encoded = requestType.value === 'GRPC' && grpcEncodePayloadDataBase64.value && pointer === '/payload/data'
+      const fieldRules = rules.get(pointer)
+      if (fieldRules?.length) return renderSourceFieldRuleValue(raw, node, fieldRules, encoded)
+      const content = `<span class="json-${node.type}">${escapeHtml(raw)}</span>`
+      return encoded ? renderPayloadBase64JsonValue(node.value, content) : content
+    },
+  })
+  return rendered ?? highlightJson(body)
+}
+
+function renderSourceFieldRuleValue(raw, node, rules, encoded) {
+  if (node.type !== 'string' || rules[0].targetType !== 'GRPC_PAYLOAD_DATA_RANGE') {
+    return renderFieldRuleSpan(`<span class="json-${node.type}">${escapeHtml(raw)}</span>`, rules[0], encoded)
   }
-  const encodedPaths = requestType.value === 'GRPC' && grpcEncodePayloadDataBase64.value ? new Set(['$.payload.data']) : new Set()
-  return renderJsonValue(parsed, '$', 0, new Map(), encodedPaths, activeJsonFieldRuleMap())
+  let cursor = 0
+  let rendered = ''
+  for (const range of utf8SourceRanges(raw, rules)) {
+    rendered += escapeHtml(raw.slice(cursor, range.start))
+    rendered += renderFieldRuleSpan(escapeHtml(raw.slice(range.start, range.end)), range.rule, encoded)
+    cursor = range.end
+  }
+  const content = `<span class="json-string">${rendered}${escapeHtml(raw.slice(cursor))}</span>`
+  return encoded && !rendered ? renderPayloadBase64JsonValue(node.value, content) : content
 }
 
 function activeJsonFieldRuleMap() {
@@ -2179,16 +2204,10 @@ function highlightResponseBody() {
   return renderJsonValue(parsed, '$', 0, decodedResponseMap.value)
 }
 
-function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set(), fieldRuleMap = new Map(), pointer = '') {
+function renderJsonValue(value, path, depth, decodedMap) {
   const decoded = decodedMap.get(path)
   if (decoded) {
     return renderDecodedJsonValue(decoded, depth)
-  }
-  if (fieldRuleMap.has(pointer) && (value === null || typeof value !== 'object')) {
-    return renderFieldRuleJsonValue(value, fieldRuleMap.get(pointer), encodedPaths.has(path))
-  }
-  if (encodedPaths.has(path)) {
-    return renderPayloadBase64JsonValue(value)
   }
   if (Array.isArray(value)) {
     if (!value.length) {
@@ -2196,7 +2215,7 @@ function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set(
     }
     const childDepth = depth + 1
     const rows = value.map((item, index) => {
-      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap, encodedPaths, fieldRuleMap, `${pointer}/${index}`)}`
+      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap)}`
     })
     return `[\n${rows.join(',\n')}\n${indent(depth)}]`
   }
@@ -2208,40 +2227,11 @@ function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set(
     const childDepth = depth + 1
     const rows = entries.map(([key, item]) => {
       const keyPath = `${path}.${key}`
-      const childPointer = `${pointer}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`
-      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap, encodedPaths, fieldRuleMap, childPointer)}`
+      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap)}`
     })
     return `{\n${rows.join(',\n')}\n${indent(depth)}}`
   }
   return renderJsonPrimitive(value)
-}
-
-function renderFieldRuleJsonValue(value, rules, base64Encoded = false) {
-  const list = Array.isArray(rules) ? rules : [rules]
-  if (typeof value === 'string' && list[0].targetType === 'GRPC_PAYLOAD_DATA_RANGE') {
-    const boundaries = new Map([[0, 0]])
-    const encoder = new TextEncoder()
-    let byteOffset = 0
-    let charOffset = 0
-    for (const character of value) {
-      byteOffset += encoder.encode(character).length
-      charOffset += character.length
-      boundaries.set(byteOffset, charOffset)
-    }
-    let cursor = 0
-    let rendered = ''
-    const fragment = (text) => escapeHtml(JSON.stringify(text).slice(1, -1))
-    for (const rule of [...list].sort((left, right) => left.start - right.start)) {
-      const start = boundaries.get(Number(rule.start) - 1)
-      const end = boundaries.get(Number(rule.end))
-      if (start === undefined || end === undefined || start < cursor || end <= start) continue
-      rendered += fragment(value.slice(cursor, start))
-      rendered += renderFieldRuleSpan(fragment(value.slice(start, end)), rule, base64Encoded)
-      cursor = end
-    }
-    return `<span class="json-string">"${rendered}${fragment(value.slice(cursor))}"</span>`
-  }
-  return renderFieldRuleSpan(renderJsonPrimitive(value), list[0], base64Encoded)
 }
 
 function renderFieldRuleSpan(content, rule, base64Encoded) {
@@ -2258,8 +2248,8 @@ function renderDecodedJsonValue(decoded, depth) {
   return `<span class="json-decoded-field" title="原始 base64: ${escapeAttribute(decoded.original || '')}">${rendered}</span><span class="json-decoded-badge">decoded</span>`
 }
 
-function renderPayloadBase64JsonValue(value) {
-  return `<span class="json-base64-send-field" title="送出時會將此值以 UTF-8 編碼為 Base64">${renderJsonPrimitive(value)}<span class="json-base64-send-badge">BASE64</span></span>`
+function renderPayloadBase64JsonValue(value, content = renderJsonPrimitive(value)) {
+  return `<span class="json-base64-send-field" title="送出時會將此值以 UTF-8 編碼為 Base64">${content}<span class="json-base64-send-badge">BASE64</span></span>`
 }
 
 function renderJsonPrimitive(value) {

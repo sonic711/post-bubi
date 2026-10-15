@@ -77,6 +77,41 @@ test('可辨識未解析的 Environment 模板', () => {
   assert.equal(hasCurlTemplateVariables('https://example.test/api'), false)
 })
 
+test('Bash cURL 實際送出套用規則的 JSON，且不改寫保存內容', async () => {
+  let received
+  const server = http.createServer(async (request, response) => {
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    received = Buffer.concat(chunks).toString()
+    response.end('ok')
+  })
+  await listen(server)
+  const rule = (path, action) => ({ id: path, name: path, path, action, enabled: true,
+    color: '#AB005F', targetType: 'HTTP_JSON_VALUE' })
+  try {
+    const payload = { method: 'POST', url: `http://127.0.0.1:${server.address().port}`, bodyType: 'json',
+      body: '{"id":"0009","count":9007199254740993,"day":"00","keep":"原文"}',
+      fieldRules: [rule('/id', 'INCREMENT'), rule('/count', 'INCREMENT'), rule('/day', 'TODAY_DD'), rule('/keep', 'NONE')] }
+    const original = payload.body
+    const bash = buildCurlCommand(payload, 'bash')
+    const powershell = buildCurlCommand(payload, 'powershell')
+    await execFileAsync('bash', ['-c', bash])
+    assert.match(received, /"id":"0010"/)
+    assert.match(received, /"count":9007199254740994/)
+    assert.equal(JSON.parse(received).day, new Intl.DateTimeFormat('en', { timeZone: 'Asia/Taipei', day: '2-digit' }).format(new Date()))
+    assert.equal(JSON.parse(received).keep, '原文')
+    assert.ok(powershell.includes(received))
+    assert.equal(payload.body, original)
+  } finally {
+    await close(server)
+  }
+})
+
+test('cURL 拒絕尚未解析的遞增變數，而非產生未套用規則的指令', () => {
+  assert.throws(() => buildCurlCommand({ bodyType: 'json', body: '{"id":"{{sequence}}"}',
+    fieldRules: [{ id: 'id', name: '序號', enabled: true, color: '#AB005F', action: 'INCREMENT', targetType: 'HTTP_JSON_VALUE', path: '/id' }] }, 'bash'), /Environment/)
+})
+
 function assertHeaderOrder(headers, ...names) {
   const normalized = headers
     .filter((_, index) => index % 2 === 0)

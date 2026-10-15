@@ -2,11 +2,14 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
+import { renderJsonSource, utf8SourceRanges } from './json-source.mjs'
 
 const source = await readFile(new URL('./App.vue', import.meta.url), 'utf8')
 function editor() {
   const context = {
     TextEncoder,
+    renderJsonSource, utf8SourceRanges,
+    activeBodyText: { value: '' }, grpcEncodePayloadDataBase64: { value: false },
     requestType: { value: 'HTTP' }, bodyType: { value: 'json' },
     activeFieldRules: { value: [] }, batchUseFieldRules: { value: true },
     tryJsonParse: (value) => { try { return JSON.parse(value) } catch { return null } },
@@ -20,7 +23,8 @@ function editor() {
   vm.createContext(context)
   for (const name of ['newFieldRuleForType', 'restoreFieldRules', 'ruleColor', 'fieldRuleSummary',
     'fieldRuleValidationMessage', 'collectHttpJsonFieldOptions', 'renderJsonValue',
-    'renderFieldRuleJsonValue', 'renderFieldRuleSpan', 'renderJsonPrimitive', 'indent', 'batchExecutePayload', 'loadHistoryItem']) {
+    'renderFieldRuleSpan', 'renderJsonPrimitive', 'indent', 'batchExecutePayload', 'loadHistoryItem',
+    'highlightRequestBody', 'activeJsonFieldRuleMap', 'renderSourceFieldRuleValue', 'renderPayloadBase64JsonValue', 'highlightJson']) {
     const start = source.search(new RegExp(`^function ${name}\\(`, 'm'))
     assert.ok(start >= 0, name)
     const remaining = source.slice(start)
@@ -100,19 +104,58 @@ test('gRPC highlighting supports multiple UTF-8 ranges without changing JSON tex
   const context = editor()
   const rules = [rule({ targetType: 'GRPC_PAYLOAD_DATA_RANGE', start: 4, end: 7 }),
     rule({ id: 'two', targetType: 'GRPC_PAYLOAD_DATA_RANGE', start: 8, end: 11, action: 'NONE' })]
-  const html = context.renderFieldRuleJsonValue('繁0009<>&"', rules, true)
+  context.requestType.value = 'GRPC'
+  context.grpcEncodePayloadDataBase64.value = true
+  context.activeFieldRules.value = rules
+  context.activeBodyText.value = JSON.stringify({ payload: { data: '繁0009<>&"' } })
+  const html = context.highlightRequestBody()
   assert.equal((html.match(/class="json-field-rule"/g) || []).length, 2)
   assert.match(html, /&lt;&gt;&amp;/)
   assert.match(html, /BASE64/)
   assert.match(html, /0009/)
-  const split = context.renderFieldRuleJsonValue('繁0009', [rule({ targetType: 'GRPC_PAYLOAD_DATA_RANGE', start: 2, end: 4 })])
+  context.activeBodyText.value = JSON.stringify({ payload: { data: '繁0009' } })
+  context.activeFieldRules.value = [rule({ targetType: 'GRPC_PAYLOAD_DATA_RANGE', start: 2, end: 4 })]
+  const split = context.highlightRequestBody()
   assert.ok(!split.includes('class="json-field-rule"'))
 })
 
 test('HTTP highlighting uses canonical JSON Pointer rather than ambiguous dotted keys', () => {
   const context = editor()
-  const html = context.renderJsonValue({ 'a.b': { 'x/y': '0099' }, a: { b: 'not highlighted' } }, '$', 0, new Map(),
-    new Set(), new Map([['/a.b/x~1y', [rule({ path: '/a.b/x~1y' })]]]))
+  context.activeBodyText.value = JSON.stringify({ 'a.b': { 'x/y': '0099' }, a: { b: 'not highlighted' } })
+  context.activeFieldRules.value = [rule({ path: '/a.b/x~1y' })]
+  const html = context.highlightRequestBody()
   assert.equal((html.match(/class="json-field-rule"/g) || []).length, 1)
   assert.match(html, /0099/)
+})
+
+function sourceText(html) {
+  return html.replace(/<span class="json-(?:field-rule-badge|base64-send-badge)">.*?<\/span>/g, '')
+    .replace(/<[^>]*>/g, '').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
+}
+
+test('Request overlay preserves compact JSON, arbitrary whitespace, escapes, numeric spelling and trailing lines', () => {
+  const context = editor()
+  for (const value of ['{"payload":{"id":"0009"}}', ' \t{\r\n\t"a": 1.00e+2, "b": "\\u7e41\\n<>&"\r\n}\n\n',
+    '{"id":9007199254740993,"id":2}', '[ 1, true, null ]\n', '{"incomplete": ', '']) {
+    context.activeBodyText.value = value
+    assert.equal(sourceText(context.highlightRequestBody()), value)
+  }
+})
+
+test('source-based HTTP and gRPC rule/Base64 badges never change the underlying JSON text', () => {
+  const context = editor()
+  context.activeBodyText.value = '{ "a.b" : {"x/y":"\\u00300009"} }\n'
+  context.activeFieldRules.value = [rule({ path: '/a.b/x~1y' })]
+  const http = context.highlightRequestBody()
+  assert.equal(sourceText(http), context.activeBodyText.value)
+  assert.match(http, /class="json-field-rule"/)
+  context.requestType.value = 'GRPC'
+  context.grpcEncodePayloadDataBase64.value = true
+  context.activeBodyText.value = '{"payload" : {"data" : "\\u7e41\\u0030000900"}}\n\n'
+  context.activeFieldRules.value = [rule({ targetType: 'GRPC_PAYLOAD_DATA_RANGE', start: 4, end: 7 }),
+    rule({ id: 'day', targetType: 'GRPC_PAYLOAD_DATA_RANGE', start: 8, end: 9 })]
+  const grpc = context.highlightRequestBody()
+  assert.equal(sourceText(grpc), context.activeBodyText.value)
+  assert.equal((grpc.match(/class="json-field-rule"/g) || []).length, 2)
+  assert.match(grpc, /BASE64/)
 })

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 
 assert.equal(process.env.UIUX_TEST_DATABASE, 'isolated', 'Use a separate test database')
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
@@ -25,10 +29,12 @@ async function api(path, body, method = 'POST') {
 }
 const browser = await chromium.launch(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {})
 let collection
+let environment
 const errors = []
 const checks = []
 try {
   collection = await api('/collections', { name: '欄位規則還原驗證' })
+  environment = await api('/environments', { name: '欄位規則 cURL', variables: [{ key: 'sequence', value: '0009' }] })
   const body = JSON.stringify({ payload: { id: '0009', day: '00', unchanged: '固定內容' } }, null, 2)
   const http = await api('/requests', { collectionId: collection.id, type: 'HTTP', name: 'HTTP 欄位規則',
     payloadJson: JSON.stringify({ requestType: 'HTTP', method: 'POST', url: `http://127.0.0.1:${receiver.address().port}`,
@@ -68,6 +74,30 @@ try {
   await requestTab('Body').click()
   assert.equal(await page.locator('.json-field-rule').count(), 3)
   checks.push('HTTP Settings CRUD, custom colors, actual increment/DD, autosave preserves original Body')
+
+  await page.getByRole('button', { name: '產生 cURL', exact: true }).click()
+  const curl = await page.locator('.curl-command-output').textContent()
+  await execFileAsync('bash', ['-c', curl])
+  assert.equal(received.at(-1).payload.id, '0010')
+  assert.equal(received.at(-1).payload.day, new Intl.DateTimeFormat('en', { day: '2-digit', timeZone: 'Asia/Taipei' }).format(new Date()))
+  await page.getByRole('button', { name: 'PowerShell', exact: true }).click()
+  assert.match(await page.locator('.curl-command-output').textContent(), /0010/)
+  await page.getByRole('dialog').press('Escape')
+  checks.push('Actual UI-generated Bash cURL applies increment/DD like Send; PowerShell uses same transformed Body')
+
+  await page.getByLabel('目前 Environment', { exact: true }).selectOption(String(environment.id))
+  const httpInput = page.getByLabel('JSON Body', { exact: true })
+  await httpInput.fill(JSON.stringify({ payload: { id: '{{sequence}}', day: '00', unchanged: '固定內容' } }))
+  await page.getByRole('button', { name: '產生 cURL', exact: true }).click()
+  assert.match(await page.getByRole('dialog').locator('.batch-form-error').textContent(), /Environment/)
+  assert.equal(await page.getByRole('button', { name: '複製指令', exact: true }).isDisabled(), true)
+  await page.getByLabel('套用目前 Environment', { exact: true }).check()
+  const resolvedCurl = await page.locator('.curl-command-output').textContent()
+  await execFileAsync('bash', ['-c', resolvedCurl])
+  assert.equal(received.at(-1).payload.id, '0010')
+  await page.getByRole('dialog').press('Escape')
+  await httpInput.fill(body)
+  checks.push('cURL blocks unresolved rule targets and applies Environment before increment')
 
   const duplicate = await api(`/requests/${http.id}/duplicate`, {})
   assert.deepEqual(JSON.parse(duplicate.payloadJson).fieldRules, saved.fieldRules)
@@ -139,6 +169,37 @@ try {
     }
   }
   checks.push('Custom rule controls fit desktop/mobile Light/Dark layouts')
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await requestTab('Body').click()
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base })
+  const input = page.getByLabel('JSON Body', { exact: true })
+  for (const text of ['{"payload":{"data":"\\u7e41000900"}}',
+    '{\n\t"payload" : { "data" : "繁000900" },\n    "rows" : [1, 2, null]\n}\n\n',
+    JSON.stringify({ payload: { data: '繁000900' }, rows: Array.from({ length: 100 }, (_, index) => ({ index, text: '<>&"\\' })) }, null, 4) + '\n\n']) {
+    await input.fill(text)
+    const visible = await page.locator('.json-highlight').evaluate((element) => {
+      const clone = element.cloneNode(true)
+      clone.querySelectorAll('.json-field-rule-badge,.json-base64-send-badge').forEach((badge) => badge.remove())
+      return clone.textContent
+    })
+    assert.equal(visible, text)
+    await input.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event('scroll'))
+      const start = element.value.indexOf('0009')
+      element.setSelectionRange(start, start + 4)
+    })
+    const alignment = await page.locator('.json-editor').evaluate((element) => {
+      const textarea = element.querySelector('textarea')
+      const pre = element.querySelector('pre')
+      return Math.abs(textarea.scrollTop - pre.scrollTop)
+    })
+    assert.ok(alignment <= 1)
+    await input.press(process.platform === 'darwin' ? 'Meta+c' : 'Control+c')
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '0009')
+  }
+  await page.screenshot({ path: `${output}/source-alignment.png` })
+  checks.push('Source-exact compact/tabbed/escaped/long JSON, bottom scroll and native clipboard selection')
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({ passed: checks, errors, screenshots: output }, null, 2))
 } catch (error) {
@@ -148,5 +209,6 @@ try {
 } finally {
   await browser.close()
   if (collection) await api(`/collections/${collection.id}`, undefined, 'DELETE')
+  if (environment) await api(`/environments/${environment.id}`, undefined, 'DELETE')
   await new Promise((resolve) => receiver.close(resolve))
 }

@@ -40,6 +40,14 @@ Decoded 顯示明碼、編碼、格式、byte 長度與個別錯誤；Body 成�
 
 ## 驗證
 
+### 2026-10-15 整合修正合約
+
+- Request JSON 上色必須以原始文字的 token offset 呈現，保留縮排、空白、數字原文、Unicode / JSON escape 與尾端換行，不可因語法上色改變顯示文字；HTTP Pointer、gRPC UTF-8 byte 範圍與 Base64 標記仍保留。JSON 尚未輸入完整時採一般語法上色，不改寫原文。
+- HTTP 轉 cURL 必須套用啟用的欄位規則：單次遞增加 1、台灣今日 DD、僅標示不改值，與網頁送出順序一致。可選 Environment 解析先於規則；規則目標仍含未解析模板時，不可猜測遞增結果，須提示套用 Environment 並停用複製。
+- cURL 規則驗證、轉換與複製維持瀏覽器內處理，不新增後端 API、History 或 log，不修改保存的 Body；Bash / PowerShell 共用轉換結果。整數不可因 JavaScript Number 失去精度。
+- 使用固定版本 [Microsoft jsonc-parser](https://github.com/microsoft/node-jsonc-parser) `3.3.1` 保留 token 座標，不自行重寫 JSON parser；程式隨前端打包進 JAR，不使用 CDN。離線重建的 Yarn cache 須包含新增的 `jsonc-parser-3.3.1.tgz`，舊 cache 需更新；不涉及 Windows 離線包或 Gradle task 擴充。
+- 原有自動排版仍保留，但只調整空白，不透過 JavaScript Number 重新序列化大整數；數字字面、重複 key 與 Unicode escape 維持原文。
+
 還原後驗證規則單元測試、三協定單次 / Batch、CLI、ZIP 與新版 UIUX 回歸，重新建置正式 JAR；執行結果與待驗收事項記錄於 `DEVELOPMENT_PROGRESS.md`。
 
 ### 人工驗收

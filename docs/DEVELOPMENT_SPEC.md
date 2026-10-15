@@ -277,6 +277,7 @@ HTTP Request editor 必須提供 cURL 匯出與複製功能，第一版只產生
 - 指令必須包含 method、完整 URL 與啟用中的 query params/header，並維持 header 原本排序。
 - `followRedirects` 必須轉為 `--location`；`ignoreSslVerification` 必須轉為 `--insecure`；timeout 必須轉為 `--max-time`。
 - JSON、raw、`x-www-form-urlencoded` 必須轉為相應的 `--data`；`form-data` 必須轉為 `-F`。
+- JSON 的 cURL Body 必須先套用目前啟用的 HTTP 欄位規則（單次加 1 / 台灣今日 DD / 僅標示），Environment 解析先於規則；目標含未解析模板、規則無效或溢位時顯示錯誤並禁止複製。轉換在瀏覽器進行，不更動保存 Body；整數不得因 JavaScript Number 失去精度。
 - 已上傳的 form-data file 不保存使用者原始本機路徑，cURL 必須輸出明確的 `@/path/to/file` placeholder。
 - 預設輸出保留 `{{variable}}`，避免將 Environment 的敏感值直接複製。使用者可選擇套用目前 Environment 產生可直接執行的指令，UI 必須先提示指令可能包含 Token、帳密或內網位址。
 - 保留 `{{variable}}` 的 Bash/zsh 指令是供分享或後續替換的模板，不能直接在 Linux shell 執行；UI 必須清楚提示使用者勾選套用目前 Environment 後再複製，或自行將模板替換為實際值。
@@ -875,6 +876,8 @@ Response viewer 與 Request editor 之間必須提供垂直可拖拉分隔列：
 - 窄版以穩定的固定區塊高度為優先，不要求拖拉調整，避免觸控捲動衝突。
 
 Request 與 Response 的每個 tab 必須在固定工作台高度內運作。當 Params、Headers、Body、Settings、gRPC BUR 組包欄位、Response Headers、Decoded、Info 或 History 內容超出可用高度時，僅該 tab 的內容區可垂直捲動；不得依賴整頁捲動、裁切內容，或將其他工作區推離可視範圍。
+
+Request JSON 的顯示層必須按原文 token offset 上色，與 textarea 的空白、換行、跳脫字元及數字字面完全一致；不可為了上色而重新序列化或排版。規則及 Base64 標記不得影響文字位置。既有自動排版動作僅改空白，保留大整數精度與 Unicode escape，詳見 `REQUEST_FIELD_RULES.md`。
 
 ## 12. 錯誤處理
 

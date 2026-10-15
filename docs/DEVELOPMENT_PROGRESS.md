@@ -34,7 +34,9 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 ## 下一階段
 
-依 `REQUEST_FIELD_RULES.md` 還原 A 全部欄位規則及 B 一般 gRPC BUR 回應解碼，已合併新版 UIUX 與送出前自動儲存；C Windows 離線建置內容不還原。測試與打包完成，下一步為使用者驗收；使用者已授權本輪 commit / push，推送後另核對是否有功能遺漏。
+JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則均已修正，依 `REQUEST_FIELD_RULES.md` 完成單元、實際傳送與瀏覽器回歸，重新提供 JAR 驗收。使用者已明確授權本輪 commit / push 至 `origin`、`bt`；後續新異動仍需另外取得推送同意。
+
+依 `REQUEST_FIELD_RULES.md` 還原 A 全部欄位規則及 B 一般 gRPC BUR 回應解碼，已合併新版 UIUX 與送出前自動儲存；C Windows 離線建置內容不還原。該基準已提交並推送至兩個 remote（`2b5d855`），後續檢查發現的兩項整合問題已修正，併入本次授權提交範圍。
 
 本次 UIUX 改版已完成實作與正式打包，待使用者依 `UIUX_REDESIGN.md` 驗收。改版前本機 Tag 為 `pre-uiux-redesign-20261015`；該 Tag 不含本次還原的 A/B。本輪不新增協定，因功能還原包含 Java / DTO / CLI 異動，但不修改 H2 schema。
 
@@ -150,7 +152,15 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 ## 自動化測試
 
-2026-10-15 A/B 還原驗證（目前程式，優先於下方歷史驗證紀錄）：
+2026-10-15 JSON / cURL 整合修正驗證（目前程式）：
+
+- 後端 56 項、前端 43 項、瀏覽器 18 組情境通過，零 browser error；正式 JAR 已重建。Java / API / H2 schema 不變。
+- 新增原文 JSON source renderer 及測試：壓縮 / Tab / CRLF / 尾端換行、Unicode escape、多個 UTF-8 範圍、超大整數與重複 key。自動排版只改空白，不丟失數字精度或重寫 escape。
+- 瀏覽器以原生快捷鍵實際複製選取內容，確認壓縮、跳脫與長 JSON 捲到底部後，上色原文、選取結果及兩層 scrollTop 一致；桌面 / 手機 Light、Dark 與既有工作台回歸通過。Windows 原生字型 / 選取仍待實機驗收。
+- `curl-command` 實際 Bash 傳送及 UI 產生的 Bash 指令驗證：啟用規則後輸出與單次 HTTP 送出一致；Environment 先解析、數字字串加 1、台灣今日 DD、大整數不失真、僅標示不改值、不改寫原始 Body。未解析的規則目標會提示並停用複製；PowerShell 共用相同 Body，原生 PowerShell 執行仍待 Windows 主機驗收。
+- 新增固定依賴 `jsonc-parser@3.3.1`（MIT），隨前端打入 JAR，無 CDN；Yarn lock 及本機 mirror 已更新，`yarn install --offline --frozen-lockfile --ignore-scripts` 成功。其他主機使用舊離線 cache 時須補此套件，不涉及 C 類 Windows / Gradle 擴充。
+
+2026-10-15 A/B 還原時驗證（歷史基準）：
 
 - 後端 13 個測試類別，共 56 項、0 失敗；涵蓋規則邊界 / 溢位 / JSON Pointer、真實 gRPC 與 BUR Preview / Batch、Base64 順序、CLI Environment 後套用規則及普通 gRPC BUR 回應與 Batch 保存。
 - 前端單元測試：cURL 3、送出前儲存 9、工作台 helper 10、欄位規則 9，共 31 項；包含三協定 Batch opt-out、舊設定遷移、多範圍 UTF-8 上色、跳脫路徑與 HTTP History 規則還原。
@@ -182,6 +192,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | `RequestFieldRuleServiceTest` | BUR / gRPC UTF-8 / HTTP Pointer 規則、重疊 / 溢位 / 型別 / metadata / array 驗證 |
 | `GrpcBurResponseIntegrationTest` | 真實 gRPC BUR 回應轉 UTF-8 與普通 gRPC Batch 解碼結果保存 |
 | `field-rules.test.mjs` / `tests/field-rules.e2e.mjs` | 規則遷移、三協定 Batch 開關、HTTP History、上色、Settings / HTTP 送出 / ZIP 往返、BUR Decoded UI 與響應式回歸 |
+| `json-source.test.mjs` / `http-field-rules.test.mjs` | 嚴格 JSON source parser、原文字面 / UTF-8 offset、無精度損失排版、cURL 規則 / 型別 / 溢位 / 陣列 / 模板驗證 |
 | `EnvironmentIntegrationTest` | Environment CRUD、變數名稱驗證、複製與獨立 ZIP 匯入匯出 |
 | `request-save-send.test.mjs` | 三種協定先儲存再送出、新 Request 位置與 ID、排序與變數模板保留、儲存失敗或資料不完整時停止送出、儲存中編輯及重複點擊防護 |
 | `workspace-ui.test.mjs` | 搜尋名稱 / 協定 / 子 Folder 與祖先路徑、不修改來源、分頁方向鍵與 Home/End、剪貼簿與遠端 HTTP fallback |
@@ -194,6 +205,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 node --test post-bubi-ui/src/request-save-send.test.mjs
 node --test post-bubi-ui/src/workspace-ui.test.mjs
 node --test post-bubi-ui/src/field-rules.test.mjs
+node --test post-bubi-ui/src/json-source.test.mjs post-bubi-ui/src/http-field-rules.test.mjs
 ./gradlew :post-bubi-api:test
 ./gradlew :post-bubi-api:bootJar
 ```
@@ -394,6 +406,7 @@ Gradle 會把它們放入 executable JAR。`data/proto/` 是開發與 proto impo
 6. 選擇已有完成 Batch 的已儲存 HTTP Request，在 Batch 歷程按下載 icon，確認 CSV 能以 Excel 開啟且包含項目結果；按垃圾桶 icon 後確認提示，接受後只清除目前 Request 的完成記錄，其他 Request 與進行中的 Batch 不受影響。
 7. 建立已儲存 gRPC unary 或 gRPC BUR Request，按工具列的時計 icon，分別以並行、回應後間隔與完成期限執行；確認 Batch tab 的歷程、CSV、取消與清除只顯示目前 Request 與目前協定。gRPC BUR 成功回應時，展開 item 後確認 decoded payload 也會顯示。
 8. 依 `REQUEST_FIELD_RULES.md` 的人工驗收步驟測試三類規則、舊 BUR 測案、Batch 開關及普通 gRPC BUR 回應；確認原 Body / 匯出資料保留明碼設定，成功解碼欄位可辨識且可查看原始 Base64。
+9. 貼上壓縮、Tab 或含 `\\u` escape 的 JSON，不切出 Body 即選取複製，並以長 JSON 捲到底部重試；規則及 Base64 標示不可讓原文錯位。HTTP 啟用規則後產生 cURL，確認加 1 / 今日 DD 已套用；含變數的目標需先勾選套用 Environment 才能複製。
 
 ## 維護規則
 
