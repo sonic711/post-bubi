@@ -58,6 +58,9 @@ class GrpcBatchIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private com.postbubi.grpcbur.BurCodecService burCodec;
+
     private Server grpcServer;
 
     @AfterEach
@@ -167,6 +170,32 @@ class GrpcBatchIntegrationTest {
                 "/api/grpc/batch-runs/" + runId + "/items?page=0&size=100", String.class).getBody());
         assertThat(items.path("items")).allSatisfy(item ->
                 assertThat(item.path("responseBodyPreview").asText()).contains("echo:" + encoded));
+
+        var ruleBatch = (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(startGrpcRuleBatchJson(grpcServer.getPort()));
+        ResponseEntity<String> ruleStart = postJson("/api/grpc/batch-runs", ruleBatch.toString());
+        long ruleRunId = runId(ruleStart);
+        assertThat(awaitTerminal("/api/grpc/batch-runs/", ruleRunId).path("successCount").asInt()).isEqualTo(2);
+        JsonNode ruleItems = objectMapper.readTree(restTemplate.getForEntity(
+                "/api/grpc/batch-runs/" + ruleRunId + "/items?page=0&size=100", String.class).getBody()).path("items");
+        for (JsonNode item : ruleItems) {
+            String expected = "繁" + String.format("%04d", 9 + item.path("sequenceNumber").asInt());
+            assertThat(objectMapper.readTree(item.path("responseBodyPreview").asText()).path("text").asText()).isEqualTo("echo:"
+                    + Base64.getEncoder().encodeToString(expected.getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
+    private String startGrpcRuleBatchJson(int port) throws Exception {
+        var request = objectMapper.createObjectNode();
+        request.put("host", "127.0.0.1").put("port", port).put("plaintext", true)
+                .put("serviceName", SERVICE_NAME).put("methodName", METHOD_NAME)
+                .put("body", "{\"payload\":{\"data\":\"繁0009\"}}").put("encodePayloadDataBase64", true);
+        request.putArray("fieldRules").addObject().put("id", "sequence").put("name", "序號").put("enabled", true)
+                .put("color", "#AB005F").put("action", "INCREMENT").put("targetType", "GRPC_PAYLOAD_DATA_RANGE")
+                .put("start", 4).put("end", 7);
+        var batch = objectMapper.createObjectNode();
+        batch.set("grpcRequest", request);
+        batch.put("mode", "CONCURRENCY").put("totalCount", 2).put("maxConcurrency", 1);
+        return batch.toString();
     }
 
     @Test
@@ -268,6 +297,42 @@ class GrpcBatchIntegrationTest {
         JsonNode cancelledRun = awaitTerminal("/api/grpc-bur/batch-runs/", cancellableRunId);
         assertThat(cancelledRun.path("status").asText()).isEqualTo("CANCELLED");
         assertThat(cancelledRun.path("notDispatchedCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void appliesCustomBurRulesForPreviewAndBatchAndHonorsEmptyRuleOverride() throws Exception {
+        var descriptor = echoFileDescriptor();
+        var method = descriptor.findServiceByName("EchoService").findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0).addService(echoService(descriptor, method))
+                .addService(ProtoReflectionService.newInstance()).build().start();
+        for (boolean applyRules : List.of(true, false)) {
+            var request = objectMapper.createObjectNode().put("host", "127.0.0.1").put("port", grpcServer.getPort())
+                    .put("plaintext", true).put("serviceName", SERVICE_NAME).put("methodName", METHOD_NAME)
+                    .put("tcpipHeaderHex", "0F").put("mcsHeader", "A").put("basicLabel", "0009").put("textArea", "B");
+            var settings = request.putObject("settings").put("mcsHeaderLength", 1).put("basicLabelLength", 4)
+                    .put("textAreaLength", 1).put("incrementBasicLabelSequence", true).put("fillBasicLabelDayOfMonth", true);
+            var rules = settings.putArray("fieldRules");
+            if (applyRules) rules.addObject().put("id", "sequence").put("name", "自訂序號").put("enabled", true)
+                    .put("color", "#AB005F").put("action", "INCREMENT").put("targetType", "BUR_BASIC_LABEL_RANGE")
+                    .put("start", 1).put("end", 4);
+            var previewResponse = postJson("/api/grpc-bur/preview", request.toString());
+            assertThat(previewResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(previewResponse.getBody()).path("effectiveBasicLabel").asText())
+                    .isEqualTo(applyRules ? "0010" : "0009");
+            var batch = objectMapper.createObjectNode().put("mode", "CONCURRENCY").put("totalCount", 2).put("maxConcurrency", 1);
+            batch.set("grpcBurRequest", request);
+            long id = runId(postJson("/api/grpc-bur/batch-runs", batch.toString()));
+            assertThat(awaitTerminal("/api/grpc-bur/batch-runs/", id).path("successCount").asInt()).isEqualTo(2);
+            JsonNode items = objectMapper.readTree(restTemplate.getForObject(
+                    "/api/grpc-bur/batch-runs/" + id + "/items", String.class)).path("items");
+            assertThat(items).hasSize(2);
+            for (JsonNode item : items) {
+                String echo = objectMapper.readTree(item.path("responseBodyPreview").asText()).path("text").asText();
+                byte[] payload = Base64.getDecoder().decode(echo.substring("echo:".length()));
+                assertThat(burCodec.decode(java.util.Arrays.copyOfRange(payload, 2, 6)))
+                        .isEqualTo(applyRules ? String.format("%04d", 9 + item.path("sequenceNumber").asInt()) : "0009");
+            }
+        }
     }
 
     private ResponseEntity<String> startGrpcBatch(

@@ -2,6 +2,10 @@
 
 本文是 Post Bubi 的主要開發依據。後續功能設計、資料模型、API、前端畫面與打包方式都必須優先遵守本文件；若需求改變，應先更新本文件再修改實作。
 
+本次工作台 UIUX 改版依照 [UIUX_REDESIGN.md](UIUX_REDESIGN.md)，既有功能與離線打包契約不變。
+
+經使用者審核還原的 Request 欄位規則與一般 gRPC BUR 回應解碼依照 [REQUEST_FIELD_RULES.md](REQUEST_FIELD_RULES.md)；Windows 離線建置擴充不還原。
+
 ## 1. 產品目標
 
 Post Bubi 是一個可部署在離線主機上的 API 測試工具，目標是提供接近 Postman 的核心測試體驗，但第一版只聚焦在可用、穩定、單機離線部署。
@@ -179,7 +183,7 @@ Post Bubi 的品牌主色為酒紅色，必須用於標誌、主操作按鈕、�
 
 `gRPC BUR` request type 已依原始驗證腳本的組包概念完成。此模式與一般 gRPC JSON request 不同，使用者只需關注目標系統 host / port 與業務 input 內容，系統負責完成 TCPIP header、MCS header、Basic Label、Text Area 串接、UTF-8 / BUR 轉碼、`RqPayload` 建立與 `Service/rpcPeriphery` 呼叫。原始 notebook 不屬於建置或執行必要檔案，實際行為以 Java 實作與 `docs/GRPC_BUR_COMPOSER_FEATURE.md` 為準。
 
-gRPC 與 gRPC BUR 的 Port editor 必須接受數字或 `{{variable}}`；Environment 解析後由後端驗證為 `1` 至 `65535` 的整數。gRPC BUR Settings 可啟用 Basic Label 自動化：第 8-14 位（人類習慣 1 起算）必須為 7 碼數字，單次送出與 Preview 先加 `1`，Batch 第 `N` 筆加 `N`，超過 7 碼上限時拒絕送出；第 88-89 位可覆寫為台灣時區 `Asia/Taipei` 的當日 `DD`。Preview 不保存序號。gRPC BUR Batch 視窗預設套用這兩項設定，使用者可在啟動前停用；停用時該批次不會進行遞增或日期覆寫，且不前推編輯器的 Basic Label。啟用時 Batch 啟動後前端將 Basic Label 前推到最後一筆預定序號，避免後續重複。
+gRPC 與 gRPC BUR 的 Port editor 必須接受數字或 `{{variable}}`；Environment 解析後由後端驗證為 `1` 至 `65535` 的整數。三種 Request 的 Settings 提供各測案專屬 `fieldRules`（名稱、顏色、啟用、標示 / 遞增 / 今日 DD），完整定位、驗證與執行規則見 `REQUEST_FIELD_RULES.md`。舊 BUR 測案沒有規則陣列時，相容轉換第 8-14 位遞增、第 37-46 位標示、第 88-89 位台灣今日 DD，保留原啟用狀態。位置採 1 起算，單次與 Preview 先加 `1`，Batch 第 `N` 筆加 `N`，數字字串溢位拒絕；Preview 不保存序號。Batch 可停用全部欄位規則，空陣列不得回退套用舊旗標，亦不前推 Basic Label；啟用時仍維持 BUR 執行後的序號前推。
 
 詳細設計記錄於 `docs/GRPC_BUR_COMPOSER_FEATURE.md`。第一階段已完成 `GRPC_BUR` request type、payload preview、送出流程與 `TBConvert.jar` / CodeTable 正式 BUR codec 接入。CodeTable 與 `TBConvert.jar` 會包入 executable JAR，部署到其他主機時不需要額外攜帶 CodeTable；實際目標系統驗收仍需使用正確業務資料、固定長度設定與相符 proto。
 
@@ -361,7 +365,7 @@ gRPC unary 與 gRPC BUR 都必須支援單一 Request 的 Batch 執行。Batch �
 - gRPC BUR Batch 必須沿用既有組包、轉碼、proto 解析、呼叫與回應 BUR 解碼流程；不寫入一般單筆 Request History。
 - 啟用 gRPC unary `payload.data` Base64 編碼的 Batch snapshot 必須保留該設定，並由後端在每個 item 解析 Protobuf JSON 前套用相同 UTF-8 Base64 轉換。
 - Batch Run 以 `requestId` 及協定類型分開保存。已保存 Request 在 Batch tab 可查看歷程、取消進行中 Run、匯出 CSV、清除同一 Request 的已完成 Run，以及每頁最多 100 筆的 item 結果；未保存 Request 只在目前瀏覽工作階段可查看。
-- gRPC item 結果保存 status code、status description、duration、metadata、body preview、`itemStartedAt`（實際發送時間）、`itemCompletedAt`（回應、失敗、取消或期限結束的完成時間）與錯誤；gRPC BUR 另保存已解碼 payload 結果，供 Batch 詳細檢視。所有 Batch 顯示與 CSV 匯出的時間固定使用台灣時區 `Asia/Taipei`。所有 response body preview 最多保存 4000 字元。
+- gRPC item 結果保存 status code、status description、duration、metadata、body preview、`itemStartedAt`（實際發送時間）、`itemCompletedAt`（回應、失敗、取消或期限結束的完成時間）與錯誤；一般 gRPC 與 gRPC BUR 均保存 `charsets=BUR` 的自動轉碼結果，供 Batch 詳細檢視。所有 Batch 顯示與 CSV 匯出的時間固定使用台灣時區 `Asia/Taipei`。所有 response body preview 最多保存 4000 字元。
 
 ## 7. Collection 與 Request 管理
 

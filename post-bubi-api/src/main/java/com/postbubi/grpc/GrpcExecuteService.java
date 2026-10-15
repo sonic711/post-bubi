@@ -23,11 +23,13 @@ import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.protobuf.ProtoUtils;
 import io.grpc.stub.ClientCalls;
+import org.springframework.beans.factory.annotation.Autowired;
 import io.grpc.netty.shaded.io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
+import com.postbubi.fieldrule.RequestFieldRuleService;
 import com.postbubi.web.dto.GrpcExecuteRequest;
 import com.postbubi.web.dto.GrpcExecuteResponse;
 import com.postbubi.web.dto.HttpNameValue;
@@ -42,15 +44,32 @@ public class GrpcExecuteService {
     private final GrpcReflectionDescriptorResolver descriptorResolver;
     private final GrpcProtoDescriptorResolver protoDescriptorResolver;
     private final ObjectMapper objectMapper;
+    private final RequestFieldRuleService fieldRuleService;
+    private final GrpcResponsePayloadDecoder responsePayloadDecoder;
 
+    @Autowired
     public GrpcExecuteService(
             GrpcReflectionDescriptorResolver descriptorResolver,
             GrpcProtoDescriptorResolver protoDescriptorResolver,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RequestFieldRuleService fieldRuleService,
+            GrpcResponsePayloadDecoder responsePayloadDecoder
     ) {
         this.descriptorResolver = descriptorResolver;
         this.protoDescriptorResolver = protoDescriptorResolver;
         this.objectMapper = objectMapper;
+        this.fieldRuleService = fieldRuleService;
+        this.responsePayloadDecoder = responsePayloadDecoder;
+    }
+
+    /** Used by the headless CLI, which intentionally has no Decoded response presentation. */
+    public GrpcExecuteService(
+            GrpcReflectionDescriptorResolver descriptorResolver,
+            GrpcProtoDescriptorResolver protoDescriptorResolver,
+            ObjectMapper objectMapper,
+            RequestFieldRuleService fieldRuleService
+    ) {
+        this(descriptorResolver, protoDescriptorResolver, objectMapper, fieldRuleService, null);
     }
 
     public GrpcExecuteResponse execute(GrpcExecuteRequest request, ExecutionHandle execution) {
@@ -85,13 +104,15 @@ public class GrpcExecuteService {
                     requestMessage
             );
             long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
+            String responseBody = JsonFormat.printer().includingDefaultValueFields().print(response);
             return new GrpcExecuteResponse(
                     Status.Code.OK.name(),
                     "",
                     durationMillis,
                     List.of(),
-                    JsonFormat.printer().includingDefaultValueFields().print(response),
-                    ""
+                    responseBody,
+                    "",
+                    responsePayloadDecoder == null ? List.of() : responsePayloadDecoder.decodeBurPayloads(responseBody)
             );
         } catch (ApiException exception) {
             if (execution.isCancelled()) {
@@ -109,7 +130,8 @@ public class GrpcExecuteService {
                     durationMillis,
                     trailersToHeaders(exception.getTrailers()),
                     "",
-                    exception.getMessage()
+                    exception.getMessage(),
+                    List.of()
             );
         } catch (Exception exception) {
             if (execution.isCancelled()) {
@@ -135,7 +157,8 @@ public class GrpcExecuteService {
                 durationMillis,
                 List.of(),
                 "",
-                "gRPC 請求已取消。"
+                "gRPC 請求已取消。",
+                List.of()
         );
     }
 
@@ -193,6 +216,7 @@ public class GrpcExecuteService {
 
     private String prepareRequestBody(GrpcExecuteRequest request) {
         String body = request.body() == null || request.body().isBlank() ? "{}" : request.body();
+        body = fieldRuleService.applyGrpcPayloadDataRules(body, request.fieldRules(), fieldRuleIncrement(request));
         if (!Boolean.TRUE.equals(request.encodePayloadDataBase64())) {
             return body;
         }
@@ -220,6 +244,14 @@ public class GrpcExecuteService {
                     java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
             );
         }
+    }
+
+    private int fieldRuleIncrement(GrpcExecuteRequest request) {
+        int increment = request.fieldRuleIncrement() == null ? 1 : request.fieldRuleIncrement();
+        if (increment <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FIELD_RULE_INCREMENT_VALUE_INVALID", "欄位規則遞增值必須為正整數。");
+        }
+        return increment;
     }
 
     private List<HttpNameValue> trailersToHeaders(Metadata metadata) {

@@ -9,12 +9,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
+import com.postbubi.fieldrule.RequestFieldRuleService;
 import com.postbubi.grpc.GrpcExecuteService;
 import com.postbubi.proto.ProtoStorageService;
 import com.postbubi.web.dto.GrpcBurExecuteRequest;
@@ -49,17 +49,20 @@ public class GrpcBurExecuteService {
     private final GrpcExecuteService grpcExecuteService;
     private final ProtoStorageService protoStorageService;
     private final ObjectMapper objectMapper;
+    private final RequestFieldRuleService fieldRuleService;
 
     public GrpcBurExecuteService(
             BurCodecService burCodecService,
             GrpcExecuteService grpcExecuteService,
             ProtoStorageService protoStorageService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RequestFieldRuleService fieldRuleService
     ) {
         this.burCodecService = burCodecService;
         this.grpcExecuteService = grpcExecuteService;
         this.protoStorageService = protoStorageService;
         this.objectMapper = objectMapper;
+        this.fieldRuleService = fieldRuleService;
     }
 
     public GrpcBurExecuteResponse execute(GrpcBurExecuteRequest request, ExecutionHandle execution) {
@@ -76,7 +79,9 @@ public class GrpcBurExecuteService {
                 defaultText(request.methodName(), DEFAULT_METHOD_NAME),
                 requestBody(composedPayload.payload()),
                 false,
-                normalizeTimeout(request.timeoutMillis())
+                normalizeTimeout(request.timeoutMillis()),
+                List.of(),
+                null
         );
         GrpcExecuteResponse grpcResponse = grpcExecuteService.execute(grpcRequest, execution);
         return new GrpcBurExecuteResponse(
@@ -87,7 +92,7 @@ public class GrpcBurExecuteService {
                 grpcResponse.body(),
                 grpcResponse.errorMessage(),
                 composedPayload.preview(),
-                decodePayloads(grpcResponse.body())
+                grpcResponse.decodedPayloads()
         );
     }
 
@@ -109,12 +114,20 @@ public class GrpcBurExecuteService {
         byte[] tcpipHeader = decodeHex(defaultText(request.tcpipHeaderHex(), DEFAULT_TCPIP_HEADER_HEX), "TCPIP Header");
         String mcsHeader = normalizeFixedText(defaultText(request.mcsHeader(), ""), mcsHeaderLength, "MCS Header");
         String basicLabel = normalizeFixedText(defaultText(request.basicLabel(), ""), basicLabelLength, "Basic Label");
-        basicLabel = applyBasicLabelAutomation(
-                basicLabel,
-                settings != null && Boolean.TRUE.equals(settings.incrementBasicLabelSequence()),
-                settings != null && Boolean.TRUE.equals(settings.fillBasicLabelDayOfMonth()),
-                basicLabelSequenceIncrement(request, settings)
-        );
+        if (settings != null && settings.fieldRules() != null) {
+            basicLabel = fieldRuleService.applyBurBasicLabelRules(
+                    basicLabel,
+                    settings.fieldRules(),
+                    basicLabelSequenceIncrement(request, settings)
+            );
+        } else {
+            basicLabel = applyBasicLabelAutomation(
+                    basicLabel,
+                    settings != null && Boolean.TRUE.equals(settings.incrementBasicLabelSequence()),
+                    settings != null && Boolean.TRUE.equals(settings.fillBasicLabelDayOfMonth()),
+                    basicLabelSequenceIncrement(request, settings)
+            );
+        }
         String textArea = normalizeTextArea(defaultText(request.textArea(), ""), textAreaLength, padTextAreaRight);
 
         byte[] mcsHeaderBytes = mcsHeader.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -140,7 +153,10 @@ public class GrpcBurExecuteService {
             GrpcBurExecuteRequest request,
             GrpcBurExecuteRequest.GrpcBurSettings settings
     ) {
-        if (settings == null || !Boolean.TRUE.equals(settings.incrementBasicLabelSequence())) {
+        if (settings == null) {
+            return 0;
+        }
+        if (settings.fieldRules() == null && !Boolean.TRUE.equals(settings.incrementBasicLabelSequence())) {
             return 0;
         }
         int increment = request.basicLabelSequenceIncrement() == null ? 1 : request.basicLabelSequenceIncrement();
@@ -211,58 +227,6 @@ public class GrpcBurExecuteService {
             ));
         } catch (Exception exception) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "GRPC_BUR_REQUEST_BUILD_FAILED", "gRPC BUR request body 建立失敗。");
-        }
-    }
-
-    private List<GrpcBurExecuteResponse.GrpcBurDecodedPayload> decodePayloads(String body) {
-        if (body == null || body.isBlank()) {
-            return List.of();
-        }
-        try {
-            JsonNode root = objectMapper.readTree(body);
-            JsonNode payloadNode = root.path("payload");
-            if (!payloadNode.isObject()) {
-                return List.of();
-            }
-            List<GrpcBurExecuteResponse.GrpcBurDecodedPayload> result = new ArrayList<>();
-            payloadNode.fields().forEachRemaining(entry -> result.add(decodePayload(entry.getKey(), entry.getValue())));
-            return result;
-        } catch (Exception exception) {
-            return List.of(new GrpcBurExecuteResponse.GrpcBurDecodedPayload(
-                    "",
-                    "",
-                    "",
-                    0,
-                    "",
-                    "",
-                    "Response body 不是可解析的 PeripheryResponse JSON：" + exception.getMessage()
-            ));
-        }
-    }
-
-    private GrpcBurExecuteResponse.GrpcBurDecodedPayload decodePayload(String key, JsonNode payload) {
-        try {
-            String data = payload.path("data").asText("");
-            byte[] bytes = Base64.getDecoder().decode(data);
-            return new GrpcBurExecuteResponse.GrpcBurDecodedPayload(
-                    key,
-                    payload.path("charsets").asText(""),
-                    payload.path("format").asText(""),
-                    bytes.length,
-                    encodeHex(bytes),
-                    burCodecService.decode(bytes),
-                    ""
-            );
-        } catch (Exception exception) {
-            return new GrpcBurExecuteResponse.GrpcBurDecodedPayload(
-                    key,
-                    payload.path("charsets").asText(""),
-                    payload.path("format").asText(""),
-                    0,
-                    "",
-                    "",
-                    "Payload 解碼失敗：" + exception.getMessage()
-            );
         }
     }
 

@@ -120,6 +120,36 @@ class HeadlessGrpcCliIntegrationTest {
     }
 
     private void writeArchive(Path path, int port, boolean includeProto, String archiveType, boolean includeEnvironment) throws Exception {
+        writeArchive(path, port, includeProto, archiveType, includeEnvironment, payload -> {});
+    }
+
+    @Test
+    void appliesExportedUtf8FieldRulesAfterEnvironmentResolution() throws Exception {
+        Descriptors.FileDescriptor descriptor = echoFileDescriptor();
+        Descriptors.MethodDescriptor method = descriptor.findServiceByName("EchoService").findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0).addService(echoService(descriptor, method))
+                .addService(ProtoReflectionService.newInstance()).build().start();
+        Path archive = Files.createTempFile("post-bubi-cli-rules-", ".zip");
+        Path output = Files.createTempFile("post-bubi-cli-rules-output-", ".json");
+        try {
+            writeArchive(archive, grpcServer.getPort(), false, "REQUEST", true, payload -> {
+                payload.put("grpcBody", "{\"payload\":{\"data\":\"{{message}}0009\"}}");
+                payload.putArray("fieldRules").addObject().put("id", "sequence").put("name", "序號")
+                        .put("enabled", true).put("color", "#AB005F").put("action", "INCREMENT")
+                        .put("targetType", "GRPC_PAYLOAD_DATA_RANGE").put("start", 17).put("end", 20);
+            });
+            int exitCode = new HeadlessGrpcCli().run(new String[] { "run-grpc", "--archive", archive.toString(),
+                    "--request", "CLI Echo", "--environment", "sit", "--output", output.toString() });
+            assertThat(exitCode).isZero();
+            assertThat(objectMapper.readTree(Files.readString(output)).path("body").asText()).contains("echo:from-environment0010");
+        } finally {
+            Files.deleteIfExists(archive);
+            Files.deleteIfExists(output);
+        }
+    }
+
+    private void writeArchive(Path path, int port, boolean includeProto, String archiveType, boolean includeEnvironment,
+            java.util.function.Consumer<ObjectNode> customize) throws Exception {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("schemaVersion", 3);
         root.put("archiveType", archiveType);
@@ -135,6 +165,7 @@ class HeadlessGrpcCliIntegrationTest {
         payload.put("grpcMethodName", METHOD_NAME);
         payload.put("grpcBody", includeEnvironment ? "{\"text\":\"{{message}}\"}" : "{\"text\":\"request-archive\"}");
         payload.put("timeoutMillis", 30000);
+        customize.accept(payload);
         ArrayNode requests = root.putArray("requests");
         requests.addObject().put("id", 1).put("collectionId", 1).put("type", "GRPC").put("name", "CLI Echo")
                 .put("payloadJson", objectMapper.writeValueAsString(payload));
@@ -178,8 +209,14 @@ class HeadlessGrpcCliIntegrationTest {
         Descriptors.FieldDescriptor responseText = method.getOutputType().findFieldByName("text");
         return ServerServiceDefinition.builder(service)
                 .addMethod(grpcMethod, ServerCalls.asyncUnaryCall((request, observer) -> {
+                    String text = request.getField(requestText).toString();
+                    var payloadField = method.getInputType().findFieldByName("payload");
+                    if (payloadField != null && request.hasField(payloadField)) {
+                        var payload = (DynamicMessage) request.getField(payloadField);
+                        text = payload.getField(payloadField.getMessageType().findFieldByName("data")).toString();
+                    }
                     DynamicMessage response = DynamicMessage.newBuilder(method.getOutputType())
-                            .setField(responseText, "echo:" + request.getField(requestText))
+                            .setField(responseText, "echo:" + text)
                             .build();
                     observer.onNext(response);
                     observer.onCompleted();
@@ -188,9 +225,14 @@ class HeadlessGrpcCliIntegrationTest {
     }
 
     private Descriptors.FileDescriptor echoFileDescriptor() throws Exception {
+        DescriptorProtos.DescriptorProto payload = DescriptorProtos.DescriptorProto.newBuilder().setName("Payload")
+                .addField(DescriptorProtos.FieldDescriptorProto.newBuilder().setName("data").setNumber(1)
+                        .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING)).build();
         DescriptorProtos.DescriptorProto request = DescriptorProtos.DescriptorProto.newBuilder().setName("EchoRequest")
                 .addField(DescriptorProtos.FieldDescriptorProto.newBuilder().setName("text").setNumber(1)
                         .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING).build())
+                .addField(DescriptorProtos.FieldDescriptorProto.newBuilder().setName("payload").setNumber(2)
+                        .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_MESSAGE).setTypeName(".demo.Payload"))
                 .build();
         DescriptorProtos.DescriptorProto response = DescriptorProtos.DescriptorProto.newBuilder().setName("EchoResponse")
                 .addField(DescriptorProtos.FieldDescriptorProto.newBuilder().setName("text").setNumber(1)
@@ -198,7 +240,7 @@ class HeadlessGrpcCliIntegrationTest {
                 .build();
         DescriptorProtos.FileDescriptorProto file = DescriptorProtos.FileDescriptorProto.newBuilder()
                 .setName("demo/echo.proto").setSyntax("proto3").setPackage("demo")
-                .addMessageType(request).addMessageType(response)
+                .addMessageType(request).addMessageType(response).addMessageType(payload)
                 .addService(DescriptorProtos.ServiceDescriptorProto.newBuilder().setName("EchoService")
                         .addMethod(DescriptorProtos.MethodDescriptorProto.newBuilder().setName(METHOD_NAME)
                                 .setInputType(".demo.EchoRequest").setOutputType(".demo.EchoResponse").build()).build())

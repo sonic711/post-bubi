@@ -42,8 +42,10 @@ Request、Collection 或 Environment 名稱必須完全相符。找不到、重�
 4. 依 `collection`、`folder`、`request` 解析唯一 Request，讀取其保存的 `payloadJson`。
 5. 解析指定 Environment 與 `--var`，以與 UI 相同的 `{{variable}}` 規則替換 host、port、metadata、service、method 與 body；未定義變數時拒絕送出。
 6. 將 ZIP 內的 proto 安全寫入 JVM 暫存目錄。若 Request 指定 `grpcProtoId`，依 ZIP archive 的 proto ID 對映至暫存檔；未指定時沿用 server reflection。
-7. 透過既有 `GrpcExecuteService` 呼叫 unary gRPC。TLS、timeout、metadata、`payload.data` Base64 設定都沿用已保存 Request 值。
+7. 透過既有 `GrpcExecuteService` 呼叫 unary gRPC。TLS、timeout、metadata 與 `fieldRules` 都沿用已保存 Request；Environment 解析後套用 `payload.data` UTF-8 byte 規則，單次遞增加 1，再依選項做 Base64。缺少規則視為空陣列，格式錯誤回傳 `HEADLESS_GRPC_FIELD_RULES_INVALID`；規則驗證失敗不發送請求。
 8. 將 response、status、metadata、耗時與錯誤輸出為 UTF-8 JSON；若指定 `--output`，同時寫入該檔案。JVM 結束前刪除 CLI 專用暫存 proto 目錄。
+
+CLI 保留原始 response JSON，不執行 UI 專用 BUR Decoded 顯示；欄位規則詳見 `REQUEST_FIELD_RULES.md`。
 
 ## Exit Code
 

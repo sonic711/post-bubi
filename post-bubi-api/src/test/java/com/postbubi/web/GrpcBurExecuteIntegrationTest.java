@@ -17,7 +17,13 @@ import org.springframework.test.annotation.DirtiesContext;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Map;
+
+import com.postbubi.grpc.GrpcResponsePayloadDecoder;
+import com.postbubi.grpcbur.BurCodecService;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -35,6 +41,53 @@ class GrpcBurExecuteIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private BurCodecService burCodecService;
+
+    @Autowired
+    private GrpcResponsePayloadDecoder responsePayloadDecoder;
+
+    @Test
+    void decodesOnlyBurResponsePayloadsToUtf8() throws Exception {
+        String text = "繁體測試";
+        String body = objectMapper.writeValueAsString(Map.of(
+                "payload", Map.of(
+                        "0", Map.of(
+                                "charsets", "BUR",
+                                "format", "TEXT",
+                                "data", Base64.getEncoder().encodeToString(burCodecService.encode(text))
+                        ),
+                        "1", Map.of(
+                                "charsets", "UTF8",
+                                "format", "TEXT",
+                                "data", Base64.getEncoder().encodeToString("not BUR".getBytes(StandardCharsets.UTF_8))
+                        )
+                )
+        ));
+
+        var decoded = responsePayloadDecoder.decodeBurPayloads(body);
+
+        assertThat(decoded).hasSize(1);
+        assertThat(decoded.get(0).key()).isEqualTo("0");
+        assertThat(decoded.get(0).text()).isEqualTo(text);
+        assertThat(decoded.get(0).error()).isEmpty();
+    }
+
+    @Test
+    void retainsIndividualBurDecodeErrorsWithoutDiscardingOtherPayloads() throws Exception {
+        var body = objectMapper.createObjectNode();
+        var payload = body.putObject("payload");
+        payload.putObject("invalid").put("charsets", "BUR").put("data", "!invalid!");
+        payload.putObject("missing").put("charsets", "BUR");
+        payload.putObject("good").put("charsets", " bur ")
+                .put("data", Base64.getEncoder().encodeToString(burCodecService.encode("繁體測試")));
+        var decoded = responsePayloadDecoder.decodeBurPayloads(body.toString());
+        assertThat(decoded).hasSize(3);
+        assertThat(decoded.stream().filter(item -> !item.error().isEmpty())).hasSize(2);
+        assertThat(decoded.stream().filter(item -> item.key().equals("good")).findFirst().orElseThrow().text()).isEqualTo("繁體測試");
+        assertThat(responsePayloadDecoder.decodeBurPayloads("not json")).isEmpty();
+    }
 
     @Test
     void previewsComposedBurPayload() throws Exception {

@@ -18,6 +18,7 @@ function editor(options = {}) {
     workspaceStatus: { value: '' }, savedEditorState: { value: '' },
     collections: { value: [{ id: 2, requests: [{ id: 7, sortOrder: 9 }] }] },
     payload: { body: '{{message}}', headers: [{ name: 'X-Test', value: 'saved' }] },
+    fieldRuleValidationMessage: () => options.validationError || '',
     readableError: (error) => error.message,
     cacheCurrentResponse: () => {},
     async apiJson(path, request) {
@@ -81,6 +82,14 @@ test('save failures prevent execution and retain dirty input', async () => {
   assert.match(context.errorText.value, /database unavailable/)
   assert.equal(context.hasUnsavedChanges.value, true)
   assert.equal(context.saving.value, false)
+})
+
+test('invalid enabled field rules prevent both saving and sending', async () => {
+  const { context, calls } = editor({ validationError: '欄位規則範圍不可重疊' })
+  await context.sendCurrentRequest()
+  assert.equal(calls.length, 0)
+  assert.match(context.errorText.value, /欄位規則範圍不可重疊/)
+  assert.equal(context.hasUnsavedChanges.value, true)
 })
 
 test('missing collection and blank request name prevent saving and sending', async () => {

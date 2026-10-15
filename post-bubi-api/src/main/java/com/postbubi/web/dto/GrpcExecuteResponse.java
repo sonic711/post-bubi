@@ -8,6 +8,7 @@ public record GrpcExecuteResponse(
         Long durationMillis,
         List<HttpNameValue> metadata,
         String body,
-        String errorMessage
+        String errorMessage,
+        List<GrpcBurExecuteResponse.GrpcBurDecodedPayload> decodedPayloads
 ) {
 }

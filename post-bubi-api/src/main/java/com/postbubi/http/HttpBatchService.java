@@ -370,7 +370,7 @@ public class HttpBatchService {
                 executionCancellationService.cancel(executionId);
             }
             HttpExecuteResponse response = httpExecuteService.execute(
-                    withBatchExecution(snapshot, executionId, remainingTimeout(snapshot.timeoutMillis(), deadlineNanos)),
+                    withBatchExecution(snapshot, executionId, remainingTimeout(snapshot.timeoutMillis(), deadlineNanos), item.getSequenceNumber()),
                     execution,
                     false
             );
@@ -465,15 +465,15 @@ public class HttpBatchService {
         return new HttpExecuteRequest(
                 null, request.requestId(), request.method(), request.url(), request.params(), request.headers(),
                 request.bodyType(), request.body(), request.formData(), request.timeoutMillis(),
-                request.followRedirects(), request.ignoreSslVerification()
+                request.followRedirects(), request.ignoreSslVerification(), request.fieldRules(), null
         );
     }
 
-    private HttpExecuteRequest withBatchExecution(HttpExecuteRequest request, String executionId, int timeoutMillis) {
+    private HttpExecuteRequest withBatchExecution(HttpExecuteRequest request, String executionId, int timeoutMillis, int sequenceNumber) {
         return new HttpExecuteRequest(
                 executionId, request.requestId(), request.method(), request.url(), request.params(), request.headers(),
                 request.bodyType(), request.body(), request.formData(), timeoutMillis,
-                request.followRedirects(), request.ignoreSslVerification()
+                request.followRedirects(), request.ignoreSslVerification(), request.fieldRules(), sequenceNumber
         );
     }
 

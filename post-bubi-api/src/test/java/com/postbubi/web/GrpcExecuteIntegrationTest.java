@@ -191,6 +191,25 @@ class GrpcExecuteIntegrationTest {
     }
 
     @Test
+    void appliesUtf8FieldRulesBeforeOptionalBase64Encoding() throws Exception {
+        Descriptors.FileDescriptor descriptor = echoFileDescriptor();
+        Descriptors.MethodDescriptor echo = descriptor.findServiceByName("EchoService").findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0).addService(echoService(descriptor, echo))
+                .addService(ProtoReflectionService.newInstance()).build().start();
+        var request = objectMapper.createObjectNode();
+        request.put("host", "127.0.0.1").put("port", grpcServer.getPort()).put("plaintext", true)
+                .put("serviceName", SERVICE_NAME).put("methodName", METHOD_NAME)
+                .put("body", "{\"payload\":{\"data\":\"繁0009\"}}").put("encodePayloadDataBase64", true);
+        request.putArray("fieldRules").addObject().put("id", "sequence").put("name", "序號").put("enabled", true)
+                .put("color", "#AB005F").put("action", "INCREMENT").put("targetType", "GRPC_PAYLOAD_DATA_RANGE")
+                .put("start", 4).put("end", 7);
+        ResponseEntity<String> response = postJson("/api/grpc/execute", request.toString());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(objectMapper.readTree(response.getBody()).path("body").asText()).path("text").asText()).isEqualTo("echo:"
+                + Base64.getEncoder().encodeToString("繁0010".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
     void rejectsBase64EncodingWhenPayloadDataIsMissingOrNotText() throws Exception {
         ResponseEntity<String> response = postJson("/api/grpc/execute", """
                 {

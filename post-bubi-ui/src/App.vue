@@ -1,53 +1,63 @@
 <template>
-  <main class="workspace" :style="workspaceStyle">
-    <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
-      <div class="sidebar-head">
-        <div class="brand" aria-label="Post Bubi">
-          <img :src="postBubiLogo" alt="Post Bubi" />
+  <a class="skip-link" href="#request-editor">跳到請求工作區</a>
+  <main class="workspace" :style="workspaceStyle" :class="{ 'mobile-nav-open': mobileNavigationOpen }">
+      <header class="app-header">
+        <button class="icon-action-button mobile-nav-toggle" type="button" title="開啟工作區導覽" aria-label="開啟工作區導覽" :aria-expanded="mobileNavigationOpen" aria-controls="workspace-sidebar" @click="mobileNavigationOpen = !mobileNavigationOpen"><PanelLeft :size="20" aria-hidden="true" /></button>
+        <div class="brand" aria-label="Post Bubi" translate="no">
+          <img :src="postBubiLogo" alt="Post Bubi" width="60" height="52" />
           <div class="brand-copy">
             <strong>Post Bubi</strong>
-            <span>API Workspace</span>
+            <span>API WORKSPACE</span>
           </div>
         </div>
+        <div class="workspace-location"><span class="header-divider"></span><Archive :size="15" aria-hidden="true" /><span>個人工作區</span></div>
+        <div class="app-header-actions">
+        <button class="header-environment" type="button" :disabled="!activeEnvironment" @click="openEnvironmentManager" :title="activeEnvironment ? `管理 Environment：${activeEnvironment.name}` : '無 Environment'"><span class="environment-indicator"></span><span class="header-environment-name">{{ activeEnvironment?.name || '無 Environment' }}</span></button>
         <div class="theme-switch" role="group" aria-label="Theme">
           <button
             type="button"
             :class="{ active: themeMode === 'light' }"
+            :aria-pressed="themeMode === 'light'"
+            title="Light theme"
+            aria-label="Light theme"
             @click="setTheme('light')"
           >
             <Sun :size="15" aria-hidden="true" />
-            Light
           </button>
           <button
             type="button"
             :class="{ active: themeMode === 'dark' }"
+            :aria-pressed="themeMode === 'dark'"
+            title="Dark theme"
+            aria-label="Dark theme"
             @click="setTheme('dark')"
           >
             <Moon :size="15" aria-hidden="true" />
-            Dark
           </button>
         </div>
-      </div>
+        </div>
+      </header>
+    <button v-if="mobileNavigationOpen" class="mobile-sidebar-scrim" type="button" aria-label="關閉工作區導覽" @click="mobileNavigationOpen = false"></button>
+    <aside id="workspace-sidebar" class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }" aria-label="工作區導覽">
+      <div class="sidebar-rail" aria-hidden="true"><Archive :size="22" /></div>
       <div class="sidebar-actions">
         <button class="primary-button full-button" type="button" :disabled="loadingCollections" @click="createCollection">
           <Plus class="button-icon" :size="17" aria-hidden="true" />
           新增 Collection
         </button>
         <div class="archive-actions">
-          <button class="secondary-button" type="button" title="匯出工作區 ZIP" @click="exportWorkspace">
+          <button class="secondary-button" type="button" title="匯出工作區 ZIP" aria-label="匯出工作區 ZIP" @click="exportWorkspace">
             <Download class="button-icon" :size="16" aria-hidden="true" />
-            匯出
           </button>
-          <label class="secondary-button import-button">
+          <label class="secondary-button import-button" title="匯入 ZIP" aria-label="匯入 ZIP">
             <Upload class="button-icon" :size="16" aria-hidden="true" />
-            匯入
-            <input type="file" accept=".zip,application/zip" @change="importWorkspace" />
+            <input type="file" aria-label="匯入工作區 ZIP" accept=".zip,application/zip" @change="importWorkspace" />
           </label>
         </div>
       </div>
       <section class="environment-panel" aria-label="Environment">
         <div class="section-title">
-          <span>Environment</span>
+          <span class="section-label"><Layers :size="14" aria-hidden="true" />Environment</span>
           <span class="section-count">{{ activeEnvironmentVariableCount }}</span>
         </div>
         <div class="environment-controls">
@@ -71,18 +81,20 @@
             </div>
           </div>
         </div>
-        <p v-if="activeEnvironment" class="environment-summary">
-          {{ activeEnvironment.name }}：送出時替換 <code v-text="'{{variable}}'"></code>
-        </p>
-        <p v-else class="environment-summary empty-text">未選擇 Environment；含變數的 Request 送出前會提示。</p>
       </section>
       <section class="sidebar-section tree">
         <div class="section-title">
-          <span>Collections</span>
+          <span class="section-label"><Archive :size="14" aria-hidden="true" />Collections</span>
           <span class="section-count">{{ collections.length }}</span>
         </div>
+        <div class="collection-search">
+          <Search :size="15" aria-hidden="true" />
+          <input v-model="collectionSearch" type="search" autocomplete="off" spellcheck="false" aria-label="搜尋 Collections 與 Requests" placeholder="搜尋請求…" />
+          <button v-if="collectionSearch" class="search-clear" type="button" title="清除搜尋" aria-label="清除搜尋" @click="collectionSearch = ''"><X :size="14" aria-hidden="true" /></button>
+        </div>
+        <p v-if="collectionSearch && !visibleCollections.length" class="empty-text" role="status">沒有符合的項目</p>
         <p v-if="!collections.length" class="empty-text">尚無 Collection</p>
-        <div v-for="collection in collections" :key="collection.id" class="collection-block">
+        <div v-for="collection in visibleCollections" :key="collection.id" class="collection-block">
           <div
             class="collection-row"
             :class="treeRowClasses('collection', collection.id)"
@@ -119,6 +131,8 @@
               class="tree-menu-button"
               type="button"
               :title="`${collection.name} 操作`"
+              :aria-label="`${collection.name} 操作`"
+              :aria-expanded="openTreeMenu === treeMenuId('collection', collection.id)"
               @click.stop="toggleTreeMenu(treeMenuId('collection', collection.id))"
             >
               <MoreHorizontal :size="18" aria-hidden="true" />
@@ -163,6 +177,8 @@
                 class="tree-menu-button"
                 type="button"
                 :title="`${folder.name} 操作`"
+                :aria-label="`${folder.name} 操作`"
+                :aria-expanded="openTreeMenu === treeMenuId('folder', folder.id)"
                 @click.stop="toggleTreeMenu(treeMenuId('folder', folder.id))"
               >
                 <MoreHorizontal :size="18" aria-hidden="true" />
@@ -207,7 +223,7 @@
                 />
                 <span>{{ request.name }}</span>
               </button>
-              <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
+              <button class="tree-menu-button" type="button" title="Request 操作" aria-label="Request 操作" :aria-expanded="openTreeMenu === treeMenuId('request', request.id)" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
                 <MoreHorizontal :size="18" aria-hidden="true" />
               </button>
               <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
@@ -246,7 +262,7 @@
               />
               <span>{{ request.name }}</span>
             </button>
-            <button class="tree-menu-button" type="button" title="Request 操作" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
+            <button class="tree-menu-button" type="button" title="Request 操作" aria-label="Request 操作" :aria-expanded="openTreeMenu === treeMenuId('request', request.id)" @click.stop="toggleTreeMenu(treeMenuId('request', request.id))">
               <MoreHorizontal :size="18" aria-hidden="true" />
             </button>
             <div v-if="openTreeMenu === treeMenuId('request', request.id)" class="tree-action-menu request-action-menu">
@@ -320,7 +336,21 @@
       @keydown="handleSidebarResizeKeydown"
     ></div>
 
-    <section ref="panelElement" class="panel" :style="panelStyle">
+    <section id="request-editor" ref="panelElement" class="panel" :style="panelStyle" tabindex="-1" aria-label="請求工作區">
+      <section class="request-meta">
+        <div class="request-title">
+          <h1 class="sr-only">{{ requestName || 'Request 工作區' }}</h1>
+          <span class="context-text"><Archive :size="13" aria-hidden="true" />{{ selectedContextLabel }}</span>
+          <div class="request-name-line">
+            <component :is="requestTreeIcon(requestType)" :size="19" :class="`request-icon-${requestType.toLowerCase().replace('_', '-')}`" aria-hidden="true" />
+            <input v-model="requestName" aria-label="Request name" autocomplete="off" spellcheck="false" />
+            <span v-if="hasUnsavedChanges" class="unsaved-dot" title="未儲存變更" aria-label="未儲存變更"></span>
+          </div>
+        </div>
+        <span class="status-pill" :class="{ dirty: hasUnsavedChanges }" :title="workspaceStatus" aria-live="polite">
+          {{ hasUnsavedChanges ? '未儲存變更' : (workspaceStatus || '已儲存') }}
+        </span>
+      </section>
       <header class="toolbar" :class="`toolbar-${requestType.toLowerCase()}`">
         <select v-model="requestType" class="type-select" aria-label="Request type" @change="handleRequestTypeChange">
           <option value="HTTP">HTTP</option>
@@ -377,12 +407,12 @@
             @click="openBatchRunner"
           ><Timer :size="18" aria-hidden="true" /></button>
         </template>
-        <button class="secondary-button" type="button" :disabled="!selectedCollectionId || saving" @click="saveRequest">
+        <button class="icon-action-button toolbar-save-button" type="button" :title="selectedRequestId ? '儲存 Request' : '另存 Request'" :aria-label="selectedRequestId ? '儲存 Request' : '另存 Request'" :disabled="!selectedCollectionId || saving" @click="saveRequest">
           <Save class="button-icon" :size="16" aria-hidden="true" />
-          {{ selectedRequestId ? '儲存' : '另存 Request' }}
         </button>
         <button class="send-button" type="button" :disabled="sending || saving" @click="sendCurrentRequest">
-          <Send class="button-icon send-icon" :size="16" aria-hidden="true" />
+          <LoaderCircle v-if="saving || sending" class="button-icon spin" :size="16" aria-hidden="true" />
+          <Send v-else class="button-icon send-icon" :size="16" aria-hidden="true" />
           {{ saving ? '儲存中' : sending ? '送出中' : '送出' }}
         </button>
         <button v-if="sending" class="cancel-button" type="button" :disabled="cancelling" @click="cancelCurrentRequest">
@@ -391,33 +421,26 @@
         </button>
       </header>
 
-      <section class="request-meta">
-        <div class="request-title">
-          <label>
-            Request 名稱
-            <input v-model="requestName" aria-label="Request name" />
-          </label>
-          <span class="context-text">{{ selectedContextLabel }}</span>
-        </div>
-        <span class="status-pill" :class="{ dirty: hasUnsavedChanges }" aria-live="polite">
-          {{ hasUnsavedChanges ? '未儲存變更' : (workspaceStatus || 'Ready') }}
-        </span>
-      </section>
-
       <section class="editor">
-        <nav class="tabs">
+        <nav class="tabs" role="tablist" aria-label="Request 分頁" @keydown="handleTabKeydown">
           <button
             v-for="tab in requestTabs"
             :key="tab.key"
             class="tab"
             :class="{ active: activeRequestTab === tab.key }"
             type="button"
+            role="tab"
+            :id="`request-tab-${tab.key}`"
+            :aria-selected="activeRequestTab === tab.key"
+            :tabindex="activeRequestTab === tab.key ? 0 : -1"
+            aria-controls="request-editor-content"
             @click="activeRequestTab = tab.key"
           >
-            {{ tab.label }}
+            <component :is="tab.icon" :size="14" aria-hidden="true" />{{ tab.label }}
+            <span v-if="tab.key === 'headers' && requestType === 'HTTP' && enabledHeaderCount" class="tab-count">{{ enabledHeaderCount }}</span>
           </button>
         </nav>
-
+        <div id="request-editor-content" class="editor-content" role="tabpanel" :aria-labelledby="`request-tab-${activeRequestTab}`">
         <div v-if="activeRequestTab === 'params' && requestType === 'HTTP'" class="editor-pane">
           <label>Query Params</label>
           <textarea v-model="paramsText" spellcheck="false" aria-label="Query Params"></textarea>
@@ -578,7 +601,7 @@
             <div class="bur-body-header">
               <label>GRPC input 參數</label>
               <button class="secondary-button compact-button" type="button" :disabled="sending" @click="previewGrpcBurRequest">
-                <span aria-hidden="true">◉</span>
+                <Eye :size="15" aria-hidden="true" />
                 產生預覽
               </button>
             </div>
@@ -596,9 +619,7 @@
               </div>
               <span class="field-hint basic-label-hint">
                 <span>{{ grpcBurBasicLabel.length }} / {{ grpcBurBasicLabelLength }} chars</span>
-                <span v-if="grpcBurIncrementBasicLabelSequence" class="basic-label-chip sequence">8-14 遞增</span>
-                <span class="basic-label-chip fixed">37-46 固定標示</span>
-                <span v-if="grpcBurFillBasicLabelDayOfMonth" class="basic-label-chip day">88-89 今日 DD</span>
+                <span v-for="rule in activeFieldRules" :key="rule.id" class="basic-label-chip" :style="{ '--field-rule-color': rule.color }">{{ fieldRuleSummary(rule) }}</span>
               </span>
             </label>
             <label>
@@ -622,8 +643,9 @@
               @scroll="syncJsonScroll"
             ></textarea>
           </div>
+          <div v-if="requestType === 'HTTP' && bodyType === 'none'" class="body-empty-state"><FileText :size="28" aria-hidden="true" /><strong>沒有 Request Body</strong><button class="secondary-button compact-button" type="button" @click="bodyType = 'json'"><Plus :size="14" aria-hidden="true" />使用 JSON</button></div>
           <textarea
-            v-else-if="requestType !== 'GRPC_BUR' && bodyType !== 'form-data'"
+            v-else-if="!isJsonBodyEditor && requestType !== 'GRPC_BUR' && bodyType !== 'form-data'"
             v-model="activeBodyText"
             spellcheck="false"
             aria-label="Body"
@@ -632,16 +654,17 @@
         </div>
 
         <div v-if="activeRequestTab === 'settings'" class="settings-pane">
+          <h2 class="pane-title">連線與傳送設定</h2>
           <label>
             Timeout (ms)
             <input v-model.number="timeoutMillis" type="number" min="1" max="300000" />
             <span class="field-hint">預設 30,000 ms（30 秒），最長 300,000 ms</span>
           </label>
-          <label class="check-line">
+          <label v-if="requestType === 'HTTP'" class="check-line">
             <input v-model="followRedirects" type="checkbox" />
             Follow redirects
           </label>
-          <label class="check-line">
+          <label v-if="requestType === 'HTTP'" class="check-line">
             <input v-model="ignoreSslVerification" type="checkbox" />
             略過 HTTPS 憑證驗證
           </label>
@@ -657,6 +680,9 @@
             <input v-model="grpcEncodePayloadDataBase64" type="checkbox" />
             將 payload.data 編碼為 Base64 後送出
           </label>
+          <label v-if="requestType === 'GRPC'">Proto
+            <select v-model="grpcProtoId" aria-label="gRPC Proto"><option value="">使用 Server Reflection</option><option v-for="proto in protos" :key="proto.protoId" :value="proto.protoId">{{ proto.filename }}</option></select>
+          </label>
           <label v-if="requestType === 'GRPC_BUR'" class="check-line">
             <input v-model="grpcBurPlaintext" type="checkbox" />
             Plaintext
@@ -665,14 +691,50 @@
             <input v-model="grpcBurIgnoreTlsVerification" type="checkbox" />
             Ignore TLS certificate verification
           </label>
-          <label v-if="requestType === 'GRPC_BUR'" class="check-line">
-            <input v-model="grpcBurIncrementBasicLabelSequence" type="checkbox" />
-            Basic Label 第 8-14 碼送出前遞增
-          </label>
-          <label v-if="requestType === 'GRPC_BUR'" class="check-line">
-            <input v-model="grpcBurFillBasicLabelDayOfMonth" type="checkbox" />
-            Basic Label 第 88-89 碼帶入今日 DD
-          </label>
+          <section class="field-rule-settings">
+            <div class="field-rule-settings-head">
+              <div>
+                <strong>欄位規則</strong>
+                <span class="section-count">{{ fieldRules.length }}</span>
+              </div>
+              <button class="icon-action-button" type="button" title="新增欄位規則" aria-label="新增欄位規則" @click="addFieldRule"><Plus :size="16" aria-hidden="true" /></button>
+            </div>
+            <p v-if="!fieldRules.length" class="field-hint">尚未設定欄位規則</p>
+            <article v-for="rule in fieldRules" :key="rule.id" class="field-rule-row" :class="{ 'http-field-rule-row': requestType === 'HTTP' }">
+              <div class="field-rule-identity">
+              <label class="field-rule-enabled"><input v-model="rule.enabled" type="checkbox" :aria-label="`${rule.name || '欄位規則'} 啟用`" /></label>
+              <input v-model="rule.name" aria-label="規則名稱" placeholder="規則名稱" maxlength="100" />
+              <input v-model="rule.color" class="field-rule-color" type="color" aria-label="規則顏色" />
+              <button class="icon-danger-button" type="button" title="刪除欄位規則" aria-label="刪除欄位規則" @click="removeFieldRule(rule.id)"><Trash2 :size="16" aria-hidden="true" /></button>
+              </div>
+              <div class="field-rule-target">
+              <label>動作
+              <select v-model="rule.action" aria-label="規則動作">
+                <option value="NONE">僅標示</option>
+                <option value="INCREMENT">遞增</option>
+                <option value="TODAY_DD">今日 DD</option>
+              </select>
+              </label>
+              <template v-if="requestType === 'HTTP'">
+                <label class="field-rule-path">JSON Pointer
+                <input v-model="rule.path" aria-label="HTTP JSON Pointer" list="http-json-field-options" placeholder="/payload/transaction/id" />
+                </label>
+              </template>
+              <template v-else>
+                <label>{{ requestType === 'GRPC' ? '起始 byte' : '起始位置' }}
+                <input v-model.number="rule.start" type="number" min="1" aria-label="起始位置" placeholder="起" />
+                </label>
+                <label>{{ requestType === 'GRPC' ? '結束 byte' : '結束位置' }}
+                <input v-model.number="rule.end" type="number" min="1" aria-label="結束位置" placeholder="訖" />
+                </label>
+              </template>
+              </div>
+            </article>
+            <p v-if="fieldRuleValidationMessage()" class="field-rule-error" role="alert">{{ fieldRuleValidationMessage() }}</p>
+            <datalist id="http-json-field-options">
+              <option v-for="option in httpJsonFieldOptions" :key="option.path" :value="option.path">{{ option.label }}</option>
+            </datalist>
+          </section>
           <label v-if="requestType === 'GRPC_BUR'">
             Proto ID
             <input v-model="grpcBurProtoId" placeholder="可留空；若 server 無 reflection 則需填入 protoId" />
@@ -690,6 +752,7 @@
             <input v-model.number="grpcBurTextAreaLength" type="number" min="0" />
           </label>
         </div>
+        </div>
       </section>
 
       <div
@@ -706,31 +769,43 @@
       <section class="response">
         <div class="response-bar">
           <div class="response-heading">
-            <strong>Response</strong>
-            <span>{{ activeResponseTab }}</span>
+            <ArrowDownToLine :size="16" aria-hidden="true" /><strong>Response</strong>
           </div>
-          <span class="response-summary" :class="responseSummaryClass">{{ responseSummary }}</span>
+          <div class="response-tools"><span class="response-summary" :class="responseSummaryClass" aria-live="polite">{{ responseSummary }}</span>
+          <button class="icon-action-button" type="button" title="Response Body 自動換行" aria-label="Response Body 自動換行" :aria-pressed="wrapResponseLines" :class="{ active: wrapResponseLines }" @click="wrapResponseLines = !wrapResponseLines"><WrapText :size="15" aria-hidden="true" /></button>
+          <button class="icon-action-button" type="button" title="複製原始 Response Body" aria-label="複製原始 Response Body" :disabled="!response || Boolean(errorText)" @click="copyResponseBody"><Copy :size="15" aria-hidden="true" /></button></div>
         </div>
-        <nav class="tabs response-tabs">
+        <nav class="tabs response-tabs" role="tablist" aria-label="Response 分頁" @keydown="handleTabKeydown">
           <button
             v-for="tab in responseTabs"
             :key="tab.key"
             class="tab"
             :class="{ active: activeResponseTab === tab.key }"
             type="button"
+            role="tab"
+            :id="`response-tab-${tab.key}`"
+            :aria-selected="activeResponseTab === tab.key"
+            :tabindex="activeResponseTab === tab.key ? 0 : -1"
+            aria-controls="response-content"
             @click="selectResponseTab(tab.key)"
           >
             {{ tab.label }}
           </button>
         </nav>
+        <div id="response-content" class="response-content" :class="{ 'wrap-lines': wrapResponseLines }" role="tabpanel" :aria-labelledby="`response-tab-${activeResponseTab}`">
+        <div v-if="activeResponseTab === 'body' && !response && !errorText && !cancellationText" class="response-empty-state" :class="{ pending: saving || sending }">
+          <LoaderCircle v-if="saving || sending" class="spin" :size="30" aria-hidden="true" /><Inbox v-else :size="32" aria-hidden="true" />
+          <strong>{{ saving ? '正在儲存 Request' : sending ? '正在等待回應' : '準備接收回應' }}</strong>
+          <span>{{ saving || sending ? batchRequestSummary : '尚無 Response' }}</span>
+        </div>
         <pre
-          v-if="activeResponseTab === 'body'"
+          v-else-if="activeResponseTab === 'body'"
           class="json-viewer"
           :class="{ 'is-empty': !response && !errorText && !cancellationText }"
           v-html="highlightedResponseBody"
         ></pre>
         <pre v-else-if="activeResponseTab === 'headers'">{{ responseHeaders }}</pre>
-        <div v-else-if="activeResponseTab === 'batch'" class="batch-results">
+        <div v-else-if="activeResponseTab === 'batch'" class="batch-results" :class="{ 'has-history': selectedRequestId }">
           <div v-if="!batchRun" class="batch-empty-state">
             <Timer :size="22" aria-hidden="true" />
             <span>尚無{{ batchProtocolLabel }}批次執行結果</span>
@@ -824,7 +899,7 @@
             </div>
           </template>
         </div>
-        <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response" :class="{ 'grpc-bur-decoded': requestType === 'GRPC_BUR' }">
+        <div v-else-if="activeResponseTab === 'decoded'" class="decoded-response" :class="{ 'grpc-bur-decoded': requestType === 'GRPC_BUR', 'has-auto-bur': requestType === 'GRPC' && grpcDecodedPayloads.length }">
           <div v-if="requestType === 'GRPC_BUR'" class="decoded-result-list">
             <p v-if="!grpcBurDecodedPayloads.length" class="empty-text">尚無 gRPC BUR 解碼結果</p>
             <article
@@ -841,6 +916,21 @@
             </article>
           </div>
           <template v-else>
+            <div v-if="requestType === 'GRPC' && grpcDecodedPayloads.length" class="decoded-result-list auto-bur-decoded-result-list">
+              <h3 class="pane-title">BUR / UTF-8</h3>
+              <article
+                v-for="payload in grpcDecodedPayloads"
+                :key="`bur-${payload.key}`"
+                class="decoded-result"
+                :class="{ failed: payload.error }"
+              >
+                <div class="decoded-result-head">
+                  <strong>payload {{ payload.key }}</strong>
+                  <span>{{ payload.charsets }} / {{ payload.format }} / {{ payload.length }} bytes</span>
+                </div>
+                <pre>{{ payload.error || payload.text }}</pre>
+              </article>
+            </div>
             <div class="decode-config">
               <div class="decode-help">
                 使用 JSON path 指定 base64 欄位，例如 <code>data.payload</code>、<code>items[0].body</code>、<code>items[*].body</code>。
@@ -900,10 +990,11 @@
           </button>
         </div>
         <pre v-else>{{ responseInfo }}</pre>
+        </div>
       </section>
     </section>
     <div v-if="showBatchRunner" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeBatchRunner)">
-      <section class="batch-runner-modal" role="dialog" aria-modal="true" aria-labelledby="batch-runner-title">
+      <section v-workspace-dialog="closeBatchRunner" class="batch-runner-modal" role="dialog" aria-modal="true" aria-labelledby="batch-runner-title">
         <header class="environment-modal-head">
           <div>
             <h2 id="batch-runner-title">{{ batchProtocolLabel }}批次執行</h2>
@@ -934,11 +1025,11 @@
             <input v-model.number="batchDeadlineMillis" type="number" min="1000" max="3600000" />
           </label>
         </div>
-        <label v-if="requestType === 'GRPC_BUR'" class="batch-basic-label-option">
-          <input v-model="batchUseGrpcBurBasicLabelAutomation" type="checkbox" />
+        <label v-if="activeFieldRules.length" class="batch-basic-label-option">
+          <input v-model="batchUseFieldRules" type="checkbox" />
           <span>
-            <strong>套用 Basic Label 自動化</strong>
-            <small>套用第 8-14 碼遞增與第 88-89 碼今日 DD 設定。</small>
+            <strong>套用欄位規則</strong>
+            <small>依目前啟用規則處理；第 N 筆遞增 N。</small>
           </span>
         </label>
         <footer class="collection-rename-actions">
@@ -952,7 +1043,7 @@
       </section>
     </div>
     <div v-if="showCurlDialog" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeCurlDialog)">
-      <section class="curl-modal" role="dialog" aria-modal="true" aria-labelledby="curl-dialog-title">
+      <section v-workspace-dialog="closeCurlDialog" class="curl-modal" role="dialog" aria-modal="true" aria-labelledby="curl-dialog-title">
         <header class="environment-modal-head">
           <div>
             <h2 id="curl-dialog-title">產生 cURL</h2>
@@ -981,7 +1072,7 @@
       </section>
     </div>
     <div v-if="showEnvironmentManager" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeEnvironmentManager)">
-      <section class="environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-modal-title">
+      <section v-workspace-dialog="closeEnvironmentManager" class="environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-modal-title">
         <header class="environment-modal-head">
           <div>
             <h2 id="environment-modal-title">Environment</h2>
@@ -1019,7 +1110,7 @@
       </section>
     </div>
     <div v-if="showCollectionRename" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeCollectionRename)">
-      <section class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="collection-rename-title">
+      <section v-workspace-dialog="closeCollectionRename" class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="collection-rename-title">
         <header class="environment-modal-head">
           <div>
             <h2 id="collection-rename-title">重新命名 Collection</h2>
@@ -1040,7 +1131,7 @@
       </section>
     </div>
     <div v-if="showEnvironmentCopy" class="modal-backdrop" @pointerdown="trackModalBackdropPointerDown" @pointerup.self="dismissModalOnBackdropPointerUp($event, closeEnvironmentCopy)">
-      <section class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="environment-copy-title">
+      <section v-workspace-dialog="closeEnvironmentCopy" class="collection-rename-modal" role="dialog" aria-modal="true" aria-labelledby="environment-copy-title">
         <header class="environment-modal-head">
           <div>
             <h2 id="environment-copy-title">複製 Environment</h2>
@@ -1064,28 +1155,37 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Archive,
+  ArrowDownToLine,
   Binary,
+  Braces,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
   Download,
+  Eye,
   FileCode2,
   FileText,
   Folder,
   FolderPlus,
   GripVertical,
   Globe,
+  Inbox,
+  Layers,
+  ListFilter,
+  LoaderCircle,
   Moon,
   MoreHorizontal,
   Pencil,
+  PanelLeft,
   Plus,
   RadioTower,
   RefreshCw,
   Save,
+  Search,
   Send,
   Settings,
   Sun,
@@ -1093,10 +1193,12 @@ import {
   Trash2,
   Timer,
   Upload,
+  WrapText,
   X,
 } from '@lucide/vue'
 import { buildCurlCommand as createCurlCommand, hasCurlTemplateVariables } from './curl-command.mjs'
 import postBubiLogo from './assets/post-bubi-logo.png'
+import { copyText, filterCollections, handleTabKeydown, workspaceDialog as vWorkspaceDialog } from './workspace-ui.mjs'
 
 const SIDEBAR_COLLAPSE_THRESHOLD = 180
 const SIDEBAR_COLLAPSED_WIDTH = 64
@@ -1104,10 +1206,10 @@ const BATCH_HISTORY_PAGE_SIZE = 20
 const BATCH_ITEM_PAGE_SIZE = 100
 
 const requestTabs = [
-  { key: 'params', label: 'Params' },
-  { key: 'headers', label: 'Headers' },
-  { key: 'body', label: 'Body' },
-  { key: 'settings', label: 'Settings' },
+  { key: 'params', label: 'Params', icon: ListFilter },
+  { key: 'headers', label: 'Headers', icon: Layers },
+  { key: 'body', label: 'Body', icon: Braces },
+  { key: 'settings', label: 'Settings', icon: Settings },
 ]
 
 const baseResponseTabs = [
@@ -1119,6 +1221,9 @@ const baseResponseTabs = [
 ]
 
 const collections = ref([])
+const collectionSearch = ref('')
+const mobileNavigationOpen = ref(false)
+const visibleCollections = computed(() => filterCollections(collections.value, collectionSearch.value))
 const protos = ref([])
 const environments = ref([])
 const activeEnvironmentId = ref('')
@@ -1145,7 +1250,7 @@ const batchTotalCount = ref(1)
 const batchMaxConcurrency = ref(1)
 const batchIntervalMillis = ref(0)
 const batchDeadlineMillis = ref(30000)
-const batchUseGrpcBurBasicLabelAutomation = ref(true)
+const batchUseFieldRules = ref(true)
 const batchStarting = ref(false)
 const batchCancelling = ref(false)
 const batchClearing = ref(false)
@@ -1196,10 +1301,12 @@ const grpcBurPlaintext = ref(true)
 const grpcBurIgnoreTlsVerification = ref(false)
 const grpcBurIncrementBasicLabelSequence = ref(false)
 const grpcBurFillBasicLabelDayOfMonth = ref(false)
+const fieldRules = ref([])
 const grpcBurPreview = ref(null)
 const paramsText = ref('')
 const headersText = ref('Accept=application/json')
 const headerRows = ref([newNameValueRow('Accept', 'application/json')])
+const enabledHeaderCount = computed(() => headerRows.value.filter((row) => row.enabled && row.name.trim()).length)
 const bodyType = ref('none')
 const bodyText = ref('{\n  "name": "Post Bubi"\n}')
 const formDataParts = ref([newFormDataPart()])
@@ -1209,6 +1316,7 @@ const followRedirects = ref(true)
 const ignoreSslVerification = ref(true)
 const activeRequestTab = ref('params')
 const activeResponseTab = ref('body')
+const wrapResponseLines = ref(false)
 const loadingCollections = ref(false)
 const loadingHistory = ref(false)
 const saving = ref(false)
@@ -1292,11 +1400,17 @@ const activeBodyText = computed({
   },
 })
 
-const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || bodyType.value === 'json')
+const isJsonBodyEditor = computed(() => requestType.value === 'GRPC' || (requestType.value === 'HTTP' && bodyType.value === 'json'))
 
 const highlightedBodyText = computed(() => highlightRequestBody())
 
 const highlightedGrpcBurBasicLabel = computed(() => highlightGrpcBurBasicLabel())
+
+const activeFieldRules = computed(() => fieldRules.value.filter((rule) => rule.enabled))
+
+const httpJsonFieldOptions = computed(() => requestType.value === 'HTTP' && bodyType.value === 'json'
+  ? collectHttpJsonFieldOptions(bodyText.value)
+  : [])
 
 const responseTabs = computed(() => supportsBatch()
   ? [...baseResponseTabs.slice(0, 2), { key: 'batch', label: 'Batch' }, ...baseResponseTabs.slice(2)]
@@ -1304,8 +1418,12 @@ const responseTabs = computed(() => supportsBatch()
 
 const grpcBurDecodedResponseResults = computed(() => decodeGrpcBurResponseFields())
 
+const grpcDecodedResponseResults = computed(() => decodeGrpcPayloadResponseFields(grpcDecodedPayloads.value))
+
 const responseBodyDecodedResults = computed(() => {
-  return requestType.value === 'GRPC_BUR' ? grpcBurDecodedResponseResults.value : decodedResponseResults.value
+  if (requestType.value === 'GRPC_BUR') return grpcBurDecodedResponseResults.value
+  if (requestType.value === 'GRPC') return [...decodedResponseResults.value, ...grpcDecodedResponseResults.value]
+  return decodedResponseResults.value
 })
 
 const decodedResponseMap = computed(() => {
@@ -1325,6 +1443,8 @@ const grpcBurPreviewText = computed(() => {
 })
 
 const grpcBurDecodedPayloads = computed(() => response.value?.decodedPayloads || [])
+
+const grpcDecodedPayloads = computed(() => response.value?.decodedPayloads || [])
 
 const panelStyle = computed(() => ({
   '--response-height': `${responseHeight.value}px`,
@@ -1477,10 +1597,20 @@ const activeEnvironmentVariableCount = computed(() => {
 initializeTheme()
 markEditorSaved()
 
+watch(selectedRequestId, () => { mobileNavigationOpen.value = false })
+watch(mobileNavigationOpen, async (open) => {
+  if (window.innerWidth > 860) return
+  await nextTick()
+  if (open) document.querySelector('.collection-search input')?.focus()
+  else if (!document.querySelector('[role="dialog"]')) document.querySelector('.mobile-nav-toggle')?.focus()
+})
+
 onMounted(() => {
   initializePanelPreferences()
   window.addEventListener('beforeunload', warnBeforeUnload)
+  window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', closeTreeMenuOnOutsideClick)
+  document.addEventListener('keydown', handleWorkspaceKeydown)
   loadCollections()
   loadHistory()
   loadProtos()
@@ -1493,7 +1623,9 @@ onBeforeUnmount(() => {
   stopResponseResize()
   stopSidebarResize()
   window.removeEventListener('beforeunload', warnBeforeUnload)
+  window.removeEventListener('resize', handleViewportResize)
   document.removeEventListener('click', closeTreeMenuOnOutsideClick)
+  document.removeEventListener('keydown', handleWorkspaceKeydown)
 })
 
 function initializeTheme() {
@@ -1501,20 +1633,27 @@ function initializeTheme() {
   setTheme(savedTheme === 'dark' ? 'dark' : 'light')
 }
 
+function handleViewportResize() {
+  responseHeight.value = clampResponseHeight(responseHeight.value)
+  sidebarWidth.value = clampSidebarWidth(sidebarWidth.value)
+  if (window.innerWidth > 860) mobileNavigationOpen.value = false
+}
+
 function setTheme(theme) {
   themeMode.value = theme === 'dark' ? 'dark' : 'light'
   document.documentElement.dataset.theme = themeMode.value
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeMode.value === 'dark' ? '#1b1c20' : '#ffffff')
   window.localStorage.setItem('post-bubi-theme', themeMode.value)
 }
 
 function initializePanelPreferences() {
-  const savedResponseHeight = Number(window.localStorage.getItem('post-bubi-response-height'))
-  if (Number.isFinite(savedResponseHeight)) {
+  const savedResponseHeight = window.localStorage.getItem('post-bubi-response-height')
+  if (savedResponseHeight !== null && Number.isFinite(Number(savedResponseHeight))) {
     responseHeight.value = clampResponseHeight(savedResponseHeight)
   }
   headersExpanded.value = window.localStorage.getItem('post-bubi-headers-expanded') !== 'false'
-  const savedSidebarWidth = Number(window.localStorage.getItem('post-bubi-sidebar-width'))
-  if (Number.isFinite(savedSidebarWidth)) {
+  const savedSidebarWidth = window.localStorage.getItem('post-bubi-sidebar-width')
+  if (savedSidebarWidth !== null && Number.isFinite(Number(savedSidebarWidth))) {
     sidebarWidth.value = clampSidebarWidth(savedSidebarWidth)
   }
   sidebarCollapsed.value = window.localStorage.getItem('post-bubi-sidebar-collapsed') === 'true'
@@ -1564,7 +1703,8 @@ function adjustSidebarWidth(offset) {
   if (!supportsSidebarResize()) {
     return
   }
-  applySidebarWidth((sidebarCollapsed.value ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth.value) + offset)
+  const next = sidebarCollapsed.value && offset > 0 ? 220 : sidebarWidth.value + offset
+  applySidebarWidth(offset < 0 && next < 220 ? SIDEBAR_COLLAPSE_THRESHOLD : next)
   window.localStorage.setItem('post-bubi-sidebar-width', String(sidebarWidth.value))
   window.localStorage.setItem('post-bubi-sidebar-collapsed', String(sidebarCollapsed.value))
 }
@@ -1880,38 +2020,33 @@ function highlightJson(value) {
 
 function highlightRequestBody() {
   const body = activeBodyText.value
-  if (requestType.value !== 'GRPC' || !grpcEncodePayloadDataBase64.value) {
-    return highlightJson(body)
-  }
   const parsed = tryJsonParse(body)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return highlightJson(body)
   }
-  return renderJsonValue(parsed, '$', 0, new Map(), new Set(['$.payload.data']))
+  const encodedPaths = requestType.value === 'GRPC' && grpcEncodePayloadDataBase64.value ? new Set(['$.payload.data']) : new Set()
+  return renderJsonValue(parsed, '$', 0, new Map(), encodedPaths, activeJsonFieldRuleMap())
+}
+
+function activeJsonFieldRuleMap() {
+  const result = new Map()
+  for (const rule of activeFieldRules.value) {
+    const path = rule.targetType === 'GRPC_PAYLOAD_DATA_RANGE'
+      ? '/payload/data'
+      : rule.targetType === 'HTTP_JSON_VALUE'
+        ? rule.path
+        : ''
+    if (path) result.set(path, [...(result.get(path) || []), rule])
+  }
+  return result
 }
 
 function highlightGrpcBurBasicLabel() {
   const value = String(grpcBurBasicLabel.value || '')
-  const ranges = [
-    grpcBurIncrementBasicLabelSequence.value && {
-      start: 7,
-      end: 14,
-      className: 'basic-label-sequence-field',
-      title: '第 8-14 碼：送出前自動遞增',
-    },
-    {
-      start: 36,
-      end: 46,
-      className: 'basic-label-fixed-field',
-      title: '第 37-46 碼：固定標示',
-    },
-    grpcBurFillBasicLabelDayOfMonth.value && {
-      start: 87,
-      end: 89,
-      className: 'basic-label-day-field',
-      title: '第 88-89 碼：送出前帶入 Asia/Taipei 當日 DD',
-    },
-  ].filter(Boolean)
+  const ranges = activeFieldRules.value
+    .filter((rule) => rule.targetType === 'BUR_BASIC_LABEL_RANGE' && Number.isInteger(rule.start) && Number.isInteger(rule.end))
+    .map((rule) => ({ rule, start: rule.start - 1, end: rule.end }))
+    .sort((left, right) => left.start - right.start)
 
   if (!ranges.length) {
     return escapeHtml(value)
@@ -1925,10 +2060,112 @@ function highlightGrpcBurBasicLabel() {
     }
     const end = Math.min(range.end, value.length)
     rendered += escapeHtml(value.slice(cursor, range.start))
-    rendered += `<span class="${range.className}" title="${range.title}">${escapeHtml(value.slice(range.start, end))}</span>`
+    rendered += `<span class="basic-label-rule-field" style="--field-rule-color:${escapeAttribute(ruleColor(range.rule.color))}" title="${escapeAttribute(fieldRuleSummary(range.rule))}">${escapeHtml(value.slice(range.start, end))}</span>`
     cursor = end
   }
   return `${rendered}${escapeHtml(value.slice(cursor))}`
+}
+
+function newFieldRule() {
+  return newFieldRuleForType(requestType.value)
+}
+
+function newFieldRuleForType(type) {
+  const targetType = type === 'HTTP'
+    ? 'HTTP_JSON_VALUE'
+    : type === 'GRPC'
+      ? 'GRPC_PAYLOAD_DATA_RANGE'
+      : 'BUR_BASIC_LABEL_RANGE'
+  return {
+    id: globalThis.crypto?.randomUUID?.() || `field-rule-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: '未命名規則',
+    enabled: true,
+    color: '#AB005F',
+    action: 'NONE',
+    targetType,
+    start: 1,
+    end: 1,
+    path: '',
+  }
+}
+
+function addFieldRule() {
+  fieldRules.value.push(newFieldRule())
+}
+
+function removeFieldRule(id) {
+  fieldRules.value = fieldRules.value.filter((rule) => rule.id !== id)
+}
+
+function fieldRuleValidationMessage() {
+  const targetType = requestType.value === 'HTTP'
+    ? 'HTTP_JSON_VALUE'
+    : requestType.value === 'GRPC'
+      ? 'GRPC_PAYLOAD_DATA_RANGE'
+      : 'BUR_BASIC_LABEL_RANGE'
+  const enabled = activeFieldRules.value
+  const names = new Set()
+  const paths = new Set()
+  const ranges = []
+  for (const rule of enabled) {
+    const name = String(rule.name || '').trim() || '未命名規則'
+    if (!String(rule.name || '').trim()) return '欄位規則名稱不可空白'
+    if (!/^#[0-9a-fA-F]{6}$/.test(rule.color || '')) return `欄位規則「${name}」的顏色必須為 #RRGGBB`
+    if (rule.targetType !== targetType) return `欄位規則「${name}」不適用於目前 Request 類型`
+    if (!['NONE', 'INCREMENT', 'TODAY_DD'].includes(rule.action)) return `欄位規則「${name}」的動作無效`
+    if (!String(rule.id || '').trim() || names.has(rule.id)) return `欄位規則「${name}」的識別碼空白或重複，請刪除後重新新增`
+    names.add(rule.id)
+    if (targetType === 'HTTP_JSON_VALUE') {
+      const path = String(rule.path || '')
+      if (!path.startsWith('/') || path === '/') return `欄位規則「${name}」必須指定 HTTP JSON Pointer`
+      if (/~(?:[^01]|$)/.test(path)) return `欄位規則「${name}」的 JSON Pointer 跳脫格式錯誤`
+      if (paths.has(path)) return `HTTP JSON Pointer「${path}」不可設定多條啟用規則`
+      paths.add(path)
+      continue
+    }
+    const start = Number(rule.start)
+    const end = Number(rule.end)
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) {
+      return `欄位規則「${name}」的起訖位置無效`
+    }
+    ranges.push({ name, start, end })
+  }
+  ranges.sort((left, right) => left.start - right.start)
+  for (let index = 1; index < ranges.length; index += 1) {
+    if (ranges[index].start <= ranges[index - 1].end) {
+      return `欄位規則「${ranges[index - 1].name}」與「${ranges[index].name}」的範圍不可重疊`
+    }
+  }
+  if (targetType === 'HTTP_JSON_VALUE' && enabled.length && bodyType.value !== 'json') {
+    return 'HTTP 欄位規則只支援 JSON Body'
+  }
+  return ''
+}
+
+function ruleColor(value) {
+  return /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : '#AB005F'
+}
+
+function fieldRuleSummary(rule) {
+  const action = { NONE: '標示', INCREMENT: '遞增', TODAY_DD: '今日 DD' }[rule.action] || rule.action
+  const target = rule.targetType === 'HTTP_JSON_VALUE' ? rule.path || '未選擇 JSON 欄位' : `${rule.start || '?'}-${rule.end || '?'}`
+  return `${rule.name || '未命名'} · ${target} · ${action}`
+}
+
+function collectHttpJsonFieldOptions(body) {
+  const parsed = tryJsonParse(body)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+  const result = []
+  const visit = (value, path, label) => {
+    if (Array.isArray(value)) return
+    if (value && typeof value === 'object') {
+      Object.entries(value).forEach(([key, child]) => visit(child, `${path}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`, `${label}.${key}`))
+      return
+    }
+    result.push({ path, label })
+  }
+  Object.entries(parsed).forEach(([key, value]) => visit(value, `/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`, key))
+  return result
 }
 
 function highlightResponseBody() {
@@ -1942,10 +2179,13 @@ function highlightResponseBody() {
   return renderJsonValue(parsed, '$', 0, decodedResponseMap.value)
 }
 
-function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set()) {
+function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set(), fieldRuleMap = new Map(), pointer = '') {
   const decoded = decodedMap.get(path)
   if (decoded) {
     return renderDecodedJsonValue(decoded, depth)
+  }
+  if (fieldRuleMap.has(pointer) && (value === null || typeof value !== 'object')) {
+    return renderFieldRuleJsonValue(value, fieldRuleMap.get(pointer), encodedPaths.has(path))
   }
   if (encodedPaths.has(path)) {
     return renderPayloadBase64JsonValue(value)
@@ -1956,7 +2196,7 @@ function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set(
     }
     const childDepth = depth + 1
     const rows = value.map((item, index) => {
-      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap, encodedPaths)}`
+      return `${indent(childDepth)}${renderJsonValue(item, `${path}[${index}]`, childDepth, decodedMap, encodedPaths, fieldRuleMap, `${pointer}/${index}`)}`
     })
     return `[\n${rows.join(',\n')}\n${indent(depth)}]`
   }
@@ -1968,11 +2208,46 @@ function renderJsonValue(value, path, depth, decodedMap, encodedPaths = new Set(
     const childDepth = depth + 1
     const rows = entries.map(([key, item]) => {
       const keyPath = `${path}.${key}`
-      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap, encodedPaths)}`
+      const childPointer = `${pointer}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`
+      return `${indent(childDepth)}<span class="json-key">${escapeHtml(JSON.stringify(key))}:</span> ${renderJsonValue(item, keyPath, childDepth, decodedMap, encodedPaths, fieldRuleMap, childPointer)}`
     })
     return `{\n${rows.join(',\n')}\n${indent(depth)}}`
   }
   return renderJsonPrimitive(value)
+}
+
+function renderFieldRuleJsonValue(value, rules, base64Encoded = false) {
+  const list = Array.isArray(rules) ? rules : [rules]
+  if (typeof value === 'string' && list[0].targetType === 'GRPC_PAYLOAD_DATA_RANGE') {
+    const boundaries = new Map([[0, 0]])
+    const encoder = new TextEncoder()
+    let byteOffset = 0
+    let charOffset = 0
+    for (const character of value) {
+      byteOffset += encoder.encode(character).length
+      charOffset += character.length
+      boundaries.set(byteOffset, charOffset)
+    }
+    let cursor = 0
+    let rendered = ''
+    const fragment = (text) => escapeHtml(JSON.stringify(text).slice(1, -1))
+    for (const rule of [...list].sort((left, right) => left.start - right.start)) {
+      const start = boundaries.get(Number(rule.start) - 1)
+      const end = boundaries.get(Number(rule.end))
+      if (start === undefined || end === undefined || start < cursor || end <= start) continue
+      rendered += fragment(value.slice(cursor, start))
+      rendered += renderFieldRuleSpan(fragment(value.slice(start, end)), rule, base64Encoded)
+      cursor = end
+    }
+    return `<span class="json-string">"${rendered}${fragment(value.slice(cursor))}"</span>`
+  }
+  return renderFieldRuleSpan(renderJsonPrimitive(value), list[0], base64Encoded)
+}
+
+function renderFieldRuleSpan(content, rule, base64Encoded) {
+  const action = { NONE: '標示', INCREMENT: '+1', TODAY_DD: 'DD' }[rule.action] || rule.action
+  const badge = base64Encoded ? `${action} · BASE64` : action
+  return `<span class="json-field-rule" style="--field-rule-color:${escapeAttribute(ruleColor(rule.color))}" title="${escapeAttribute(fieldRuleSummary(rule))}">${content}<span class="json-field-rule-badge">${escapeHtml(badge)}</span></span>`
 }
 
 function renderDecodedJsonValue(decoded, depth) {
@@ -2166,7 +2441,23 @@ function toggleTreeMenu(menuId) {
 }
 
 function isCollectionCollapsed(collectionId) {
-  return collapsedCollectionIds.value.has(collectionId)
+  return !collectionSearch.value.trim() && collapsedCollectionIds.value.has(collectionId)
+}
+
+function handleWorkspaceKeydown(event) {
+  if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return
+  mobileNavigationOpen.value = false
+  closeTreeMenu()
+  environmentMenuOpen.value = false
+}
+
+async function copyResponseBody() {
+  try {
+    await copyText(responseBody.value)
+    workspaceStatus.value = 'Response Body 已複製'
+  } catch {
+    workspaceStatus.value = '無法存取剪貼簿，請選取 Response Body 複製'
+  }
 }
 
 function requestTreeIcon(type) {
@@ -2925,6 +3216,7 @@ function newDraftRequest(options = {}) {
   bodyText.value = '{\n  "name": "Post Bubi"\n}'
   formDataParts.value = [newFormDataPart()]
   responseDecodeRows.value = [newNameValueRow()]
+  fieldRules.value = []
   timeoutMillis.value = 30000
   followRedirects.value = true
   ignoreSslVerification.value = true
@@ -2950,6 +3242,11 @@ async function saveRequest() {
   }
   if (!requestName.value.trim()) {
     workspaceStatus.value = 'Request 名稱不可空白'
+    return false
+  }
+  const fieldRuleError = fieldRuleValidationMessage()
+  if (fieldRuleError) {
+    workspaceStatus.value = fieldRuleError
     return false
   }
 
@@ -3050,7 +3347,7 @@ function openBatchRunner() {
     return
   }
   batchStartError.value = ''
-  batchUseGrpcBurBasicLabelAutomation.value = true
+  batchUseFieldRules.value = true
   showBatchRunner.value = true
 }
 
@@ -3086,22 +3383,7 @@ async function copyCurlCommand() {
   }
 
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(command)
-    } else {
-      const copyTarget = document.createElement('textarea')
-      copyTarget.value = command
-      copyTarget.setAttribute('readonly', '')
-      copyTarget.style.position = 'fixed'
-      copyTarget.style.opacity = '0'
-      document.body.appendChild(copyTarget)
-      copyTarget.select()
-      const copied = document.execCommand('copy')
-      copyTarget.remove()
-      if (!copied) {
-        throw new Error('瀏覽器拒絕存取剪貼簿')
-      }
-    }
+    await copyText(command)
     workspaceStatus.value = 'cURL 指令已複製到剪貼簿'
   } catch (error) {
     workspaceStatus.value = `cURL 複製失敗：${readableError(error)}`
@@ -3130,6 +3412,11 @@ function closeBatchRunner() {
 }
 
 async function startBatchRun() {
+  const fieldRuleError = batchUseFieldRules.value ? fieldRuleValidationMessage() : ''
+  if (fieldRuleError) {
+    batchStartError.value = fieldRuleError
+    return
+  }
   batchStarting.value = true
   batchStartError.value = ''
   const savedRequestId = selectedRequestId.value
@@ -3162,7 +3449,7 @@ async function startBatchRun() {
     }
     showBatchRunner.value = false
     activeResponseTab.value = 'batch'
-    if (requestType.value === 'GRPC_BUR' && batchUseGrpcBurBasicLabelAutomation.value) {
+    if (requestType.value === 'GRPC_BUR' && batchUseFieldRules.value) {
       advanceGrpcBurBasicLabelAfterBatch(started.totalCount)
     }
     if (savedRequestId) {
@@ -3420,6 +3707,11 @@ function formatMillis(value) {
 }
 
 async function sendHttpRequest() {
+  const fieldRuleError = fieldRuleValidationMessage()
+  if (fieldRuleError) {
+    errorText.value = fieldRuleError
+    return
+  }
   sending.value = true
   errorText.value = ''
   cancellationText.value = ''
@@ -3445,6 +3737,11 @@ async function sendHttpRequest() {
 }
 
 async function sendGrpcRequest() {
+  const fieldRuleError = fieldRuleValidationMessage()
+  if (fieldRuleError) {
+    errorText.value = fieldRuleError
+    return
+  }
   sending.value = true
   errorText.value = ''
   cancellationText.value = ''
@@ -3468,6 +3765,11 @@ async function sendGrpcRequest() {
 }
 
 async function previewGrpcBurRequest() {
+  const fieldRuleError = fieldRuleValidationMessage()
+  if (fieldRuleError) {
+    workspaceStatus.value = fieldRuleError
+    return
+  }
   errorText.value = ''
   try {
     grpcBurPreview.value = await apiJson('/api/grpc-bur/preview', {
@@ -3481,6 +3783,11 @@ async function previewGrpcBurRequest() {
 }
 
 async function sendGrpcBurRequest() {
+  const fieldRuleError = fieldRuleValidationMessage()
+  if (fieldRuleError) {
+    errorText.value = fieldRuleError
+    return
+  }
   sending.value = true
   errorText.value = ''
   cancellationText.value = ''
@@ -3653,6 +3960,8 @@ function loadHistoryItem(item) {
   }
   clearBatchRunHistory()
   const payload = safeJsonParse(item.requestJson)
+  requestType.value = 'HTTP'
+  fieldRules.value = restoreFieldRules({ ...payload, requestType: 'HTTP' })
   selectedRequestId.value = payload.requestId || null
   requestName.value = item.method && item.url ? `${item.method} ${item.url}` : '歷史紀錄'
   method.value = payload.method || item.method || 'GET'
@@ -3716,6 +4025,7 @@ function editorPayload() {
     grpcBurIgnoreTlsVerification: grpcBurIgnoreTlsVerification.value,
     grpcBurIncrementBasicLabelSequence: grpcBurIncrementBasicLabelSequence.value,
     grpcBurFillBasicLabelDayOfMonth: grpcBurFillBasicLabelDayOfMonth.value,
+    fieldRules: fieldRules.value,
   }
 }
 
@@ -3726,6 +4036,7 @@ function grpcExecutePayload() {
     plaintext: grpcPlaintext.value,
     ignoreTlsVerification: grpcIgnoreTlsVerification.value,
     encodePayloadDataBase64: grpcEncodePayloadDataBase64.value,
+    fieldRules: fieldRules.value,
     metadata: parseNameValueLines(grpcMetadataText.value),
     protoId: grpcProtoId.value || null,
     serviceName: grpcServiceName.value,
@@ -3755,12 +4066,13 @@ function grpcBurExecutePayload() {
       padTextAreaRight: grpcBurPadTextAreaRight.value,
       incrementBasicLabelSequence: grpcBurIncrementBasicLabelSequence.value,
       fillBasicLabelDayOfMonth: grpcBurFillBasicLabelDayOfMonth.value,
+      fieldRules: fieldRules.value,
     },
   }
 }
 
 function syncGrpcBurBasicLabelFromPreview(preview) {
-  if (!grpcBurIncrementBasicLabelSequence.value && !grpcBurFillBasicLabelDayOfMonth.value) {
+  if (!hasGrpcBurFieldRuleAction()) {
     return
   }
   if (preview?.effectiveBasicLabel) {
@@ -3769,7 +4081,7 @@ function syncGrpcBurBasicLabelFromPreview(preview) {
 }
 
 function advanceGrpcBurBasicLabelAfterBatch(totalCount) {
-  if (!grpcBurIncrementBasicLabelSequence.value && !grpcBurFillBasicLabelDayOfMonth.value) {
+  if (!hasGrpcBurFieldRuleAction()) {
     return
   }
   try {
@@ -3781,27 +4093,30 @@ function advanceGrpcBurBasicLabelAfterBatch(totalCount) {
 
 function automateGrpcBurBasicLabel(label, increment) {
   let result = String(label || '')
-  if (grpcBurIncrementBasicLabelSequence.value) {
-    if (result.length < 14 || !/^\d{7}$/.test(result.slice(7, 14))) {
-      throw new Error('Basic Label 第 8-14 碼必須為 7 碼數字')
+  const rules = activeFieldRules.value
+    .filter((rule) => rule.targetType === 'BUR_BASIC_LABEL_RANGE' && rule.action !== 'NONE')
+    .sort((left, right) => Number(right.start) - Number(left.start))
+  for (const rule of rules) {
+    const start = Number(rule.start) - 1
+    const end = Number(rule.end)
+    const current = result.slice(start, end)
+    if (start < 0 || end > result.length || end < start) throw new Error(`${rule.name} 欄位範圍不合法`)
+    if (rule.action === 'INCREMENT') {
+      if (!/^\d+$/.test(current)) throw new Error(`${rule.name} 必須是十進位數字`)
+      const next = BigInt(current) + BigInt(increment)
+      if (String(next).length > current.length) throw new Error(`${rule.name} 遞增後超過原欄位長度`)
+      result = `${result.slice(0, start)}${String(next).padStart(current.length, '0')}${result.slice(end)}`
+    } else if (rule.action === 'TODAY_DD') {
+      if (current.length !== 2) throw new Error(`${rule.name} 的今日 DD 欄位長度必須為 2`)
+      const dayOfMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', day: '2-digit' }).format(new Date())
+      result = `${result.slice(0, start)}${dayOfMonth}${result.slice(end)}`
     }
-    const next = Number(result.slice(7, 14)) + increment
-    if (!Number.isSafeInteger(next) || next > 9999999) {
-      throw new Error('Basic Label 第 8-14 碼遞增後超過 9999999')
-    }
-    result = `${result.slice(0, 7)}${String(next).padStart(7, '0')}${result.slice(14)}`
-  }
-  if (grpcBurFillBasicLabelDayOfMonth.value) {
-    if (result.length < 89) {
-      throw new Error('Basic Label 至少需要 89 碼')
-    }
-    const dayOfMonth = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Taipei',
-      day: '2-digit',
-    }).format(new Date())
-    result = `${result.slice(0, 87)}${dayOfMonth}${result.slice(89)}`
   }
   return result
+}
+
+function hasGrpcBurFieldRuleAction() {
+  return activeFieldRules.value.some((rule) => rule.targetType === 'BUR_BASIC_LABEL_RANGE' && rule.action !== 'NONE')
 }
 
 function supportsBatch() {
@@ -3817,17 +4132,22 @@ function batchApiBase() {
 function batchExecutePayload() {
   if (requestType.value === 'GRPC_BUR') {
     const payload = grpcBurExecutePayload()
-    if (!batchUseGrpcBurBasicLabelAutomation.value) {
+    if (!batchUseFieldRules.value) {
       payload.settings = {
         ...payload.settings,
-        incrementBasicLabelSequence: false,
-        fillBasicLabelDayOfMonth: false,
+        fieldRules: [],
       }
     }
     return resolveExecutionPayload(payload)
   }
-  if (requestType.value === 'GRPC') return resolveExecutionPayload(grpcExecutePayload())
-  return resolveExecutionPayload(executePayload())
+  if (requestType.value === 'GRPC') {
+    const payload = grpcExecutePayload()
+    if (!batchUseFieldRules.value) payload.fieldRules = []
+    return resolveExecutionPayload(payload)
+  }
+  const payload = executePayload()
+  if (!batchUseFieldRules.value) payload.fieldRules = []
+  return resolveExecutionPayload(payload)
 }
 
 function batchRequestProperty(payload) {
@@ -3849,6 +4169,7 @@ function executePayload() {
     timeoutMillis: timeoutMillis.value,
     followRedirects: followRedirects.value,
     ignoreSslVerification: ignoreSslVerification.value,
+    fieldRules: fieldRules.value,
   }
 }
 
@@ -3946,10 +4267,56 @@ function loadPayloadToEditor(payload) {
   grpcBurIgnoreTlsVerification.value = payload.grpcBurIgnoreTlsVerification === true
   grpcBurIncrementBasicLabelSequence.value = payload.grpcBurIncrementBasicLabelSequence === true
   grpcBurFillBasicLabelDayOfMonth.value = payload.grpcBurFillBasicLabelDayOfMonth === true
+  fieldRules.value = restoreFieldRules(payload)
   grpcBurPreview.value = null
   response.value = null
   errorText.value = ''
   cancellationText.value = ''
+}
+
+function restoreFieldRules(payload) {
+  if (Array.isArray(payload.fieldRules)) {
+    return payload.fieldRules.map((rule) => ({
+      ...newFieldRuleForType(payload.requestType || 'HTTP'),
+      ...rule,
+      color: ruleColor(rule.color),
+    }))
+  }
+  if (payload.requestType !== 'GRPC_BUR') {
+    return []
+  }
+  return [
+    {
+      ...newFieldRuleForType('GRPC_BUR'),
+      id: 'legacy-basic-label-sequence',
+      name: '交易代號',
+      enabled: payload.grpcBurIncrementBasicLabelSequence === true,
+      color: '#AB005F',
+      action: 'INCREMENT',
+      start: 8,
+      end: 14,
+    },
+    {
+      ...newFieldRuleForType('GRPC_BUR'),
+      id: 'legacy-basic-label-fixed',
+      name: '固定欄位',
+      enabled: true,
+      color: '#2E9B6B',
+      action: 'NONE',
+      start: 37,
+      end: 46,
+    },
+    {
+      ...newFieldRuleForType('GRPC_BUR'),
+      id: 'legacy-basic-label-day',
+      name: '交易日',
+      enabled: payload.grpcBurFillBasicLabelDayOfMonth === true,
+      color: '#3484D4',
+      action: 'TODAY_DD',
+      start: 88,
+      end: 89,
+    },
+  ]
 }
 
 async function apiJson(path, options = {}) {
@@ -4236,12 +4603,16 @@ function decodeResponseFields() {
 }
 
 function decodeGrpcBurResponseFields() {
+  return decodeGrpcPayloadResponseFields(grpcBurDecodedPayloads.value)
+}
+
+function decodeGrpcPayloadResponseFields(decodedPayloads) {
   const parsed = tryJsonParse(rawResponseBody.value)
   const payloads = parsed?.payload
   if (!payloads || typeof payloads !== 'object' || Array.isArray(payloads)) {
     return []
   }
-  return grpcBurDecodedPayloads.value.map((payload) => {
+  return decodedPayloads.map((payload) => {
     const source = payloads[payload.key]
     const original = typeof source?.data === 'string' ? source.data : ''
     return {

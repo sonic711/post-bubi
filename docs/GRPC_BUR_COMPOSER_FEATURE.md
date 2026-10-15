@@ -27,7 +27,7 @@ com.bot.fsap.model.grpc.common.Service/rpcPeriphery
 2. 填寫 target `host:port`。
 3. 在 Body 編輯 Basic Label 與 Text Area。
 4. 使用「產生預覽」檢查各段長度、最終 hex 與 decoded text。
-5. 必要時在 Settings 指定 protoId、TLS、TCPIP Header、固定長度與 Basic Label 自動化規則。
+5. 必要時在 Settings 指定 protoId、TLS、TCPIP Header、固定長度與自訂 Basic Label 欄位規則；可設定名稱、顏色、起訖位置與動作。
 6. 送出後在 Body 查看 protobuf JSON，在 Decoded 查看各 payload 的 BUR 明碼。
 
 Request 可以保存到 Collection，載入後會還原所有 gRPC BUR 欄位。
@@ -51,7 +51,7 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 | Timeout | 30000 ms |
 | Plaintext | true |
 
-處理規則：
+處理規則（自訂欄位規則完整合約見 [REQUEST_FIELD_RULES.md](REQUEST_FIELD_RULES.md)）：
 
 - TCPIP Header 由 hex 轉 bytes，格式錯誤時拒絕送出。
 - MCS Header 使用 UTF-8 bytes，長度不足時右補空白。
@@ -59,9 +59,10 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 - Text Area 使用 TBConvert 從 UTF-8 轉 BUR；設定正整數長度時依設定右補空白。
 - 任一固定欄位超過設定長度時拒絕送出，不自動截斷。
 - 串接結果放入 protobuf JSON 的 `payload.data`，使用 base64 表示。
-- Settings 可啟用「Basic Label 第 8-14 碼送出前遞增」：位置採人類習慣的 1 起算，該區段必須是 7 碼數字。單次送出與 Preview 都以目前值先加 `1` 組包；Preview 不會保存或消耗序號。Batch 第 `N` 筆以起始值加 `N` 組包，完成啟動後編輯器會前推至第 `N` 筆的值，避免下一次送出重複交易代號。超過 `9999999` 時拒絕送出。
-- Settings 可啟用「Basic Label 第 88-89 碼帶入今日 DD」：位置同樣採 1 起算，送出與 Preview 時以台灣時區 `Asia/Taipei` 的兩碼日期 `DD` 覆寫該區段。
-- gRPC BUR Batch 視窗可選擇是否套用這兩項 Basic Label 自動化，預設勾選。未勾選時，Batch snapshot 會明確停用兩項設定，不遞增、不覆寫日期，也不前推編輯器的 Basic Label。
+- Settings 可新增多條 Basic Label 字元範圍規則，採 1 起算、含起訖；可僅標示、遞增數字或填入 `Asia/Taipei` 今日兩碼 DD。啟用範圍不得重疊；遞增保留長度且拒絕溢位，DD 範圍必須為 2。
+- 舊測案未保存 `fieldRules` 時，UI 轉成第 8-14 碼遞增、第 37-46 碼綠色標示、第 88-89 碼今日 DD 三條規則，保留舊動作啟用狀態。仍接受未帶 `fieldRules` 的舊 API 旗標；有規則陣列時以規則為準。
+- 單次與 Preview 先加 `1`，Batch 第 `N` 筆加 `N`；Preview 不消耗序號，送出及 Batch 啟動後維持既有編輯器前推行為。
+- Batch 視窗「套用欄位規則」預設勾選；停用時 snapshot 傳 `settings.fieldRules=[]`，不得回退舊旗標，也不前推 Basic Label。
 
 傳給共用 gRPC executor 的 body：
 

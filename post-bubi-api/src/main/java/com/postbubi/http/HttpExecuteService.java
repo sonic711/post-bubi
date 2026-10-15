@@ -34,6 +34,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
+import com.postbubi.fieldrule.RequestFieldRuleService;
 import com.postbubi.storage.FileStorageService;
 import com.postbubi.web.dto.HttpExecuteRequest;
 import com.postbubi.web.dto.HttpExecuteResponse;
@@ -50,10 +51,12 @@ public class HttpExecuteService {
 
     private final FileStorageService fileStorageService;
     private final RequestHistoryService requestHistoryService;
+    private final RequestFieldRuleService fieldRuleService;
 
-    public HttpExecuteService(FileStorageService fileStorageService, RequestHistoryService requestHistoryService) {
+    public HttpExecuteService(FileStorageService fileStorageService, RequestHistoryService requestHistoryService, RequestFieldRuleService fieldRuleService) {
         this.fileStorageService = fileStorageService;
         this.requestHistoryService = requestHistoryService;
+        this.fieldRuleService = fieldRuleService;
     }
 
     public HttpExecuteResponse execute(HttpExecuteRequest request, ExecutionHandle execution) {
@@ -67,7 +70,7 @@ public class HttpExecuteService {
 
         HttpUriRequestBase httpRequest = new HttpUriRequestBase(method, uri);
         applyHeaders(httpRequest, request.headers(), request.bodyType());
-        applyBody(httpRequest, method, request.bodyType(), request.body(), request.formData());
+        applyBody(httpRequest, method, request.bodyType(), effectiveBody(request), request.formData());
 
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectionRequestTimeout(Timeout.ofMilliseconds(timeoutMillis))
@@ -116,6 +119,20 @@ public class HttpExecuteService {
                     java.util.Map.of("reason", exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage())
             );
         }
+    }
+
+    private String effectiveBody(HttpExecuteRequest request) {
+        if (request.fieldRules() == null || request.fieldRules().stream().noneMatch(rule -> rule != null && Boolean.TRUE.equals(rule.enabled()))) {
+            return request.body();
+        }
+        if (!"json".equals(normalizeBodyType(request.bodyType()))) {
+            throw badRequest("FIELD_RULE_HTTP_JSON_BODY_REQUIRED", "HTTP 欄位規則只能套用 JSON Body。");
+        }
+        int increment = request.fieldRuleIncrement() == null ? 1 : request.fieldRuleIncrement();
+        if (increment <= 0) {
+            throw badRequest("FIELD_RULE_INCREMENT_VALUE_INVALID", "欄位規則遞增值必須為正整數。");
+        }
+        return fieldRuleService.applyHttpJsonRules(request.body(), request.fieldRules(), increment);
     }
 
     private void throwIfCancelled(ExecutionHandle execution) {

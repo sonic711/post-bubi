@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.postbubi.execution.ExecutionCancellationService;
+import com.postbubi.fieldrule.FieldRule;
+import com.postbubi.fieldrule.RequestFieldRuleService;
 import com.postbubi.grpc.GrpcExecuteService;
 import com.postbubi.grpc.GrpcProtoDescriptorResolver;
 import com.postbubi.grpc.GrpcReflectionDescriptorResolver;
@@ -287,11 +289,23 @@ public final class HeadlessGrpcCli {
                 text(payload, "grpcMethodName"),
                 text(payload, "grpcBody", "{}"),
                 booleanValue(payload, "grpcEncodePayloadDataBase64", false),
-                integer(payload, "timeoutMillis", 30000)
+                integer(payload, "timeoutMillis", 30000),
+                fieldRules(payload),
+                null
         );
         ProtoStorageService storage = new ProtoStorageService(protosDirectory.toString());
-        GrpcExecuteService service = new GrpcExecuteService(new GrpcReflectionDescriptorResolver(), new GrpcProtoDescriptorResolver(storage), objectMapper);
+        GrpcExecuteService service = new GrpcExecuteService(new GrpcReflectionDescriptorResolver(), new GrpcProtoDescriptorResolver(storage), objectMapper, new RequestFieldRuleService(objectMapper));
         return service.execute(request, new ExecutionCancellationService().start(null));
+    }
+
+    private List<FieldRule> fieldRules(ObjectNode payload) {
+        if (!payload.hasNonNull("fieldRules")) return List.of();
+        try {
+            if (!payload.path("fieldRules").isArray()) throw new IllegalArgumentException("fieldRules must be an array");
+            return objectMapper.readerForListOf(FieldRule.class).readValue(payload.path("fieldRules"));
+        } catch (Exception exception) {
+            throw new CliException("HEADLESS_GRPC_FIELD_RULES_INVALID", "Request 欄位規則格式錯誤。", false);
+        }
     }
 
     private List<HttpNameValue> metadata(String text) {

@@ -2,6 +2,8 @@ package com.postbubi.web.dto;
 
 import java.util.List;
 
+import com.postbubi.fieldrule.FieldRule;
+
 public record HttpExecuteRequest(
         String executionId,
         Long requestId,
@@ -14,6 +16,8 @@ public record HttpExecuteRequest(
         List<HttpFormDataPart> formData,
         Integer timeoutMillis,
         Boolean followRedirects,
-        Boolean ignoreSslVerification
+        Boolean ignoreSslVerification,
+        List<FieldRule> fieldRules,
+        Integer fieldRuleIncrement
 ) {
 }

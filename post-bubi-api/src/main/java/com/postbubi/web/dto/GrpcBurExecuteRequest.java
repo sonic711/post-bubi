@@ -1,5 +1,9 @@
 package com.postbubi.web.dto;
 
+import java.util.List;
+
+import com.postbubi.fieldrule.FieldRule;
+
 public record GrpcBurExecuteRequest(
         String executionId,
         String host,
@@ -24,7 +28,8 @@ public record GrpcBurExecuteRequest(
             Integer textAreaLength,
             Boolean padTextAreaRight,
             Boolean incrementBasicLabelSequence,
-            Boolean fillBasicLabelDayOfMonth
+            Boolean fillBasicLabelDayOfMonth,
+            List<FieldRule> fieldRules
     ) {
     }
 }

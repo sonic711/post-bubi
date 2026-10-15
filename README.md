@@ -10,13 +10,18 @@ Post Bubi 是可部署於離線主機、免登入使用的 API 測試工具。�
 - gRPC BUR 固定格式組包、TBConvert 轉碼、payload preview 與 response 解碼
 - Collection、Folder、Request 保存、排序、複製與 ZIP 匯入匯出
 - Request history、JSON 語法上色、base64 response 欄位解碼
+- 每筆 Request 自訂欄位規則：名稱、顏色、標示、遞增與台灣今日 DD；支援 HTTP JSON Pointer、gRPC UTF-8 byte 範圍及 BUR Basic Label，Batch 可選擇停用
+- 一般 gRPC 回應依 `charsets=BUR` 自動以內建 CodeTable 轉為 UTF-8，Body 回填明碼並標示原始 Base64
 - HTTP、gRPC unary 與 gRPC BUR 預設 30 秒 timeout、可調整並可取消送出中的請求
-- HTTP 單一 Request Batch 執行，支援並行、回應後間隔與完成期限模式
+- HTTP、gRPC unary 與 gRPC BUR 單一 Request Batch 執行，支援並行、回應後間隔與完成期限模式
 - Batch Run 歷程依 Request 保存，可切換、取消、匯出目前 Run 為 CSV，並清除已完成記錄
 - Batch 總筆數沒有產品層固定的 100 筆上限；最大同時執行數仍為 100，實際批次規模受 Java 整數範圍、H2 儲存空間與主機資源限制
 - HTTP Request 轉換為 Bash/zsh 或 PowerShell `curl.exe` 指令
 - 命名 Environment、`{{variable}}` 執行期替換與 ZIP 匯入匯出
-- Light / Dark Theme
+- Light / Dark 工作台、可搜尋的 Collections、可調整 Sidebar / Response 與窄版導覽抽屜
+
+本次介面改版與驗收方式見 [UIUX 改版規格](docs/UIUX_REDESIGN.md)。
+欄位規則、舊 BUR 設定相容與回應解碼見 [Request 欄位規則](docs/REQUEST_FIELD_RULES.md)。
 
 ## 環境需求
 
