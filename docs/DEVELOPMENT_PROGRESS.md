@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-10-02
+最後整理日期：2026-10-15
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -47,6 +47,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 - Request 可拖拉至其他 Collection 根層、Folder，或其他 Request 前方；移動後會更新所屬位置與排序。
 - Request 複製。
 - 未保存內容切換提示。
+- HTTP、gRPC unary 與 gRPC BUR 按「送出」時先儲存目前 Request，再執行；支援新 Request 建立與既有 Request 更新並保留排序。儲存失敗或儲存期間內容再次變更時停止送出並提示，保留尚未保存的變更。
 - Workspace ZIP 匯入與匯出，包含 uploaded files 與實際引用的 protos；新版 schema v3 不包含 Environment，仍可匯入 schema v1 / v2 既有封存檔。
 - Collection 三點選單可匯出單一 Collection ZIP；匯入後若同名，自動使用「原名稱 匯入 N」，不覆蓋既有 Collection。
 - Request 三點選單可匯出單一 Request ZIP，僅保留該 Request、其最小來源 Folder 階層、實際引用的 file / proto；不包含其他 Request、Environment、Response 或 Batch 資料。
@@ -153,11 +154,13 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | `GrpcBurExecuteIntegrationTest` | BUR payload preview、固定長度、timeout 範圍、JAR 內建 CodeTable、Basic Label 交易代號遞增、台灣當日 DD 與 Batch 序號 offset |
 | `GrpcBatchIntegrationTest` | reflection unary Batch、`payload.data` Base64 Batch snapshot、protocol 歷程隔離、item body preview、CSV 匯出、gRPC BUR 組包失敗保存 |
 | `EnvironmentIntegrationTest` | Environment CRUD、變數名稱驗證、複製與獨立 ZIP 匯入匯出 |
+| `request-save-send.test.mjs` | 三種協定先儲存再送出、新 Request 位置與 ID、排序與變數模板保留、儲存失敗或資料不完整時停止送出、儲存中編輯及重複點擊防護 |
 
 標準驗證：
 
 ```bash
 ./gradlew :post-bubi-ui:yarn_build_prod
+node --test post-bubi-ui/src/request-save-send.test.mjs
 ./gradlew :post-bubi-api:test
 ./gradlew :post-bubi-api:bootJar
 ```

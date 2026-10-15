@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "build:prod": "vite build --mode production",
     "preview": "vite preview",
-    "test:curl": "node --test src/curl-command.test.mjs"
+    "test:curl": "node --test src/curl-command.test.mjs",
+    "test:request": "node --test src/request-save-send.test.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.24.0",

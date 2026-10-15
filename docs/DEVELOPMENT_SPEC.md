@@ -817,6 +817,8 @@ Environment 切換、Workspace 匯入/匯出與全域操作位於左側工作台
 
 ### 11.2 Request Editor
 
+HTTP、gRPC unary 與 gRPC BUR 的單次「送出」操作必須先儲存目前 Request，再發出請求。已保存 Request 更新原資料並保留排序；新 Request 建立於目前選取的 Collection／Folder。未選取 Collection、名稱空白或儲存 API 失敗時，顯示原因並停止送出。儲存期間「送出」按鈕顯示「儲存中」並停用，避免重複建立或執行；Request 切換亦需等待儲存完成。若儲存期間編輯內容再次變更，保留未儲存狀態並提示再次送出，不得執行未保存的內容。Environment 模板保留原文，執行時才替換。gRPC BUR 執行後自動前推的 Basic Label 屬於下一次請求內容，仍需下次儲存。Batch 啟動與 Preview 維持既有流程。
+
 HTTP request editor：
 
 - Method selector

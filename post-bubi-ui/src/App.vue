@@ -381,9 +381,9 @@
           <Save class="button-icon" :size="16" aria-hidden="true" />
           {{ selectedRequestId ? '儲存' : '另存 Request' }}
         </button>
-        <button class="send-button" type="button" :disabled="sending" @click="sendCurrentRequest">
+        <button class="send-button" type="button" :disabled="sending || saving" @click="sendCurrentRequest">
           <Send class="button-icon send-icon" :size="16" aria-hidden="true" />
-          {{ sending ? '送出中' : '送出' }}
+          {{ saving ? '儲存中' : sending ? '送出中' : '送出' }}
         </button>
         <button v-if="sending" class="cancel-button" type="button" :disabled="cancelling" @click="cancelCurrentRequest">
           <X class="button-icon" :size="17" aria-hidden="true" />
@@ -2027,6 +2027,10 @@ function warnBeforeUnload(event) {
 }
 
 function confirmDiscardUnsavedChanges() {
+  if (saving.value) {
+    workspaceStatus.value = 'Request 儲存中，請稍候再切換'
+    return false
+  }
   if (!hasUnsavedChanges.value) {
     return true
   }
@@ -2939,17 +2943,19 @@ function defaultRequestName() {
 }
 
 async function saveRequest() {
+  if (saving.value) return false
   if (!selectedCollectionId.value) {
     workspaceStatus.value = '請先新增或選擇 Collection'
-    return
+    return false
   }
   if (!requestName.value.trim()) {
     workspaceStatus.value = 'Request 名稱不可空白'
-    return
+    return false
   }
 
   saving.value = true
   try {
+    const savedState = JSON.parse(snapshotEditorState())
     const payloadJson = JSON.stringify(editorPayload())
     if (selectedRequestId.value) {
       await apiJson(`/api/requests/${selectedRequestId.value}`, {
@@ -2958,7 +2964,8 @@ async function saveRequest() {
           folderId: selectedFolderId.value,
           type: requestType.value,
           name: requestName.value.trim(),
-          sortOrder: 0,
+          sortOrder: collections.value.flatMap((collection) => collection.requests || [])
+            .find((request) => request.id === selectedRequestId.value)?.sortOrder ?? 0,
           payloadJson,
         }),
       })
@@ -2976,13 +2983,16 @@ async function saveRequest() {
         }),
       })
       selectedRequestId.value = created.id
+      savedState.selectedRequestId = created.id
       cacheCurrentResponse(created.id)
       workspaceStatus.value = 'Request 已新增'
     }
+    savedEditorState.value = JSON.stringify(savedState)
     await loadCollections()
-    markEditorSaved()
+    return true
   } catch (error) {
     workspaceStatus.value = readableError(error)
+    return false
   } finally {
     saving.value = false
   }
@@ -3013,7 +3023,19 @@ async function deleteSelectedRequest() {
 }
 
 async function sendCurrentRequest() {
+  if (saving.value || sending.value) return
   activeResponseTab.value = 'body'
+  errorText.value = ''
+  cancellationText.value = ''
+  const saved = await saveRequest()
+  if (!saved) {
+    errorText.value = `Request 未儲存，無法送出：${workspaceStatus.value}`
+    return
+  }
+  if (hasUnsavedChanges.value) {
+    errorText.value = '儲存期間 Request 內容已變更，請再次按送出以儲存最新內容。'
+    return
+  }
   if (requestType.value === 'GRPC_BUR') {
     await sendGrpcBurRequest()
   } else if (requestType.value === 'GRPC') {
