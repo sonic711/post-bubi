@@ -9,6 +9,7 @@ import com.postbubi.execution.ExecutionCancellationService;
 import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.grpc.GrpcExecuteService;
 import com.postbubi.web.dto.GrpcExecuteRequest;
+import com.postbubi.web.dto.FieldRulePrepareResponse;
 import com.postbubi.web.dto.GrpcExecuteResponse;
 
 @RestController
@@ -24,6 +25,11 @@ public class GrpcExecuteController {
     ) {
         this.grpcExecuteService = grpcExecuteService;
         this.executionCancellationService = executionCancellationService;
+    }
+
+    @PostMapping("/prepare")
+    public FieldRulePrepareResponse prepare(@RequestBody GrpcExecuteRequest request) {
+        return new FieldRulePrepareResponse(grpcExecuteService.prepareFieldRuleBody(request));
     }
 
     @PostMapping("/execute")

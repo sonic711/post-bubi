@@ -18,6 +18,7 @@ public record HttpExecuteRequest(
         Boolean followRedirects,
         Boolean ignoreSslVerification,
         List<FieldRule> fieldRules,
-        Integer fieldRuleIncrement
+        Integer fieldRuleIncrement,
+        List<FieldRule> sourceFieldRules
 ) {
 }

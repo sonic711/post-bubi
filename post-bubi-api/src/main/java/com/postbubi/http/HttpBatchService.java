@@ -465,7 +465,7 @@ public class HttpBatchService {
         return new HttpExecuteRequest(
                 null, request.requestId(), request.method(), request.url(), request.params(), request.headers(),
                 request.bodyType(), request.body(), request.formData(), request.timeoutMillis(),
-                request.followRedirects(), request.ignoreSslVerification(), request.fieldRules(), null
+                request.followRedirects(), request.ignoreSslVerification(), request.fieldRules(), null, null
         );
     }
 
@@ -473,7 +473,7 @@ public class HttpBatchService {
         return new HttpExecuteRequest(
                 executionId, request.requestId(), request.method(), request.url(), request.params(), request.headers(),
                 request.bodyType(), request.body(), request.formData(), timeoutMillis,
-                request.followRedirects(), request.ignoreSslVerification(), request.fieldRules(), sequenceNumber
+                request.followRedirects(), request.ignoreSslVerification(), request.fieldRules(), sequenceNumber, null
         );
     }
 

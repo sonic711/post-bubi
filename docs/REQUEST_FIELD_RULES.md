@@ -20,7 +20,18 @@ Settings 維護每筆 Request 自有的 `fieldRules`，包含 `id`、名稱、�
 - `INCREMENT`：單次及 Preview 加 1，Batch 第 N 筆加 N；數字字串保留長度與前導零，溢位拒絕；HTTP JSON 整數維持數字型別。
 - `TODAY_DD`：採 `Asia/Taipei` 當日兩碼日期；範圍長度必須為 2，HTTP 只能套用字串欄位。
 
-先解析 Environment，再套用規則，最後才處理一般 gRPC 的 `payload.data` Base64。儲存的 Body 保留原始輸入，BUR 執行後的序號前推維持既有行為。
+先解析 Environment，再套用規則，最後才處理一般 gRPC 的 `payload.data` Base64。2026-10-16 起，網頁送出採下列準備流程，取代等回應後才回填 BUR 的行為。
+
+### 送出前更新 UI（2026-10-16）
+
+- 三種 Request 按送出後，先由本機後端驗證及計算啟用的遞增 / 今日 DD，不連線至目標系統；HTTP / gRPC 提供 prepare API，BUR 沿用 preview。
+- 驗證通過後，先將計算結果更新到 Body / Basic Label 並儲存，再正式發送。HTTP 只改規則指向的值；一般 gRPC 只改 `payload.data`；非規則欄位的模板、格式及 Environment 本身不改動。規則目標含變數時，該目標會保存成此次解析後的明碼。
+- 正式發送使用固定快照，該次規則動作改為僅標示，由後端重新驗證位置 / 路徑但不再加 1；Base64 編碼仍由後端執行一次。保存的規則動作保持原設定，下一次送出以更新後的 UI 值再加 1。
+- HTTP 執行快照另附 `sourceFieldRules`（只作 History metadata，不影響送出值），確保載入歷史時仍保留原先的遞增 / DD 動作，而不是載入該次執行暫用的 `NONE`。
+- 序號在正式發送前已使用並保存；目標錯誤、逾時或取消不回退。儲存失敗則不發送，畫面保留變更供重試；再按送出可能產生跳號，不能保證業務連號。
+- 準備期間避免重複送出及切換測案；若仍發生內容或 Environment 變更，停止發送且不覆蓋新內容。回應不再回填 Basic Label，避免晚到的回應覆蓋編輯內容。
+- Batch 勾選套用規則時，開始前計算第 N 筆值並更新 UI；已保存的 Request 先保存更新值，未保存的 Batch 保留草稿模式。發送的批次快照仍以更新前的起始值搭配原規則，讓第 N 筆只加 N 一次。停用規則則不更新 UI、不預留序號。批次建立失敗、取消或未送完仍不回退預留值。
+- Preview 與 cURL 只預覽下一次執行值，不修改或消耗 UI 序號。直接呼叫既有 execute / Batch API 及 CLI 的加值合約不變；H2 schema 不變。
 
 啟用規則必須驗證名稱、識別碼、顏色、動作、目標、範圍、UTF-8 邊界、數字、溢位及 HTTP 欄位型別。禁止重疊範圍及重複 JSON Pointer。HTTP array index 尚不支援，路徑含陣列時明確提示；object / array 不是可設定的 scalar 目標。
 
@@ -52,13 +63,14 @@ Decoded 顯示明碼、編碼、格式、byte 長度與個別錯誤；Body 成�
 
 ### 人工驗收
 
-1. HTTP：Body 設為 JSON，例如 `{"payload":{"id":"0009","day":"00"}}`；Settings 新增 `/payload/id` 遞增、`/payload/day` 今日 DD，分別選擇顏色。送出應為 `0010` / 台灣今日 DD，但保存的 Body 仍為原文。
+1. HTTP：Body 設為 JSON，例如 `{"payload":{"id":"0009","day":"00"}}`；Settings 新增 `/payload/id` 遞增、`/payload/day` 今日 DD，分別選擇顏色。正式送出前 UI 與保存 Body 應先更新為 `0010` / 台灣今日 DD，目標也僅收到一次加值結果；再次送出應為 `0011`。
 2. gRPC：Body 設為 `{"payload":{"data":"繁000900"}}`；新增 byte 4-7 遞增、byte 8-9 今日 DD。Body 應呈現兩個顏色範圍；有勾 Base64 時先套用規則再編碼。目標 proto 必須接受該 JSON 結構。
 3. BUR：開啟舊測案，確認既有 8-14 / 37-46 / 88-89 轉成三條規則；新增或修改範圍、名稱及顏色，再用 Preview 確認 `effectiveBasicLabel`，Preview 不消耗序號。
-4. 三種協定各執行 2 筆 Batch：勾選「套用欄位規則」時分別加 1 / 2；停用時不套用遞增或日期，BUR 亦不前推編輯器。僅標示的規則不可修改值。
+4. 三種協定各執行 2 筆 Batch：開始前 UI 先預留到第 2 筆值，各筆發送分別為舊值加 1 / 2；停用規則時，使用目前 UI 值，不再遞增 / 覆寫日期，也不更新 UI。僅標示的規則不可修改值。
 5. 保存後重新整理、複製 Request、匯出單筆或 Collection ZIP 後匯入，確認規則完整保留。一般 gRPC ZIP 也可用既有 `run-grpc` CLI 執行。
 6. 普通 gRPC 接收含 `payload["0"].charsets="BUR"` 的真實回應，檢查 Body 明碼、`decoded`、原 Base64 tooltip 與 Decoded 詳細內容；非 BUR 不自動轉碼，壞 Base64 顯示個別錯誤且保留原值。Batch item 亦應保留解碼明碼。
 7. 輸入重疊範圍、切開「繁」的 UTF-8 bytes、遞增溢位、數字欄位套今日 DD 或 array Pointer，應得到明確錯誤，不可悄悄送出錯誤資料。
+8. 讓目標延遲回應，確認取消按鈕出現時 UI 與保存的值已更新；失敗、逾時或取消後重新整理仍保留新值。BUR 在等待時修改其他欄位，晚到回應不得覆寫；HTTP History 載入後仍有來源規則動作。
 
 ### 開發端驗證
 

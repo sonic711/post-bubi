@@ -203,6 +203,12 @@ class GrpcExecuteIntegrationTest {
         request.putArray("fieldRules").addObject().put("id", "sequence").put("name", "序號").put("enabled", true)
                 .put("color", "#AB005F").put("action", "INCREMENT").put("targetType", "GRPC_PAYLOAD_DATA_RANGE")
                 .put("start", 4).put("end", 7);
+        var prepared = postJson("/api/grpc/prepare", request.toString());
+        assertThat(prepared.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String preparedBody = objectMapper.readTree(prepared.getBody()).path("body").asText();
+        assertThat(preparedBody).contains("繁0010");
+        request.put("body", preparedBody);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) request.path("fieldRules").get(0)).put("action", "NONE");
         ResponseEntity<String> response = postJson("/api/grpc/execute", request.toString());
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(objectMapper.readTree(objectMapper.readTree(response.getBody()).path("body").asText()).path("text").asText()).isEqualTo("echo:"

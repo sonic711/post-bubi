@@ -183,7 +183,7 @@ Post Bubi 的品牌主色為酒紅色，必須用於標誌、主操作按鈕、�
 
 `gRPC BUR` request type 已依原始驗證腳本的組包概念完成。此模式與一般 gRPC JSON request 不同，使用者只需關注目標系統 host / port 與業務 input 內容，系統負責完成 TCPIP header、MCS header、Basic Label、Text Area 串接、UTF-8 / BUR 轉碼、`RqPayload` 建立與 `Service/rpcPeriphery` 呼叫。原始 notebook 不屬於建置或執行必要檔案，實際行為以 Java 實作與 `docs/GRPC_BUR_COMPOSER_FEATURE.md` 為準。
 
-gRPC 與 gRPC BUR 的 Port editor 必須接受數字或 `{{variable}}`；Environment 解析後由後端驗證為 `1` 至 `65535` 的整數。三種 Request 的 Settings 提供各測案專屬 `fieldRules`（名稱、顏色、啟用、標示 / 遞增 / 今日 DD），完整定位、驗證與執行規則見 `REQUEST_FIELD_RULES.md`。舊 BUR 測案沒有規則陣列時，相容轉換第 8-14 位遞增、第 37-46 位標示、第 88-89 位台灣今日 DD，保留原啟用狀態。位置採 1 起算，單次與 Preview 先加 `1`，Batch 第 `N` 筆加 `N`，數字字串溢位拒絕；Preview 不保存序號。Batch 可停用全部欄位規則，空陣列不得回退套用舊旗標，亦不前推 Basic Label；啟用時仍維持 BUR 執行後的序號前推。
+gRPC 與 gRPC BUR 的 Port editor 必須接受數字或 `{{variable}}`；Environment 解析後由後端驗證為 `1` 至 `65535` 的整數。三種 Request 的 Settings 提供各測案專屬 `fieldRules`（名稱、顏色、啟用、標示 / 遞增 / 今日 DD），完整定位、驗證與執行規則見 `REQUEST_FIELD_RULES.md`。舊 BUR 測案沒有規則陣列時，相容轉換第 8-14 位遞增、第 37-46 位標示、第 88-89 位台灣今日 DD，保留原啟用狀態。位置採 1 起算，單次先加 `1`，Batch 第 `N` 筆加 `N`，數字字串溢位拒絕。網頁正式送出前先準備、更新並保存 UI，單次執行快照不再次加值；Batch 先保存第 N 筆預留值，執行快照仍用原始值逐筆加 N。失敗 / 取消不回退預留值，回應不再覆寫 Basic Label。Preview / cURL 不消耗序號，停用規則的 Batch 不更新 UI。
 
 詳細設計記錄於 `docs/GRPC_BUR_COMPOSER_FEATURE.md`。第一階段已完成 `GRPC_BUR` request type、payload preview、送出流程與 `TBConvert.jar` / CodeTable 正式 BUR codec 接入。CodeTable 與 `TBConvert.jar` 會包入 executable JAR，部署到其他主機時不需要額外攜帶 CodeTable；實際目標系統驗收仍需使用正確業務資料、固定長度設定與相符 proto。
 
@@ -674,6 +674,7 @@ Environment 變數名稱需符合 `[A-Za-z_][A-Za-z0-9_.-]*`，同一 Environmen
 ### 10.4 HTTP Execute API
 
 - `POST /api/http/execute`
+- `POST /api/http/prepare`：接受相同 Request DTO，只計算欄位規則，回傳 `{ "body": "套用規則後的 JSON 原文" }`；不呼叫目標、不儲存或寫 History。
 - `GET /api/http/history`
 
 此 API 接收完整 HTTP request 設定，立即執行並回傳 response，不要求 request 已儲存。
@@ -684,6 +685,7 @@ Environment 變數名稱需符合 `[A-Za-z_][A-Za-z0-9_.-]*`，同一 Environmen
 ### 10.5 gRPC Execute API
 
 - `POST /api/grpc/execute`
+- `POST /api/grpc/prepare`：只計算欄位規則，回傳明碼 `{ "body": "..." }`，不解析 proto、不呼叫目標、不做 Base64；支援 `fieldRuleIncrement` 供批次預留。
 
 此 API 接收完整 gRPC request 設定，立即執行並回傳 response，不要求 request 已儲存。
 
@@ -822,7 +824,7 @@ Environment 切換、Workspace 匯入/匯出與全域操作位於左側工作台
 
 ### 11.2 Request Editor
 
-HTTP、gRPC unary 與 gRPC BUR 的單次「送出」操作必須先儲存目前 Request，再發出請求。已保存 Request 更新原資料並保留排序；新 Request 建立於目前選取的 Collection／Folder。未選取 Collection、名稱空白或儲存 API 失敗時，顯示原因並停止送出。儲存期間「送出」按鈕顯示「儲存中」並停用，避免重複建立或執行；Request 切換亦需等待儲存完成。若儲存期間編輯內容再次變更，保留未儲存狀態並提示再次送出，不得執行未保存的內容。Environment 模板保留原文，執行時才替換。gRPC BUR 執行後自動前推的 Basic Label 屬於下一次請求內容，仍需下次儲存。Batch 啟動與 Preview 維持既有流程。
+HTTP、gRPC unary 與 gRPC BUR 的單次「送出」操作採「準備規則、不呼叫目標 → 更新 UI → 儲存 → 正式發送」。已保存 Request 更新原資料並保留排序；新 Request 建立於目前選取的 Collection／Folder。未選取 Collection、名稱空白、準備或儲存 API 失敗時停止送出；準備 / 儲存期間停用重複操作及切換測案。內容或 Environment 在準備期間改變時，不得覆蓋新內容；儲存期間再次編輯亦不得執行未保存內容。僅規則目標保存此次明碼結果，其他 Environment 模板保留原文。正式執行快照將動作設為 `NONE` 防止重複加值，保存設定仍為原動作；HTTP 另以 `sourceFieldRules` 保存來源規則，供 History 載入還原，該欄位不影響執行。失敗 / 取消不回退更新值，回應不再覆寫 Basic Label。Batch 的已存測案先保存 N 筆預留值，未存測案維持草稿；停用規則則不預留。Preview / cURL 不修改 UI。完整合約見 `REQUEST_FIELD_RULES.md`。
 
 HTTP request editor：
 

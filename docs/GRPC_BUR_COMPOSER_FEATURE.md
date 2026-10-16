@@ -61,7 +61,7 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 - 串接結果放入 protobuf JSON 的 `payload.data`，使用 base64 表示。
 - Settings 可新增多條 Basic Label 字元範圍規則，採 1 起算、含起訖；可僅標示、遞增數字或填入 `Asia/Taipei` 今日兩碼 DD。啟用範圍不得重疊；遞增保留長度且拒絕溢位，DD 範圍必須為 2。
 - 舊測案未保存 `fieldRules` 時，UI 轉成第 8-14 碼遞增、第 37-46 碼綠色標示、第 88-89 碼今日 DD 三條規則，保留舊動作啟用狀態。仍接受未帶 `fieldRules` 的舊 API 旗標；有規則陣列時以規則為準。
-- 單次與 Preview 先加 `1`，Batch 第 `N` 筆加 `N`；Preview 不消耗序號，送出及 Batch 啟動後維持既有編輯器前推行為。
+- 單次送出先經 Preview 計算 `+1` / 今日 DD，更新並保存 Basic Label 後才正式發送，正式快照改用 `NONE` 動作避免多加一次。Batch 先計算並保存第 N 筆值，但仍使用更新前起始值逐筆加 N。失敗或取消不回退；回應不再前推或覆寫 Basic Label。獨立 Preview 不消耗序號，詳見 `REQUEST_FIELD_RULES.md`。
 - Batch 視窗「套用欄位規則」預設勾選；停用時 snapshot 傳 `settings.fieldRules=[]`，不得回退舊旗標，也不前推 Basic Label。
 
 傳給共用 gRPC executor 的 body：

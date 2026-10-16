@@ -10,6 +10,7 @@ function editor(options = {}) {
   const calls = []
   const context = {
     saving: { value: false }, sending: { value: false },
+    preparingRequest: { value: false }, batchStarting: { value: false },
     selectedCollectionId: { value: 2 }, selectedFolderId: { value: 3 },
     selectedRequestId: { value: options.requestId ?? 7 },
     requestName: { value: '測試' }, requestType: { value: options.type || 'HTTP' },
@@ -21,6 +22,13 @@ function editor(options = {}) {
     fieldRuleValidationMessage: () => options.validationError || '',
     readableError: (error) => error.message,
     cacheCurrentResponse: () => {},
+    nextTick: async () => {},
+    async prepareCurrentFieldRules() {
+      if (options.prepareError) throw new Error(options.prepareError)
+      if (options.onPrepare) await options.onPrepare(context)
+      return { executionPayload: { ...context.payload } }
+    },
+    applyPreparedFieldRules() { if (options.applyPrepared) options.applyPrepared(context) },
     async apiJson(path, request) {
       calls.push({ path, ...request })
       if (options.saveError) throw new Error(options.saveError)
@@ -28,9 +36,9 @@ function editor(options = {}) {
       return { id: 11 }
     },
     async loadCollections() {},
-    async sendHttpRequest() { calls.push({ execute: 'HTTP', requestId: context.selectedRequestId.value }) },
-    async sendGrpcRequest() { calls.push({ execute: 'GRPC' }) },
-    async sendGrpcBurRequest() { calls.push({ execute: 'GRPC_BUR' }) },
+    async sendHttpRequest(payload) { calls.push({ execute: 'HTTP', requestId: context.selectedRequestId.value, payload }); if (options.executeError) throw new Error(options.executeError) },
+    async sendGrpcRequest(payload) { calls.push({ execute: 'GRPC', payload }); if (options.executeError) throw new Error(options.executeError) },
+    async sendGrpcBurRequest(payload) { calls.push({ execute: 'GRPC_BUR', payload }); if (options.executeError) throw new Error(options.executeError) },
   }
   Object.defineProperty(context, 'hasUnsavedChanges', {
     get: () => ({ value: context.savedEditorState.value !== context.snapshotEditorState() }),
@@ -117,8 +125,47 @@ test('repeated Send during pending save produces one save and one execution', as
   const { context, calls } = editor({ onSave: () => pending })
   const first = context.sendCurrentRequest()
   await context.sendCurrentRequest()
+  await new Promise((resolve) => setImmediate(resolve))
   assert.equal(calls.length, 1)
   completeSave()
   await first
   assert.equal(calls.length, 2)
+})
+
+for (const type of ['HTTP', 'GRPC', 'GRPC_BUR']) {
+  test(`${type} updates UI before saving/dispatch and keeps the reserved value on target errors`, async () => {
+    const { context, calls } = editor({ type, applyPrepared: (state) => { state.payload.body = '0010' },
+      onSave: async (state) => assert.equal(state.payload.body, '0010'), executeError: 'target unavailable' })
+    await context.sendCurrentRequest()
+    assert.equal(JSON.parse(JSON.parse(calls[0].body).payloadJson).body, '0010')
+    assert.equal(context.payload.body, '0010')
+    assert.match(context.errorText.value, /target unavailable/)
+    assert.equal(context.preparingRequest.value, false)
+  })
+}
+
+test('prepare errors do not update/save/send; repeated Send while preparing is blocked', async () => {
+  const failed = editor({ prepareError: 'overflow' })
+  await failed.context.sendCurrentRequest()
+  assert.equal(failed.calls.length, 0)
+  assert.equal(failed.context.payload.body, '{{message}}')
+  let finish
+  const pending = new Promise((resolve) => { finish = resolve })
+  let count = 0
+  const { context, calls } = editor({ onPrepare: async () => { count++; await pending } })
+  const send = context.sendCurrentRequest()
+  await context.sendCurrentRequest()
+  assert.equal(count, 1)
+  assert.equal(calls.length, 0)
+  finish()
+  await send
+  assert.equal(calls.length, 2)
+})
+
+test('failed saving after reserving a new value prevents dispatch and keeps the new UI value dirty', async () => {
+  const { context, calls } = editor({ applyPrepared: (state) => { state.payload.body = '0010' }, saveError: 'database unavailable' })
+  await context.sendCurrentRequest()
+  assert.equal(calls.length, 1)
+  assert.equal(context.payload.body, '0010')
+  assert.equal(context.hasUnsavedChanges.value, true)
 })

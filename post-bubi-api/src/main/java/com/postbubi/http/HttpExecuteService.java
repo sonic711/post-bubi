@@ -70,7 +70,7 @@ public class HttpExecuteService {
 
         HttpUriRequestBase httpRequest = new HttpUriRequestBase(method, uri);
         applyHeaders(httpRequest, request.headers(), request.bodyType());
-        applyBody(httpRequest, method, request.bodyType(), effectiveBody(request), request.formData());
+        applyBody(httpRequest, method, request.bodyType(), prepareBody(request), request.formData());
 
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectionRequestTimeout(Timeout.ofMilliseconds(timeoutMillis))
@@ -121,7 +121,7 @@ public class HttpExecuteService {
         }
     }
 
-    private String effectiveBody(HttpExecuteRequest request) {
+    public String prepareBody(HttpExecuteRequest request) {
         if (request.fieldRules() == null || request.fieldRules().stream().noneMatch(rule -> rule != null && Boolean.TRUE.equals(rule.enabled()))) {
             return request.body();
         }

@@ -407,13 +407,13 @@
             @click="openBatchRunner"
           ><Timer :size="18" aria-hidden="true" /></button>
         </template>
-        <button class="icon-action-button toolbar-save-button" type="button" :title="selectedRequestId ? '儲存 Request' : '另存 Request'" :aria-label="selectedRequestId ? '儲存 Request' : '另存 Request'" :disabled="!selectedCollectionId || saving" @click="saveRequest">
+        <button class="icon-action-button toolbar-save-button" type="button" :title="selectedRequestId ? '儲存 Request' : '另存 Request'" :aria-label="selectedRequestId ? '儲存 Request' : '另存 Request'" :disabled="!selectedCollectionId || saving || preparingRequest || batchStarting" @click="saveRequest">
           <Save class="button-icon" :size="16" aria-hidden="true" />
         </button>
-        <button class="send-button" type="button" :disabled="sending || saving" @click="sendCurrentRequest">
-          <LoaderCircle v-if="saving || sending" class="button-icon spin" :size="16" aria-hidden="true" />
+        <button class="send-button" type="button" :disabled="sending || saving || preparingRequest || batchStarting" @click="sendCurrentRequest">
+          <LoaderCircle v-if="saving || sending || preparingRequest" class="button-icon spin" :size="16" aria-hidden="true" />
           <Send v-else class="button-icon send-icon" :size="16" aria-hidden="true" />
-          {{ saving ? '儲存中' : sending ? '送出中' : '送出' }}
+          {{ saving ? '儲存中' : preparingRequest ? '準備中' : sending ? '送出中' : '送出' }}
         </button>
         <button v-if="sending" class="cancel-button" type="button" :disabled="cancelling" @click="cancelCurrentRequest">
           <X class="button-icon" :size="17" aria-hidden="true" />
@@ -1198,6 +1198,7 @@ import {
 } from '@lucide/vue'
 import { buildCurlCommand as createCurlCommand, hasCurlTemplateVariables } from './curl-command.mjs'
 import { formatJsonSource, renderJsonSource, utf8SourceRanges } from './json-source.mjs'
+import { prepareFieldRuleDispatch } from './request-preparation.mjs'
 import postBubiLogo from './assets/post-bubi-logo.png'
 import { copyText, filterCollections, handleTabKeydown, workspaceDialog as vWorkspaceDialog } from './workspace-ui.mjs'
 
@@ -1325,6 +1326,7 @@ const deleting = ref(false)
 const deletingCollection = ref(false)
 const deletingFolder = ref(false)
 const sending = ref(false)
+const preparingRequest = ref(false)
 const cancelling = ref(false)
 const activeExecution = ref(null)
 const response = ref(null)
@@ -2292,8 +2294,8 @@ function warnBeforeUnload(event) {
 }
 
 function confirmDiscardUnsavedChanges() {
-  if (saving.value) {
-    workspaceStatus.value = 'Request 儲存中，請稍候再切換'
+  if (saving.value || preparingRequest.value || batchStarting.value) {
+    workspaceStatus.value = 'Request 準備或儲存中，請稍候再切換'
     return false
   }
   if (!hasUnsavedChanges.value) {
@@ -3310,26 +3312,58 @@ async function deleteSelectedRequest() {
 }
 
 async function sendCurrentRequest() {
-  if (saving.value || sending.value) return
+  if (saving.value || sending.value || preparingRequest.value || batchStarting.value) return
   activeResponseTab.value = 'body'
   errorText.value = ''
   cancellationText.value = ''
-  const saved = await saveRequest()
-  if (!saved) {
-    errorText.value = `Request 未儲存，無法送出：${workspaceStatus.value}`
-    return
+  preparingRequest.value = true
+  try {
+    if (!selectedCollectionId.value || !requestName.value.trim() || fieldRuleValidationMessage()) {
+      await saveRequest()
+      throw new Error(`Request 未儲存，無法送出：${workspaceStatus.value}`)
+    }
+    const prepared = await prepareCurrentFieldRules()
+    applyPreparedFieldRules(prepared)
+    await nextTick()
+    if (!await saveRequest()) throw new Error(`Request 未儲存，無法送出：${workspaceStatus.value}`)
+    if (hasUnsavedChanges.value) throw new Error('儲存期間 Request 內容已變更，請再次按送出以儲存最新內容。')
+    if (prepared.environmentState !== undefined && prepared.environmentState !== executionEnvironmentState()) throw new Error('儲存期間 Environment 已變更，請重新送出。')
+    preparingRequest.value = false
+    if (requestType.value === 'GRPC_BUR') await sendGrpcBurRequest(prepared.executionPayload)
+    else if (requestType.value === 'GRPC') await sendGrpcRequest(prepared.executionPayload)
+    else await sendHttpRequest(prepared.executionPayload)
+  } catch (error) {
+    errorText.value = readableError(error)
+  } finally {
+    preparingRequest.value = false
   }
-  if (hasUnsavedChanges.value) {
-    errorText.value = '儲存期間 Request 內容已變更，請再次按送出以儲存最新內容。'
-    return
+}
+
+async function prepareCurrentFieldRules(increment = 1, useRules = true) {
+  const state = snapshotEditorState()
+  const environmentState = executionEnvironmentState()
+  const type = requestType.value
+  const payload = batchExecutePayloadForRules(useRules)
+  const prepared = await prepareFieldRuleDispatch({ type, payload,
+    sourceBody: type === 'GRPC' ? grpcBodyText.value : bodyText.value, increment,
+    prepare: (path, request) => apiJson(path, { method: 'POST', body: JSON.stringify(request) }) })
+  if (snapshotEditorState() !== state || executionEnvironmentState() !== environmentState) {
+    throw new Error('準備期間 Request 或 Environment 已變更，請重新送出。')
   }
+  return { ...prepared, environmentState }
+}
+
+function executionEnvironmentState() {
+  return JSON.stringify({ id: activeEnvironmentId.value, environment: activeEnvironment.value })
+}
+
+function applyPreparedFieldRules(prepared) {
+  if (!prepared.changed) return
   if (requestType.value === 'GRPC_BUR') {
-    await sendGrpcBurRequest()
-  } else if (requestType.value === 'GRPC') {
-    await sendGrpcRequest()
-  } else {
-    await sendHttpRequest()
-  }
+    grpcBurBasicLabel.value = prepared.basicLabel
+    grpcBurPreview.value = prepared.preview
+  } else if (requestType.value === 'GRPC') grpcBodyText.value = prepared.body
+  else bodyText.value = prepared.body
 }
 
 function openBatchRunner() {
@@ -3402,6 +3436,7 @@ function closeBatchRunner() {
 }
 
 async function startBatchRun() {
+  if (batchStarting.value || preparingRequest.value || saving.value || sending.value) return
   const fieldRuleError = batchUseFieldRules.value ? fieldRuleValidationMessage() : ''
   if (fieldRuleError) {
     batchStartError.value = fieldRuleError
@@ -3411,17 +3446,28 @@ async function startBatchRun() {
   batchStartError.value = ''
   const savedRequestId = selectedRequestId.value
   try {
-    const payload = batchExecutePayload()
+    validateBatchConfiguration()
+    const config = {
+      mode: batchMode.value, totalCount: Number(batchTotalCount.value),
+      maxConcurrency: batchMode.value === 'RESPONSE_INTERVAL' ? null : batchMaxConcurrency.value,
+      intervalMillis: batchMode.value === 'RESPONSE_INTERVAL' ? batchIntervalMillis.value : null,
+      deadlineMillis: batchMode.value === 'DEADLINE' ? batchDeadlineMillis.value : null,
+    }
+    const prepared = await prepareCurrentFieldRules(config.totalCount, batchUseFieldRules.value)
+    applyPreparedFieldRules(prepared)
+    await nextTick()
+    if (prepared.changed && savedRequestId) {
+      if (!await saveRequest()) throw new Error(`Request 未儲存，無法開始批次：${workspaceStatus.value}`)
+      if (hasUnsavedChanges.value) throw new Error('儲存期間 Request 已變更，請重新開始批次。')
+    }
+    if (prepared.environmentState !== undefined && prepared.environmentState !== executionEnvironmentState()) throw new Error('準備期間 Environment 已變更，請重新開始批次。')
+    const payload = prepared.payload
     const started = await apiJson(batchApiBase(), {
       method: 'POST',
       body: JSON.stringify({
         requestId: savedRequestId,
         ...batchRequestProperty(payload),
-        mode: batchMode.value,
-        totalCount: batchTotalCount.value,
-        maxConcurrency: batchMode.value === 'RESPONSE_INTERVAL' ? null : batchMaxConcurrency.value,
-        intervalMillis: batchMode.value === 'RESPONSE_INTERVAL' ? batchIntervalMillis.value : null,
-        deadlineMillis: batchMode.value === 'DEADLINE' ? batchDeadlineMillis.value : null,
+        ...config,
       }),
     })
     batchRun.value = started
@@ -3439,9 +3485,6 @@ async function startBatchRun() {
     }
     showBatchRunner.value = false
     activeResponseTab.value = 'batch'
-    if (requestType.value === 'GRPC_BUR' && batchUseFieldRules.value) {
-      advanceGrpcBurBasicLabelAfterBatch(started.totalCount)
-    }
     if (savedRequestId) {
       await loadBatchRunHistory({ preferredRunId: started.id, force: true })
     }
@@ -3452,6 +3495,16 @@ async function startBatchRun() {
   } finally {
     batchStarting.value = false
   }
+}
+
+function validateBatchConfiguration() {
+  const integerBetween = (value, min, max) => value !== null && value !== undefined && String(value).trim() !== ''
+    && Number.isInteger(Number(value)) && Number(value) >= min && Number(value) <= max
+  if (!integerBetween(batchTotalCount.value, 1, 2147483647)) throw new Error('批次總筆數必須為有效正整數。')
+  if (!['CONCURRENCY', 'RESPONSE_INTERVAL', 'DEADLINE'].includes(batchMode.value)) throw new Error('請選擇批次執行模式。')
+  if (batchMode.value !== 'RESPONSE_INTERVAL' && !integerBetween(batchMaxConcurrency.value, 1, 100)) throw new Error('最大併發數必須介於 1 到 100。')
+  if (batchMode.value === 'RESPONSE_INTERVAL' && !integerBetween(batchIntervalMillis.value, 0, 300000)) throw new Error('回應後間隔必須介於 0 到 300000 毫秒。')
+  if (batchMode.value === 'DEADLINE' && !integerBetween(batchDeadlineMillis.value, 1000, 3600000)) throw new Error('完成期限必須介於 1000 到 3600000 毫秒。')
 }
 
 function startBatchPolling() {
@@ -3696,7 +3749,7 @@ function formatMillis(value) {
   return value == null ? '-' : `${value} ms`
 }
 
-async function sendHttpRequest() {
+async function sendHttpRequest(payload) {
   const fieldRuleError = fieldRuleValidationMessage()
   if (fieldRuleError) {
     errorText.value = fieldRuleError
@@ -3712,7 +3765,7 @@ async function sendHttpRequest() {
     response.value = await apiJson('/api/http/execute', {
       method: 'POST',
       signal: execution.controller.signal,
-      body: JSON.stringify(withExecutionId(resolveExecutionPayload(executePayload()), execution.id)),
+      body: JSON.stringify(withExecutionId({ ...payload, requestId: execution.requestId }, execution.id)),
     })
     await loadHistory()
   } catch (error) {
@@ -3726,7 +3779,7 @@ async function sendHttpRequest() {
   }
 }
 
-async function sendGrpcRequest() {
+async function sendGrpcRequest(payload) {
   const fieldRuleError = fieldRuleValidationMessage()
   if (fieldRuleError) {
     errorText.value = fieldRuleError
@@ -3742,7 +3795,7 @@ async function sendGrpcRequest() {
     response.value = await apiJson('/api/grpc/execute', {
       method: 'POST',
       signal: execution.controller.signal,
-      body: JSON.stringify(withExecutionId(resolveExecutionPayload(grpcExecutePayload()), execution.id)),
+      body: JSON.stringify(withExecutionId(payload, execution.id)),
     })
   } catch (error) {
     if (!isExecutionCancelled(error, execution)) {
@@ -3772,7 +3825,7 @@ async function previewGrpcBurRequest() {
   }
 }
 
-async function sendGrpcBurRequest() {
+async function sendGrpcBurRequest(payload) {
   const fieldRuleError = fieldRuleValidationMessage()
   if (fieldRuleError) {
     errorText.value = fieldRuleError
@@ -3788,10 +3841,9 @@ async function sendGrpcBurRequest() {
     response.value = await apiJson('/api/grpc-bur/execute', {
       method: 'POST',
       signal: execution.controller.signal,
-      body: JSON.stringify(withExecutionId(resolveExecutionPayload(grpcBurExecutePayload()), execution.id)),
+      body: JSON.stringify(withExecutionId(payload, execution.id)),
     })
     grpcBurPreview.value = response.value.requestPreview || null
-    syncGrpcBurBasicLabelFromPreview(grpcBurPreview.value)
   } catch (error) {
     if (!isExecutionCancelled(error, execution)) {
       errorText.value = readableError(error)
@@ -3951,7 +4003,7 @@ function loadHistoryItem(item) {
   clearBatchRunHistory()
   const payload = safeJsonParse(item.requestJson)
   requestType.value = 'HTTP'
-  fieldRules.value = restoreFieldRules({ ...payload, requestType: 'HTTP' })
+  fieldRules.value = restoreFieldRules({ ...payload, fieldRules: payload.sourceFieldRules || payload.fieldRules, requestType: 'HTTP' })
   selectedRequestId.value = payload.requestId || null
   requestName.value = item.method && item.url ? `${item.method} ${item.url}` : '歷史紀錄'
   method.value = payload.method || item.method || 'GET'
@@ -4061,54 +4113,6 @@ function grpcBurExecutePayload() {
   }
 }
 
-function syncGrpcBurBasicLabelFromPreview(preview) {
-  if (!hasGrpcBurFieldRuleAction()) {
-    return
-  }
-  if (preview?.effectiveBasicLabel) {
-    grpcBurBasicLabel.value = preview.effectiveBasicLabel
-  }
-}
-
-function advanceGrpcBurBasicLabelAfterBatch(totalCount) {
-  if (!hasGrpcBurFieldRuleAction()) {
-    return
-  }
-  try {
-    grpcBurBasicLabel.value = automateGrpcBurBasicLabel(grpcBurBasicLabel.value, Number(totalCount))
-  } catch (error) {
-    // Backend retains structured validation for malformed labels and failed batch items.
-  }
-}
-
-function automateGrpcBurBasicLabel(label, increment) {
-  let result = String(label || '')
-  const rules = activeFieldRules.value
-    .filter((rule) => rule.targetType === 'BUR_BASIC_LABEL_RANGE' && rule.action !== 'NONE')
-    .sort((left, right) => Number(right.start) - Number(left.start))
-  for (const rule of rules) {
-    const start = Number(rule.start) - 1
-    const end = Number(rule.end)
-    const current = result.slice(start, end)
-    if (start < 0 || end > result.length || end < start) throw new Error(`${rule.name} 欄位範圍不合法`)
-    if (rule.action === 'INCREMENT') {
-      if (!/^\d+$/.test(current)) throw new Error(`${rule.name} 必須是十進位數字`)
-      const next = BigInt(current) + BigInt(increment)
-      if (String(next).length > current.length) throw new Error(`${rule.name} 遞增後超過原欄位長度`)
-      result = `${result.slice(0, start)}${String(next).padStart(current.length, '0')}${result.slice(end)}`
-    } else if (rule.action === 'TODAY_DD') {
-      if (current.length !== 2) throw new Error(`${rule.name} 的今日 DD 欄位長度必須為 2`)
-      const dayOfMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', day: '2-digit' }).format(new Date())
-      result = `${result.slice(0, start)}${dayOfMonth}${result.slice(end)}`
-    }
-  }
-  return result
-}
-
-function hasGrpcBurFieldRuleAction() {
-  return activeFieldRules.value.some((rule) => rule.targetType === 'BUR_BASIC_LABEL_RANGE' && rule.action !== 'NONE')
-}
-
 function supportsBatch() {
   return ['HTTP', 'GRPC', 'GRPC_BUR'].includes(requestType.value)
 }
@@ -4120,9 +4124,13 @@ function batchApiBase() {
 }
 
 function batchExecutePayload() {
+  return batchExecutePayloadForRules(batchUseFieldRules.value)
+}
+
+function batchExecutePayloadForRules(useRules) {
   if (requestType.value === 'GRPC_BUR') {
     const payload = grpcBurExecutePayload()
-    if (!batchUseFieldRules.value) {
+    if (!useRules) {
       payload.settings = {
         ...payload.settings,
         fieldRules: [],
@@ -4132,11 +4140,11 @@ function batchExecutePayload() {
   }
   if (requestType.value === 'GRPC') {
     const payload = grpcExecutePayload()
-    if (!batchUseFieldRules.value) payload.fieldRules = []
+    if (!useRules) payload.fieldRules = []
     return resolveExecutionPayload(payload)
   }
   const payload = executePayload()
-  if (!batchUseFieldRules.value) payload.fieldRules = []
+  if (!useRules) payload.fieldRules = []
   return resolveExecutionPayload(payload)
 }
 

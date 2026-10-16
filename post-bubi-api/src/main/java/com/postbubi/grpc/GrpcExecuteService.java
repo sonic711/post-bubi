@@ -214,9 +214,13 @@ public class GrpcExecuteService {
         }
     }
 
-    private String prepareRequestBody(GrpcExecuteRequest request) {
+    public String prepareFieldRuleBody(GrpcExecuteRequest request) {
         String body = request.body() == null || request.body().isBlank() ? "{}" : request.body();
-        body = fieldRuleService.applyGrpcPayloadDataRules(body, request.fieldRules(), fieldRuleIncrement(request));
+        return fieldRuleService.applyGrpcPayloadDataRules(body, request.fieldRules(), fieldRuleIncrement(request));
+    }
+
+    private String prepareRequestBody(GrpcExecuteRequest request) {
+        String body = prepareFieldRuleBody(request);
         if (!Boolean.TRUE.equals(request.encodePayloadDataBase64())) {
             return body;
         }

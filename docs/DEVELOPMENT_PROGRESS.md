@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-10-15
+最後整理日期：2026-10-16
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -34,9 +34,11 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 ## 下一階段
 
-JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則均已修正，依 `REQUEST_FIELD_RULES.md` 完成單元、實際傳送與瀏覽器回歸，重新提供 JAR 驗收。使用者已明確授權本輪 commit / push 至 `origin`、`bt`；後續新異動仍需另外取得推送同意。
+三種 Request 已改為正式發送前先更新並保存 +1 / 今日 DD；Batch 開始前預留 N 筆，避免重複加值及晚到回應覆蓋 UI。依 `REQUEST_FIELD_RULES.md` 完成實作與測試，下一步為使用者以延遲目標及真實業務資料驗收；2026-10-16 使用者已授權本輪 commit 並推送至 `origin`、`bt`，後續新異動仍需另外取得同意。
 
-依 `REQUEST_FIELD_RULES.md` 還原 A 全部欄位規則及 B 一般 gRPC BUR 回應解碼，已合併新版 UIUX 與送出前自動儲存；C Windows 離線建置內容不還原。該基準已提交並推送至兩個 remote（`2b5d855`），後續檢查發現的兩項整合問題已修正，併入本次授權提交範圍。
+JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則已於使用者授權後提交並推送至 `origin`、`bt`（`c7c9937`）；後續新異動仍需另外取得推送同意。
+
+依 `REQUEST_FIELD_RULES.md` 還原 A 全部欄位規則及 B 一般 gRPC BUR 回應解碼，已合併新版 UIUX 與送出前自動儲存；C Windows 離線建置內容不還原。該基準已提交並推送至兩個 remote（`2b5d855`）；本次送出前更新 UI 為其後的新異動，納入本輪授權的提交範圍。
 
 本次 UIUX 改版已完成實作與正式打包，待使用者依 `UIUX_REDESIGN.md` 驗收。改版前本機 Tag 為 `pre-uiux-redesign-20261015`；該 Tag 不含本次還原的 A/B。本輪不新增協定，因功能還原包含 Java / DTO / CLI 異動，但不修改 H2 schema。
 
@@ -55,7 +57,7 @@ JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則均已修
 - Request 可拖拉至其他 Collection 根層、Folder，或其他 Request 前方；移動後會更新所屬位置與排序。
 - Request 複製。
 - 未保存內容切換提示。
-- HTTP、gRPC unary 與 gRPC BUR 按「送出」時先儲存目前 Request，再執行；支援新 Request 建立與既有 Request 更新並保留排序。儲存失敗或儲存期間內容再次變更時停止送出並提示，保留尚未保存的變更。
+- HTTP、gRPC unary 與 gRPC BUR 按「送出」時，先在本機準備規則、更新 UI、儲存，再正式執行；支援新 Request 建立與既有 Request 更新並保留排序。準備 / 儲存失敗或內容在等待期間再次變更時停止送出；正式發送失敗、逾時或取消不回退預留值。HTTP History 保留來源動作，不因執行快照的 `NONE` 而遺失遞增設定。
 - Workspace ZIP 匯入與匯出，包含 uploaded files 與實際引用的 protos；新版 schema v3 不包含 Environment，仍可匯入 schema v1 / v2 既有封存檔。
 - Collection 三點選單可匯出單一 Collection ZIP；匯入後若同名，自動使用「原名稱 匯入 N」，不覆蓋既有 Collection。
 - Request 三點選單可匯出單一 Request ZIP，僅保留該 Request、其最小來源 Folder 階層、實際引用的 file / proto；不包含其他 Request、Environment、Response 或 Batch 資料。
@@ -152,7 +154,15 @@ JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則均已修
 
 ## 自動化測試
 
-2026-10-15 JSON / cURL 整合修正驗證（目前程式）：
+2026-10-16 送出前更新 UI 驗證（目前程式）：
+
+- 後端 58 項、前端 60 項通過；新增 HTTP / gRPC prepare 僅計算規則、不連線且不記 History 的驗證；真實 HTTP / gRPC 正式發送不重複加值，gRPC Base64 仍只做一次。
+- 瀏覽器新增 7 組延遲回應 / Batch 時序情境，搭配既有工作台 10 組與規則 8 組，共 25 組通過，零 browser error。三種協定均在目標回應前完成 UI / H2 更新，重複 HTTP 送出持續遞增；失敗 / 取消不回退，BUR 晚到回應不覆蓋新編輯內容。
+- HTTP 延遲、500 及取消使用真實測試接收端；一般 gRPC / BUR 使用真實 prepare / preview、儲存及 Batch API，單次正式回應以延遲 DTO 驗證 UI 時序。gRPC 實際傳輸 / Base64 防重複由 Java 整合測試驗證，真實業務目標仍待驗收。
+- 三協定 Batch 在開始前保存第 N 筆值，原始起始值與規則作為批次 snapshot，不多加一次；停用、儲存 / 建立失敗、準備期間編輯 / Environment 切換、Batch 參數與筆數快照一致性均有測試。
+- Java / DTO / API 有相應異動（prepare 及 HTTP History `sourceFieldRules`），H2 schema、CLI 執行規則、cURL 不消耗 UI 值的行為及離線建置依賴不變；正式單一 JAR 重建，本輪提交與推送已取得使用者授權。Windows 與實際目標系統仍待驗收。
+
+2026-10-15 JSON / cURL 整合修正驗證（歷史基準）：
 
 - 後端 56 項、前端 43 項、瀏覽器 18 組情境通過，零 browser error；正式 JAR 已重建。Java / API / H2 schema 不變。
 - 新增原文 JSON source renderer 及測試：壓縮 / Tab / CRLF / 尾端換行、Unicode escape、多個 UTF-8 範圍、超大整數與重複 key。自動排版只改空白，不丟失數字精度或重寫 escape。
@@ -195,6 +205,8 @@ JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則均已修
 | `json-source.test.mjs` / `http-field-rules.test.mjs` | 嚴格 JSON source parser、原文字面 / UTF-8 offset、無精度損失排版、cURL 規則 / 型別 / 溢位 / 陣列 / 模板驗證 |
 | `EnvironmentIntegrationTest` | Environment CRUD、變數名稱驗證、複製與獨立 ZIP 匯入匯出 |
 | `request-save-send.test.mjs` | 三種協定先儲存再送出、新 Request 位置與 ID、排序與變數模板保留、儲存失敗或資料不完整時停止送出、儲存中編輯及重複點擊防護 |
+| `FieldRulePrepareIntegrationTest` | prepare 無目標網路 / History 副作用、UTF-8 邊界、正式執行僅加值一次、History 保留來源規則 |
+| `request-preparation.test.mjs` / `tests/send-preparation.e2e.mjs` | 準備 → UI → 保存 → 發送時序、固定快照、防雙重動作、非規則模板保留、失敗 / 取消不回退、三協定 Batch 預留 |
 | `workspace-ui.test.mjs` | 搜尋名稱 / 協定 / 子 Folder 與祖先路徑、不修改來源、分頁方向鍵與 Home/End、剪貼簿與遠端 HTTP fallback |
 | `tests/workspace.e2e.mjs` | 隔離測試資料、真實 HTTP / 自動儲存 / Environment / Batch / CSV / 取消，JSON 對齊、長 Headers、回應捲動、兩主題、側欄調整、對話框與各尺寸工具列 |
 
@@ -203,6 +215,7 @@ JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則均已修
 ```bash
 ./gradlew :post-bubi-ui:yarn_build_prod
 node --test post-bubi-ui/src/request-save-send.test.mjs
+node --test post-bubi-ui/src/request-preparation.test.mjs
 node --test post-bubi-ui/src/workspace-ui.test.mjs
 node --test post-bubi-ui/src/field-rules.test.mjs
 node --test post-bubi-ui/src/json-source.test.mjs post-bubi-ui/src/http-field-rules.test.mjs

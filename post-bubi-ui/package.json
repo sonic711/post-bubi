@@ -10,7 +10,7 @@
     "build:prod": "vite build --mode production",
     "preview": "vite preview",
     "test:curl": "node --test src/curl-command.test.mjs",
-    "test:request": "node --test src/request-save-send.test.mjs",
+    "test:request": "node --test src/request-save-send.test.mjs src/request-preparation.test.mjs",
     "test:rules": "node --test src/field-rules.test.mjs src/json-source.test.mjs src/http-field-rules.test.mjs",
     "test:ui": "node --test src/workspace-ui.test.mjs",
     "test:e2e": "node tests/workspace.e2e.mjs"

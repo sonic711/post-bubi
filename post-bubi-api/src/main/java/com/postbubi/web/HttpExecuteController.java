@@ -11,6 +11,7 @@ import com.postbubi.execution.ExecutionCancellationService.ExecutionHandle;
 import com.postbubi.http.HttpExecuteService;
 import com.postbubi.http.RequestHistoryService;
 import com.postbubi.web.dto.HttpExecuteRequest;
+import com.postbubi.web.dto.FieldRulePrepareResponse;
 import com.postbubi.web.dto.HttpExecuteResponse;
 import com.postbubi.web.dto.RequestHistoryResponse;
 
@@ -32,6 +33,11 @@ public class HttpExecuteController {
         this.httpExecuteService = httpExecuteService;
         this.requestHistoryService = requestHistoryService;
         this.executionCancellationService = executionCancellationService;
+    }
+
+    @PostMapping("/prepare")
+    public FieldRulePrepareResponse prepare(@RequestBody HttpExecuteRequest request) {
+        return new FieldRulePrepareResponse(httpExecuteService.prepareBody(request));
     }
 
     @PostMapping("/execute")

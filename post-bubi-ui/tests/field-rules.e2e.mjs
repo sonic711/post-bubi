@@ -69,19 +69,19 @@ try {
   assert.equal(received.at(-1).payload.id, '0010')
   assert.equal(received.at(-1).payload.day, new Intl.DateTimeFormat('en', { day: '2-digit', timeZone: 'Asia/Taipei' }).format(new Date()))
   let saved = JSON.parse((await api(`/requests/${http.id}`, undefined, 'GET')).payloadJson)
-  assert.equal(saved.body, body)
+  assert.equal(JSON.parse(saved.body).payload.id, '0010')
   assert.equal(saved.fieldRules.length, 3)
   await requestTab('Body').click()
   assert.equal(await page.locator('.json-field-rule').count(), 3)
-  checks.push('HTTP Settings CRUD, custom colors, actual increment/DD, autosave preserves original Body')
+  checks.push('HTTP Settings CRUD, custom colors, pre-send increment/DD and saved UI value')
 
   await page.getByRole('button', { name: '產生 cURL', exact: true }).click()
   const curl = await page.locator('.curl-command-output').textContent()
   await execFileAsync('bash', ['-c', curl])
-  assert.equal(received.at(-1).payload.id, '0010')
+  assert.equal(received.at(-1).payload.id, '0011')
   assert.equal(received.at(-1).payload.day, new Intl.DateTimeFormat('en', { day: '2-digit', timeZone: 'Asia/Taipei' }).format(new Date()))
   await page.getByRole('button', { name: 'PowerShell', exact: true }).click()
-  assert.match(await page.locator('.curl-command-output').textContent(), /0010/)
+  assert.match(await page.locator('.curl-command-output').textContent(), /0011/)
   await page.getByRole('dialog').press('Escape')
   checks.push('Actual UI-generated Bash cURL applies increment/DD like Send; PowerShell uses same transformed Body')
 
@@ -126,7 +126,7 @@ try {
     }
     await page.locator('.batch-results-head .batch-status-completed').waitFor()
     assert.equal(received.length - before, 2)
-    assert.deepEqual(received.slice(before).map((item) => item.payload.id).sort(), useRules ? ['0010', '0011'] : ['0009', '0009'])
+    assert.deepEqual(received.slice(before).map((item) => item.payload.id).sort(), useRules ? ['0010', '0011'] : ['0011', '0011'])
   }
   await runBatch(true)
   await runBatch(false)

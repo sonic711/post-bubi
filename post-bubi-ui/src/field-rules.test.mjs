@@ -23,7 +23,7 @@ function editor() {
   vm.createContext(context)
   for (const name of ['newFieldRuleForType', 'restoreFieldRules', 'ruleColor', 'fieldRuleSummary',
     'fieldRuleValidationMessage', 'collectHttpJsonFieldOptions', 'renderJsonValue',
-    'renderFieldRuleSpan', 'renderJsonPrimitive', 'indent', 'batchExecutePayload', 'loadHistoryItem',
+    'renderFieldRuleSpan', 'renderJsonPrimitive', 'indent', 'batchExecutePayload', 'batchExecutePayloadForRules', 'loadHistoryItem',
     'highlightRequestBody', 'activeJsonFieldRuleMap', 'renderSourceFieldRuleValue', 'renderPayloadBase64JsonValue', 'highlightJson']) {
     const start = source.search(new RegExp(`^function ${name}\\(`, 'm'))
     assert.ok(start >= 0, name)
@@ -66,6 +66,8 @@ test('HTTP History restores saved rules instead of retaining another request rul
   context.loadHistoryItem({ requestJson: JSON.stringify({ fieldRules: [rule()] }) })
   assert.equal(context.requestType.value, 'HTTP')
   assert.equal(context.fieldRules.value[0].path, '/id')
+  context.loadHistoryItem({ requestJson: JSON.stringify({ fieldRules: [rule({ action: 'NONE' })], sourceFieldRules: [rule()] }) })
+  assert.equal(context.fieldRules.value[0].action, 'INCREMENT')
   context.loadHistoryItem({ requestJson: '{}' })
   assert.equal(context.fieldRules.value.length, 0)
 })
