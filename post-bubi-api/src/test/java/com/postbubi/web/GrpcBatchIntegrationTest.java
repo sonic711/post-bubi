@@ -335,6 +335,66 @@ class GrpcBatchIntegrationTest {
         }
     }
 
+    @Test
+    void sendsTotaBoxBurPayloadForSingleRequestsAndAllBatchModes() throws Exception {
+        var file = echoFileDescriptor().toProto().toBuilder();
+        var payloadDefinition = file.getMessageType(0).toBuilder();
+        payloadDefinition.setField(0, payloadDefinition.getField(0).toBuilder()
+                .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_BYTES));
+        file.setMessageType(0, payloadDefinition);
+        var descriptor = Descriptors.FileDescriptor.buildFrom(file.build(), new Descriptors.FileDescriptor[0]);
+        var method = descriptor.findServiceByName("EchoService").findMethodByName(METHOD_NAME);
+        grpcServer = NettyServerBuilder.forPort(0).addService(echoService(descriptor, method))
+                .addService(ProtoReflectionService.newInstance()).build().start();
+        for (String[] sample : List.of(
+                new String[] {"983029400020734AU07000001 A98100500", "A98  0001002222"},
+                new String[] {"981045800001372AI07000001 A99100410", "A99  2"})) {
+            var request = objectMapper.createObjectNode().put("host", "127.0.0.1").put("port", grpcServer.getPort())
+                    .put("plaintext", true).put("serviceName", SERVICE_NAME).put("methodName", METHOD_NAME)
+                    .put("tcpipHeaderHex", "0F 0F 0F 00 06 12 01 00 22 23 1F 0F")
+                    .put("mcsHeader", "MUST NOT BE SENT").put("basicLabel", sample[0]).put("textArea", sample[1]);
+            var settings = request.putObject("settings").put("messageLayout", "TOTA_BOX")
+                    .put("totaBoxHex", "00 01 02 03 04 05").put("autoUpdateTcpipLength", true)
+                    .put("basicLabelLength", 35);
+            settings.putArray("fieldRules").addObject().put("id", "sequence").put("name", "序號")
+                    .put("color", "#AB005F").put("enabled", true).put("action", "INCREMENT")
+                    .put("targetType", "BUR_BASIC_LABEL_RANGE").put("start", 8).put("end", 15);
+            var single = postJson("/api/grpc-bur/execute", request.toString());
+            assertThat(single.getStatusCode()).isEqualTo(HttpStatus.OK);
+            var response = objectMapper.readTree(single.getBody());
+            assertThat(response.path("statusCode").asText()).isEqualTo("OK");
+            assertThat(response.path("requestPreview").path("totaBoxLength").asInt()).isEqualTo(6);
+            assertTotaBoxEcho(objectMapper.readTree(response.path("body").asText()).path("text").asText(), sample, 1);
+            for (String mode : List.of("CONCURRENCY", "RESPONSE_INTERVAL", "DEADLINE")) {
+                var batch = objectMapper.createObjectNode().put("mode", mode).put("totalCount", 2)
+                        .put("maxConcurrency", 1).put("intervalMillis", 0).put("deadlineMillis", 3000);
+                batch.set("grpcBurRequest", request);
+                long id = runId(postJson("/api/grpc-bur/batch-runs", batch.toString()));
+                assertThat(awaitTerminal("/api/grpc-bur/batch-runs/", id).path("successCount").asInt()).isEqualTo(2);
+                var items = objectMapper.readTree(restTemplate.getForObject(
+                        "/api/grpc-bur/batch-runs/" + id + "/items", String.class)).path("items");
+                assertThat(items).hasSize(2);
+                for (var item : items) {
+                    assertTotaBoxEcho(objectMapper.readTree(item.path("responseBodyPreview").asText()).path("text").asText(),
+                            sample, item.path("sequenceNumber").asInt());
+                }
+            }
+        }
+    }
+
+    private void assertTotaBoxEcho(String echo, String[] sample, int increment) {
+        byte[] bytes = Base64.getDecoder().decode(echo.substring("echo:".length()));
+        assertThat(bytes).hasSize(18 + 35 + sample[1].length());
+        assertThat(java.util.HexFormat.of().formatHex(java.util.Arrays.copyOfRange(bytes, 3, 6)))
+                .isEqualTo(String.format("%06d", bytes.length));
+        assertThat(bytes[10]).isEqualTo((byte) 0x1F);
+        assertThat(java.util.Arrays.copyOfRange(bytes, 12, 18)).isEqualTo(new byte[] {0, 1, 2, 3, 4, 5});
+        String expected = sample[0].substring(0, 7)
+                + String.format("%08d", Long.parseLong(sample[0].substring(7, 15)) + increment)
+                + sample[0].substring(15) + sample[1];
+        assertThat(burCodec.decode(java.util.Arrays.copyOfRange(bytes, 18, bytes.length))).isEqualTo(expected);
+    }
+
     private ResponseEntity<String> startGrpcBatch(
             String mode,
             int totalCount,
@@ -413,7 +473,10 @@ class GrpcBatchIntegrationTest {
                     String text = String.valueOf(request.getField(requestText));
                     if (text.isEmpty() && request.hasField(requestPayload)) {
                         DynamicMessage payload = (DynamicMessage) request.getField(requestPayload);
-                        text = String.valueOf(payload.getField(payloadData));
+                        Object data = payload.getField(payloadData);
+                        text = data instanceof com.google.protobuf.ByteString bytes
+                                ? Base64.getEncoder().encodeToString(bytes.toByteArray())
+                                : String.valueOf(data);
                     }
                     DynamicMessage response = DynamicMessage.newBuilder(echoMethod.getOutputType())
                             .setField(responseText, "echo:" + text)

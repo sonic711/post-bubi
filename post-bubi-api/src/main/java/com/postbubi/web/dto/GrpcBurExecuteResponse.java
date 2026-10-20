@@ -21,7 +21,9 @@ public record GrpcBurExecuteResponse(
             int textAreaLength,
             int payloadLength,
             String payloadHex,
-            String decodedText
+            String decodedText,
+            String messageLayout,
+            int totaBoxLength
     ) {
     }
 

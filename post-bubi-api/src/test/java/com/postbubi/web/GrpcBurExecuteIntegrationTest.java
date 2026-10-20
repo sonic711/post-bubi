@@ -21,6 +21,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
+import java.util.List;
+import java.util.HexFormat;
 
 import com.postbubi.grpc.GrpcResponsePayloadDecoder;
 import com.postbubi.grpcbur.BurCodecService;
@@ -132,6 +134,105 @@ class GrpcBurExecuteIntegrationTest {
         JsonNode error = objectMapper.readTree(response.getBody());
         assertThat(error.path("code").asText()).isEqualTo("GRPC_BUR_TEXT_TOO_LONG");
         assertThat(error.path("message").asText()).contains("Basic Label");
+    }
+
+    @Test
+    void previewsA98AndA99WithoutMcsAndOptionallyUpdatesPackedDecimalLength() throws Exception {
+        for (String[] sample : List.of(
+                new String[] {"983029400020734AU07000001 A98100500", "A98  0001002222", "68"},
+                new String[] {"981045800001372AI07000001 A99100410", "A99  2", "59"})) {
+            for (boolean autoLength : List.of(false, true)) {
+                var request = totaBoxRequest(sample[0], sample[1]);
+                request.with("settings").put("autoUpdateTcpipLength", autoLength);
+                var response = postJson("/api/grpc-bur/preview", request.toString());
+                assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                var preview = objectMapper.readTree(response.getBody());
+                int length = Integer.parseInt(sample[2]);
+                assertThat(preview.path("messageLayout").asText()).isEqualTo("TOTA_BOX");
+                assertThat(preview.path("totaBoxLength").asInt()).isEqualTo(6);
+                assertThat(preview.path("mcsHeaderLength").asInt()).isZero();
+                assertThat(preview.path("basicLabelLength").asInt()).isEqualTo(35);
+                assertThat(preview.path("textAreaLength").asInt()).isEqualTo(sample[1].length());
+                assertThat(preview.path("payloadLength").asInt()).isEqualTo(length);
+                byte[] bytes = HexFormat.of().parseHex(preview.path("payloadHex").asText().replace(" ", ""));
+                assertThat(Arrays.copyOfRange(bytes, 0, 12)).isEqualTo(HexFormat.of().parseHex(
+                        "0f0f0f" + (autoLength ? String.format("%06d", length) : "000612") + "010022231f0f"));
+                assertThat(Arrays.copyOfRange(bytes, 12, 18)).containsOnly((byte) 0);
+                assertThat(burCodecService.decode(Arrays.copyOfRange(bytes, 18, bytes.length))).isEqualTo(sample[0] + sample[1]);
+            }
+        }
+    }
+
+    @Test
+    void preservesRawTotaBoxAndUsesBurByteLengthRatherThanUtf8Length() throws Exception {
+        var request = totaBoxRequest("A", "繁體");
+        request.with("settings").put("basicLabelLength", 1).put("totaBoxHex", "00 01 02 FE FD FF")
+                .put("autoUpdateTcpipLength", true);
+        var response = postJson("/api/grpc-bur/preview", request.toString());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var preview = objectMapper.readTree(response.getBody());
+        byte[] bytes = HexFormat.of().parseHex(preview.path("payloadHex").asText().replace(" ", ""));
+        assertThat(Arrays.copyOfRange(bytes, 12, 18)).isEqualTo(HexFormat.of().parseHex("000102fefdff"));
+        assertThat(bytes.length).isEqualTo(19 + burCodecService.encode("繁體").length);
+        assertThat(HexFormat.of().formatHex(Arrays.copyOfRange(bytes, 3, 6))).isEqualTo(String.format("%06d", bytes.length));
+    }
+
+    @Test
+    void rejectsInvalidLayoutsTotaBoxesAndAutomaticLengthHeaders() throws Exception {
+        var invalid = totaBoxRequest("A", "B");
+        invalid.with("settings").put("messageLayout", "UNKNOWN");
+        assertPreviewError(invalid, "GRPC_BUR_LAYOUT_INVALID");
+        invalid = totaBoxRequest("A", "B");
+        invalid.with("settings").put("totaBoxHex", "00 00");
+        assertPreviewError(invalid, "GRPC_BUR_TOTA_BOX_LENGTH_INVALID");
+        invalid.with("settings").put("totaBoxHex", "GG 00 00 00 00 00");
+        assertPreviewError(invalid, "GRPC_BUR_HEX_INVALID");
+        for (String header : List.of("0F 0F", "00 0F 0F 00 06 12 01 00 22 23 1F 0F",
+                "0F 0F 0F 00 06 12 00 00 22 23 1F 0F", "0F 0F 0F 00 06 12 01 00 22 23 1F 00")) {
+            invalid = totaBoxRequest("A", "B");
+            invalid.put("tcpipHeaderHex", header);
+            invalid.with("settings").put("autoUpdateTcpipLength", true);
+            assertPreviewError(invalid, "GRPC_BUR_TCPIP_HEADER_INVALID");
+        }
+        invalid = totaBoxRequest("A", "A".repeat(999982));
+        invalid.with("settings").put("autoUpdateTcpipLength", true);
+        assertPreviewError(invalid, "GRPC_BUR_PAYLOAD_LENGTH_OVERFLOW");
+    }
+
+    @Test
+    void retainsLegacyMcsDefaultsAndRejectsShortLabelRuleRanges() throws Exception {
+        var request = totaBoxRequest("A", "B");
+        request.with("settings").remove("messageLayout");
+        request.with("settings").put("totaBoxHex", "not used");
+        request.remove("mcsHeader");
+        var response = postJson("/api/grpc-bur/preview", request.toString());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var preview = objectMapper.readTree(response.getBody());
+        assertThat(preview.path("messageLayout").asText()).isEqualTo("MCS");
+        assertThat(preview.path("mcsHeaderLength").asInt()).isEqualTo(72);
+        assertThat(preview.path("totaBoxLength").asInt()).isZero();
+        assertThat(preview.path("payloadLength").asInt()).isEqualTo(120);
+        assertThat(preview.path("payloadHex").asText()).startsWith("0F 0F 0F 00 06 12 01 00 22 23 1F 0F 20 20");
+        request = totaBoxRequest("A", "B");
+        request.with("settings").putArray("fieldRules").addObject().put("id", "out-of-range").put("name", "範圍")
+                .put("enabled", true).put("color", "#AB005F").put("action", "NONE")
+                .put("targetType", "BUR_BASIC_LABEL_RANGE").put("start", 37).put("end", 46);
+        var rejected = postJson("/api/grpc-bur/preview", request.toString());
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(objectMapper.readTree(rejected.getBody()).path("message").asText()).contains("範圍");
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode totaBoxRequest(String label, String text) {
+        var request = objectMapper.createObjectNode().put("tcpipHeaderHex", "0F 0F 0F 00 06 12 01 00 22 23 1F 0F")
+                .put("basicLabel", label).put("textArea", text).put("mcsHeader", "MUST NOT BE SENT");
+        request.putObject("settings").put("messageLayout", "TOTA_BOX").put("basicLabelLength", 35).putArray("fieldRules");
+        return request;
+    }
+
+    private void assertPreviewError(JsonNode request, String code) throws Exception {
+        var response = postJson("/api/grpc-bur/preview", request.toString());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(objectMapper.readTree(response.getBody()).path("code").asText()).isEqualTo(code);
     }
 
     @Test

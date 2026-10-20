@@ -187,6 +187,8 @@ gRPC 與 gRPC BUR 的 Port editor 必須接受數字或 `{{variable}}`；Environ
 
 詳細設計記錄於 `docs/GRPC_BUR_COMPOSER_FEATURE.md`。第一階段已完成 `GRPC_BUR` request type、payload preview、送出流程與 `TBConvert.jar` / CodeTable 正式 BUR codec 接入。CodeTable 與 `TBConvert.jar` 會包入 executable JAR，部署到其他主機時不需要額外攜帶 CodeTable；實際目標系統驗收仍需使用正確業務資料、固定長度設定與相符 proto。
 
+2026-10-20 擴充同一 `GRPC_BUR` 的電文結構：`settings.messageLayout` 可為 `MCS`（舊測案預設）或 `TOTA_BOX`。後者以 6-byte `settings.totaBoxHex` 取代 MCS，不經文字轉碼；Label / Text 仍以 BUR 組包。`settings.autoUpdateTcpipLength` 預設 false，開啟時驗證 12-byte TCPIP Header 及固定識別碼，依最終總 byte 數以 6 碼 packed BCD 更新第 4-6 bytes（上限 999999），其他 Header bytes 不變。Preview、正式送出、Batch 必須共用組包邏輯；新設定隨儲存 / 複製 / ZIP / Environment / Batch snapshot 保留，舊測案輸出不變。TOTA BOX 新測案不自動套用舊 MCS 長 Label 規則；使用者既有規則不得因切換結構而被靜默修改。A98 / A99 FIX 的實際 Label 為 35 bytes、Text 為 15 / 6 bytes，總長為 68 / 59，不依錯誤的 151 註解補白。H2 / ZIP schema 及 CLI 範圍不變；不在此次修改 Gateway / Runtime 或宣稱修復 CANCEL 回程問題，詳細驗收見組包文件。
+
 ## 5. HTTP 功能規格
 
 ### 5.1 Request

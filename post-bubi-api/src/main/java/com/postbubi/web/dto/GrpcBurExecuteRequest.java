@@ -29,7 +29,10 @@ public record GrpcBurExecuteRequest(
             Boolean padTextAreaRight,
             Boolean incrementBasicLabelSequence,
             Boolean fillBasicLabelDayOfMonth,
-            List<FieldRule> fieldRules
+            List<FieldRule> fieldRules,
+            String messageLayout,
+            String totaBoxHex,
+            Boolean autoUpdateTcpipLength
     ) {
     }
 }

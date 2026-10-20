@@ -740,8 +740,23 @@
             <input v-model="grpcBurProtoId" placeholder="可留空；若 server 無 reflection 則需填入 protoId" />
           </label>
           <label v-if="requestType === 'GRPC_BUR'">
+            電文結構
+            <select v-model="grpcBurMessageLayout" aria-label="BUR 電文結構">
+              <option value="MCS">TCPIP + MCS + Label + Text</option>
+              <option value="TOTA_BOX">TCPIP + TOTA BOX + Label + Text</option>
+            </select>
+          </label>
+          <label v-if="requestType === 'GRPC_BUR' && grpcBurMessageLayout === 'TOTA_BOX'">
+            TOTA BOX Hex（6 bytes）
+            <input v-model="grpcBurTotaBoxHex" aria-label="TOTA BOX Hex" spellcheck="false" />
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'">
             TCPIP Header Hex
-            <input v-model="grpcBurTcpipHeaderHex" />
+            <input v-model="grpcBurTcpipHeaderHex" aria-label="TCPIP Header Hex" spellcheck="false" />
+          </label>
+          <label v-if="requestType === 'GRPC_BUR'" class="check-line">
+            <input v-model="grpcBurAutoUpdateTcpipLength" type="checkbox" />
+            依電文總 bytes 自動更新 TCPIP 長度
           </label>
           <label v-if="requestType === 'GRPC_BUR'">
             Basic Label Length
@@ -1294,6 +1309,9 @@ const grpcBurMetadataText = ref('')
 const grpcBurProtoId = ref('')
 const grpcBurTcpipHeaderHex = ref('0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F')
 const grpcBurMcsHeader = ref('')
+const grpcBurMessageLayout = ref('MCS')
+const grpcBurTotaBoxHex = ref('00 00 00 00 00 00')
+const grpcBurAutoUpdateTcpipLength = ref(false)
 const grpcBurBasicLabel = ref('983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000')
 const grpcBurTextArea = ref('yoman   00000000000000123         4000000')
 const grpcBurBasicLabelLength = ref(158)
@@ -4058,6 +4076,9 @@ function editorPayload() {
     grpcBurProtoId: grpcBurProtoId.value,
     grpcBurTcpipHeaderHex: grpcBurTcpipHeaderHex.value,
     grpcBurMcsHeader: grpcBurMcsHeader.value,
+    grpcBurMessageLayout: grpcBurMessageLayout.value,
+    grpcBurTotaBoxHex: grpcBurTotaBoxHex.value,
+    grpcBurAutoUpdateTcpipLength: grpcBurAutoUpdateTcpipLength.value,
     grpcBurBasicLabel: grpcBurBasicLabel.value,
     grpcBurTextArea: grpcBurTextArea.value,
     grpcBurBasicLabelLength: grpcBurBasicLabelLength.value,
@@ -4103,6 +4124,9 @@ function grpcBurExecutePayload() {
     timeoutMillis: timeoutMillis.value,
     settings: {
       mcsHeaderLength: 72,
+      messageLayout: grpcBurMessageLayout.value,
+      totaBoxHex: grpcBurTotaBoxHex.value,
+      autoUpdateTcpipLength: grpcBurAutoUpdateTcpipLength.value,
       basicLabelLength: grpcBurBasicLabelLength.value,
       textAreaLength: grpcBurTextAreaLength.value || null,
       padTextAreaRight: grpcBurPadTextAreaRight.value,
@@ -4252,6 +4276,9 @@ function loadPayloadToEditor(payload) {
   grpcBurProtoId.value = payload.grpcBurProtoId || ''
   grpcBurTcpipHeaderHex.value = payload.grpcBurTcpipHeaderHex || '0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F'
   grpcBurMcsHeader.value = payload.grpcBurMcsHeader || ''
+  grpcBurMessageLayout.value = payload.grpcBurMessageLayout || 'MCS'
+  grpcBurTotaBoxHex.value = payload.grpcBurTotaBoxHex ?? '00 00 00 00 00 00'
+  grpcBurAutoUpdateTcpipLength.value = payload.grpcBurAutoUpdateTcpipLength === true
   const basicLabelLength = payload.grpcBurBasicLabelLength || 158
   const storedBasicLabel = payload.grpcBurBasicLabel || '983000020260708000000000000000  00  NM00100S00                    000000000000000000000080000000000000000000  000                00000000  0   000000000000000'
   grpcBurBasicLabel.value = storedBasicLabel.length > basicLabelLength && storedBasicLabel.slice(basicLabelLength).trim() === ''
@@ -4280,7 +4307,7 @@ function restoreFieldRules(payload) {
       color: ruleColor(rule.color),
     }))
   }
-  if (payload.requestType !== 'GRPC_BUR') {
+  if (payload.requestType !== 'GRPC_BUR' || payload.grpcBurMessageLayout === 'TOTA_BOX') {
     return []
   }
   return [

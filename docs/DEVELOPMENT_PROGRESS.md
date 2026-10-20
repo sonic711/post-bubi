@@ -1,6 +1,6 @@
 # Post Bubi 開發進度
 
-最後整理日期：2026-10-16
+最後整理日期：2026-10-20
 
 本文只記錄目前可用狀態、驗證方式與已知限制。歷史異動由 Git commit 保存，不在此重複累積逐輪開發日誌。
 
@@ -16,7 +16,7 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 | Collection / Folder / Request | 完成 | CRUD、Collection 排序與改名、跨 Collection Request 移動、複製、刪除整合測試 |
 | HTTP request | 完成 | GET/POST、headers、body、form-data、history、timeout 與取消整合測試 |
 | gRPC unary | 完成 | reflection、本機 proto、timeout、取消與可選 `payload.data` UTF-8 Base64 編碼整合測試 |
-| gRPC BUR | 完成 | preview、固定長度組包、TBConvert、內建 CodeTable 與取消機制 |
+| gRPC BUR | 自動化完成，TOTA BOX 待真實目標驗收 | MCS / TOTA BOX、可選 TCPIP packed BCD 長度、preview、單次 / 三種 Batch、TBConvert、內建 CodeTable 與取消機制 |
 | Proto 管理 | 完成 | upload、list、inspect、ZIP import/export 測試 |
 | Workspace / Collection / Request ZIP | 完成 | schema v3、單一 Request 最小封存、指定位置匯入、資源與 Proto ID 重映射、舊版相容 |
 | Response 工具 | 完成 | JSON 上色、headers、info、history、base64 decoded、BUR 解碼與本次瀏覽暫存 |
@@ -34,11 +34,13 @@ Post Bubi 已達到可供單人日常使用的 HTTP、gRPC unary 與 gRPC BUR �
 
 ## 下一階段
 
-三種 Request 已改為正式發送前先更新並保存 +1 / 今日 DD；Batch 開始前預留 N 筆，避免重複加值及晚到回應覆蓋 UI。依 `REQUEST_FIELD_RULES.md` 完成實作與測試，下一步為使用者以延遲目標及真實業務資料驗收；2026-10-16 使用者已授權本輪 commit 並推送至 `origin`、`bt`，後續新異動仍需另外取得同意。
+2026-10-20 已完成 TOTA BOX 電文及可選 TCPIP 長度自動更新，規格與 A98 / A99 FIX 設定步驟見 `GRPC_BUR_COMPOSER_FEATURE.md`。已驗證單次 / 三種 Batch、保存 / 複製 / Request ZIP、Environment、舊 MCS 相容與正式 JAR；下一步由使用者建立兩筆測案，驗收真實 Gateway / Runtime 的請求與回應。兩份 FIX notebook 本身亦記錄 CANCEL，此次不宣稱修復回程。Windows / 真實目標仍待確認；使用者已授權此次 commit 並推送至 `origin`、`bt`，後續新異動仍需另外取得同意，不修改或提交使用者加入的 `fsap-gateway/`。
+
+三種 Request 已改為正式發送前先更新並保存 +1 / 今日 DD；Batch 開始前預留 N 筆，避免重複加值及晚到回應覆蓋 UI。依 `REQUEST_FIELD_RULES.md` 完成實作與測試，已於 2026-10-16 授權後提交並推送至 `origin`、`bt`（`d0487da`），真實業務資料驗收仍待使用者執行，後續新異動仍需另外取得同意。
 
 JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則已於使用者授權後提交並推送至 `origin`、`bt`（`c7c9937`）；後續新異動仍需另外取得推送同意。
 
-依 `REQUEST_FIELD_RULES.md` 還原 A 全部欄位規則及 B 一般 gRPC BUR 回應解碼，已合併新版 UIUX 與送出前自動儲存；C Windows 離線建置內容不還原。該基準已提交並推送至兩個 remote（`2b5d855`）；本次送出前更新 UI 為其後的新異動，納入本輪授權的提交範圍。
+依 `REQUEST_FIELD_RULES.md` 還原 A 全部欄位規則及 B 一般 gRPC BUR 回應解碼，已合併新版 UIUX 與送出前自動儲存；C Windows 離線建置內容不還原。該基準已提交並推送至兩個 remote（`2b5d855`）；後續送出前更新 UI 已另以 `d0487da` 提交，不包含此次 TOTA BOX 擴充。
 
 本次 UIUX 改版已完成實作與正式打包，待使用者依 `UIUX_REDESIGN.md` 驗收。改版前本機 Tag 為 `pre-uiux-redesign-20261015`；該 Tag 不含本次還原的 A/B。本輪不新增協定，因功能還原包含 Java / DTO / CLI 異動，但不修改 H2 schema。
 
@@ -106,7 +108,9 @@ JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則已於使
 - Target host、port、metadata、TLS 與 timeout（預設 30 秒，可調整）。
 - gRPC 與 gRPC BUR Port 可使用 `{{variable}}`；送出前解析為數字並由後端驗證範圍。
 - 送出後可按取消，沿用 gRPC channel 中止機制。
-- TCPIP Header、MCS Header、Basic Label、Text Area 組包。
+- Settings 可選 `TCPIP + MCS + Label + Text` 或 `TCPIP + TOTA BOX + Label + Text`；舊測案預設 MCS，不靜默改寫 Header、Label 或規則。
+- TOTA BOX 使用 6-byte Hex 原樣串接；可使用 Environment。TCPIP 長度自動更新預設關閉，開啟時依最終 bytes 更新 6 碼 packed BCD 長度、驗證 Header 識別碼及 999999-byte 上限。
+- A98 / A99 FIX 可使用 35 字元 Label 與 15 / 6 bytes Text，Preview 分別為 68 / 59 bytes，沒有 MCS；設定隨保存、複製、ZIP 與 Batch snapshot 保留。
 - Settings 改為自訂 Basic Label 字元範圍規則（名稱、顏色、啟用、僅標示 / 遞增 / 今日 DD）；舊 8-14 遞增、37-46 標示、88-89 DD 相容轉換。三種協定 Batch 均可停用欄位規則；BUR 停用時不回退舊旗標，也不前推編輯器。
 - 固定長度檢查與右補空白。
 - UTF-8/BUR 雙向轉碼。
@@ -153,6 +157,14 @@ JSON 上色 / 原文座標不一致及 cURL 未套用 HTTP 欄位規則已於使
 - 匯入名稱重複的 Environment 會新增副本，不覆蓋既有資料。
 
 ## 自動化測試
+
+2026-10-20 TOTA BOX 擴充驗證（目前程式）：
+
+- 後端全套 14 類共 63 項通過，前端 60 項通過；新增兩種結構、A98 / A99 實際長度、BUR / UTF-8 byte 差異、非零 TOTA BOX、packed BCD、無效格式、超長及短 Label 越界規則驗證。
+- 本機 gRPC 接收端使用真正的 protobuf `bytes` 欄位，驗證 A98 / A99 單次及並行 / 回應後間隔 / 完成期限三種 Batch：無多餘 MCS、TOTA BOX 原樣、長度正確、逐筆序號正確且收到回應。既有取消、期限及 CLI 測試亦通過。
+- 新增 `tests/grpc-bur-layout.e2e.mjs` 6 組瀏覽器情境；驗證 Settings、Preview、保存後重新整理、Environment、送出前保存、短 Label 規則、Batch 開關、複製與單筆 Request ZIP 匯入匯出，以及舊 MCS 預設與規則相容。瀏覽器單次使用模擬 execute Response 驗證 UI 快照，Batch 使用真實 API 及不可連線的本機測試 port，正確記錄失敗；實際 bytes 傳輸 / 成功回應由 Java 測試覆蓋。
+- 搭配送出前更新 7 組、既有欄位規則 8 組及工作台 10 組，共 31 組瀏覽器情境通過，零 browser error。已檢查桌面 / 手機 Light、Dark 截圖與 Settings 捲動，沒有水平溢位。
+- `:post-bubi-api:bootJar --offline` 成功，正式 UI 與 Java 已打入單一 JAR；H2 / ZIP schema、函式庫版本、離線建置方式及 Headless CLI 支援範圍不變。所有自動化 fixture 使用獨立 H2 / storage，不修改使用者測案。Gateway / Runtime CANCEL、Windows 及真實業務資料仍待使用者驗收；此次提交與推送已取得使用者授權。
 
 2026-10-16 送出前更新 UI 驗證（目前程式）：
 
@@ -404,6 +416,7 @@ Gradle 會把它們放入 executable JAR。`data/proto/` 是開發與 proto impo
 - 未提供 `protoId` 時，target server 必須支援 server reflection。
 - Proto method 套用後 request body 預設為 `{}`，尚未依 message schema 自動產生完整欄位範本。
 - gRPC BUR 已完成自動化組包與轉碼驗證；實際目標系統成功回應仍取決於正確業務資料與可連線環境。
+- A98 / A99 FIX notebook 亦記錄 CANCEL；支援 TOTA BOX 不代表已修復 Gateway / Runtime 回程，需比對真實 Runtime 回應與 Gateway exception。
 - 本專案是單人離線工具，不包含登入、權限、雲端同步與多人協作。
 - 新版 Workspace / Collection / Request ZIP 不含 Environment；分享 variable value 時必須使用 Environment ZIP，並確認其中沒有不應分享的敏感資訊。
 - Folder 僅支援同 Collection、同父層級排序；跨 Collection 移動 Folder 不在目前範圍。
@@ -420,6 +433,8 @@ Gradle 會把它們放入 executable JAR。`data/proto/` 是開發與 proto impo
 7. 建立已儲存 gRPC unary 或 gRPC BUR Request，按工具列的時計 icon，分別以並行、回應後間隔與完成期限執行；確認 Batch tab 的歷程、CSV、取消與清除只顯示目前 Request 與目前協定。gRPC BUR 成功回應時，展開 item 後確認 decoded payload 也會顯示。
 8. 依 `REQUEST_FIELD_RULES.md` 的人工驗收步驟測試三類規則、舊 BUR 測案、Batch 開關及普通 gRPC BUR 回應；確認原 Body / 匯出資料保留明碼設定，成功解碼欄位可辨識且可查看原始 Base64。
 9. 貼上壓縮、Tab 或含 `\\u` escape 的 JSON，不切出 Body 即選取複製，並以長 JSON 捲到底部重試；規則及 Base64 標示不可讓原文錯位。HTTP 啟用規則後產生 cURL，確認加 1 / 今日 DD 已套用；含變數的目標需先勾選套用 Environment 才能複製。
+
+10. 依 `GRPC_BUR_COMPOSER_FEATURE.md` 建立 A98 / A99 TOTA BOX 測案，確認 35 字元 Label、Text 不補到 151、Preview 為 68 / 59 bytes、開關前後長度欄位差異與保存 / Batch 行為。使用對應的 proto / host / port；若仍出現 CANCEL，提供 Gateway 同筆 Runtime Response 與 exception，不以反覆重送代替回程調查。
 
 ## 維護規則
 

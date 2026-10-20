@@ -35,6 +35,7 @@ public class GrpcBurExecuteService {
     private static final String DEFAULT_TCPIP_HEADER_HEX = "0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F";
     private static final int DEFAULT_MCS_HEADER_LENGTH = 72;
     private static final int DEFAULT_BASIC_LABEL_LENGTH = 158;
+    private static final String DEFAULT_TOTA_BOX_HEX = "00 00 00 00 00 00";
     private static final int DEFAULT_TIMEOUT_MILLIS = 30000;
     private static final int MIN_TIMEOUT_MILLIS = 1;
     private static final int MAX_TIMEOUT_MILLIS = 300000;
@@ -102,6 +103,11 @@ public class GrpcBurExecuteService {
 
     private ComposedPayload compose(GrpcBurExecuteRequest request) {
         GrpcBurExecuteRequest.GrpcBurSettings settings = request.settings();
+        String messageLayout = defaultText(settings == null ? null : settings.messageLayout(), "MCS")
+                .toUpperCase(Locale.ROOT);
+        if (!List.of("MCS", "TOTA_BOX").contains(messageLayout)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "GRPC_BUR_LAYOUT_INVALID", "電文結構必須為 MCS 或 TOTA_BOX。");
+        }
         int mcsHeaderLength = settings == null || settings.mcsHeaderLength() == null
                 ? DEFAULT_MCS_HEADER_LENGTH
                 : settings.mcsHeaderLength();
@@ -112,7 +118,15 @@ public class GrpcBurExecuteService {
         boolean padTextAreaRight = settings == null || !Boolean.FALSE.equals(settings.padTextAreaRight());
 
         byte[] tcpipHeader = decodeHex(defaultText(request.tcpipHeaderHex(), DEFAULT_TCPIP_HEADER_HEX), "TCPIP Header");
-        String mcsHeader = normalizeFixedText(defaultText(request.mcsHeader(), ""), mcsHeaderLength, "MCS Header");
+        String mcsHeader = "MCS".equals(messageLayout)
+                ? normalizeFixedText(defaultText(request.mcsHeader(), ""), mcsHeaderLength, "MCS Header")
+                : "";
+        byte[] totaBoxBytes = "TOTA_BOX".equals(messageLayout)
+                ? decodeHex(defaultText(settings.totaBoxHex(), DEFAULT_TOTA_BOX_HEX), "TOTA BOX")
+                : new byte[0];
+        if ("TOTA_BOX".equals(messageLayout) && totaBoxBytes.length != 6) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "GRPC_BUR_TOTA_BOX_LENGTH_INVALID", "TOTA BOX 必須為 6 bytes（12 個 Hex 字元）。");
+        }
         String basicLabel = normalizeFixedText(defaultText(request.basicLabel(), ""), basicLabelLength, "Basic Label");
         if (settings != null && settings.fieldRules() != null) {
             basicLabel = fieldRuleService.applyBurBasicLabelRules(
@@ -133,7 +147,10 @@ public class GrpcBurExecuteService {
         byte[] mcsHeaderBytes = mcsHeader.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         byte[] basicLabelBytes = burCodecService.encode(basicLabel);
         byte[] textAreaBytes = burCodecService.encode(textArea);
-        byte[] payload = concat(tcpipHeader, mcsHeaderBytes, basicLabelBytes, textAreaBytes);
+        byte[] payload = concat(tcpipHeader, mcsHeaderBytes, totaBoxBytes, basicLabelBytes, textAreaBytes);
+        if (settings != null && Boolean.TRUE.equals(settings.autoUpdateTcpipLength())) {
+            updateTcpipLength(tcpipHeader, payload);
+        }
 
         GrpcBurExecuteResponse.GrpcBurRequestPreview preview = new GrpcBurExecuteResponse.GrpcBurRequestPreview(
                 burCodecService.codecName(),
@@ -144,9 +161,25 @@ public class GrpcBurExecuteService {
                 textAreaBytes.length,
                 payload.length,
                 encodeHex(payload),
-                burCodecService.decode(payload)
+                burCodecService.decode(payload),
+                messageLayout,
+                totaBoxBytes.length
         );
         return new ComposedPayload(payload, preview);
+    }
+
+    private void updateTcpipLength(byte[] header, byte[] payload) {
+        if (header.length != 12 || header[0] != 0x0F || header[1] != 0x0F || header[2] != 0x0F
+                || header[6] != 0x01 || header[11] != 0x0F) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "GRPC_BUR_TCPIP_HEADER_INVALID",
+                    "自動更新長度需要 12-byte TCPIP Header；前 3 bytes 為 0F 0F 0F、第 7 byte 為 01、第 12 byte 為 0F。");
+        }
+        if (payload.length > 999999) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "GRPC_BUR_PAYLOAD_LENGTH_OVERFLOW", "自動更新長度的電文總長不可超過 999999 bytes。");
+        }
+        // The wire field stores six decimal digits as packed BCD, not a binary integer.
+        byte[] lengthBytes = decodeHex(String.format(Locale.ROOT, "%06d", payload.length), "TCPIP Length");
+        System.arraycopy(lengthBytes, 0, payload, 3, lengthBytes.length);
     }
 
     private int basicLabelSequenceIncrement(

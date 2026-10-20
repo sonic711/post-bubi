@@ -17,7 +17,8 @@ function editor() {
     resolveExecutionPayload: (value) => value,
     executePayload: () => ({ fieldRules: context.activeFieldRules.value }),
     grpcExecutePayload: () => ({ fieldRules: context.activeFieldRules.value }),
-    grpcBurExecutePayload: () => ({ settings: { fieldRules: context.activeFieldRules.value, incrementBasicLabelSequence: true } }),
+    grpcBurExecutePayload: () => ({ settings: { fieldRules: context.activeFieldRules.value, incrementBasicLabelSequence: true,
+      messageLayout: 'TOTA_BOX', totaBoxHex: '00 01 02 03 04 05', autoUpdateTcpipLength: true } }),
   }
   context.escapeAttribute = context.escapeHtml
   vm.createContext(context)
@@ -42,6 +43,8 @@ test('legacy BUR flags migrate to three rules; explicit empty rules suppress mig
   assert.deepEqual(JSON.parse(JSON.stringify(restored)).map(({ start, end, enabled }) => [start, end, enabled]),
     [[8, 14, true], [37, 46, true], [88, 89, false]])
   assert.equal(context.restoreFieldRules({ requestType: 'GRPC_BUR', fieldRules: [] }).length, 0)
+  assert.equal(context.restoreFieldRules({ requestType: 'GRPC_BUR', grpcBurMessageLayout: 'TOTA_BOX' }).length, 0)
+  assert.equal(context.restoreFieldRules({ requestType: 'GRPC_BUR', grpcBurMessageLayout: 'TOTA_BOX', fieldRules: [rule()] }).length, 1)
   assert.equal(context.restoreFieldRules({ requestType: 'HTTP', fieldRules: [rule()] })[0].path, '/id')
 })
 
@@ -95,6 +98,11 @@ for (const type of ['HTTP', 'GRPC', 'GRPC_BUR']) {
     context.batchUseFieldRules.value = false
     const payload = context.batchExecutePayload()
     assert.equal((type === 'GRPC_BUR' ? payload.settings.fieldRules : payload.fieldRules).length, 0)
+    if (type === 'GRPC_BUR') {
+      assert.equal(payload.settings.messageLayout, 'TOTA_BOX')
+      assert.equal(payload.settings.totaBoxHex, '00 01 02 03 04 05')
+      assert.equal(payload.settings.autoUpdateTcpipLength, true)
+    }
     assert.equal(context.activeFieldRules.value.length, 1)
     context.batchUseFieldRules.value = true
     const enabled = context.batchExecutePayload()

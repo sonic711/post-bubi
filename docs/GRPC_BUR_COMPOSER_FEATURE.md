@@ -1,6 +1,6 @@
 # gRPC BUR 組包功能
 
-最後整理日期：2026-09-29
+最後整理日期：2026-10-20
 
 本功能已完成第一個可用版本。設計源自原始驗證 notebook 的組包流程；notebook 已不再是建置或執行必要檔案，實際行為以目前 Java 實作與本文件為準。
 
@@ -13,7 +13,7 @@
 - Text Area
 - 必要的 metadata、TLS 與 timeout
 
-Post Bubi 會負責 TCPIP Header、MCS Header、固定長度補空白、BUR 轉碼、payload 串接、protobuf JSON request 與 response 解碼。
+Post Bubi 會負責 TCPIP Header、MCS Header 或 TOTA BOX、固定長度補空白、BUR 轉碼、payload 串接、protobuf JSON request 與 response 解碼。
 
 固定呼叫目標預設為：
 
@@ -34,10 +34,11 @@ Request 可以保存到 Collection，載入後會還原所有 gRPC BUR 欄位。
 
 ## Payload 組成
 
-最終 bytes 順序：
+最終 bytes 順序依 Settings 的電文結構選擇：
 
 ```text
-TCPIP Header + MCS Header + Basic Label + Text Area
+MCS:      TCPIP Header + MCS Header + Basic Label + Text Area
+TOTA_BOX: TCPIP Header + TOTA BOX   + Basic Label + Text Area
 ```
 
 預設值：
@@ -45,6 +46,9 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 | 欄位 | 預設 |
 | --- | --- |
 | TCPIP Header | `0F 0F 0F 00 02 65 01 F0 F0 F0 0B 0F` |
+| 電文結構 `settings.messageLayout` | `MCS`；舊測案未設定時維持原組包 |
+| TOTA BOX `settings.totaBoxHex` | `00 00 00 00 00 00`；只在 `TOTA_BOX` 使用，必須為 6 bytes |
+| 自動更新長度 `settings.autoUpdateTcpipLength` | false；舊測案不改 Header |
 | MCS Header 長度 | 72 字元 |
 | Basic Label 長度 | 158 字元 |
 | Text Area 長度 | `0`，代表不限制 |
@@ -55,6 +59,8 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 
 - TCPIP Header 由 hex 轉 bytes，格式錯誤時拒絕送出。
 - MCS Header 使用 UTF-8 bytes，長度不足時右補空白。
+- `TOTA_BOX` 不插入 MCS；TOTA BOX 由 Hex 直接轉為 bytes，不經 BUR 或 UTF-8 轉碼。切換結構不改寫 Label、Text、Header 或既有規則，使用者需依新格式調整長度及規則範圍。
+- 自動更新長度開啟時，TCPIP Header 必須為 12 bytes，且固定識別碼為前 3 bytes `0F 0F 0F`、第 7 byte `01`、第 12 byte `0F`；組包完成後，以總 byte 數的 6 碼十進位 packed BCD 寫入第 4-6 bytes（含所有 Header）。上限 999999 bytes，超出或 Header 無效時拒絕組包；不改第 11 byte 交易類型或其他 Header 內容。關閉時保留原始 Header，包括原有短 Hex 的 Preview 相容行為。
 - Basic Label 使用 TBConvert 從 UTF-8 轉 BUR，長度不足時右補空白。
 - Text Area 使用 TBConvert 從 UTF-8 轉 BUR；設定正整數長度時依設定右補空白。
 - 任一固定欄位超過設定長度時拒絕送出，不自動截斷。
@@ -77,6 +83,21 @@ TCPIP Header + MCS Header + Basic Label + Text Area
 ```
 
 ## API
+
+### A98 / A99 TOTA BOX 測案（2026-10-20）
+
+兩筆仍使用 `GRPC_BUR`，不新增 Request 類型。Settings 選擇 `TOTA_BOX`、TOTA BOX 為 `00 00 00 00 00 00`、Basic Label Length 為 35、Text Area Length 為 0（不補至 notebook 註解中的 151）；Header 填 `0F 0F 0F 00 06 12 01 00 22 23 1F 0F`，可開啟自動更新長度。
+
+| 測案 | Basic Label | Text Area | 總長度 | 自動更新後 Header 第 4-6 bytes |
+| --- | --- | --- | --- | --- |
+| A98 FIX | `983029400020734AU07000001 A98100500` | `A98  0001002222` | 68 bytes | `00 00 68` |
+| A99 FIX | `981045800001372AI07000001 A99100410` | `A99  2` | 59 bytes | `00 00 59` |
+
+使用相符的 Service proto、Plaintext 與部署的 host / port。原 notebook 的 `00 06 12` 宣告長度為 612，而非實際總長。若需原樣重現，關閉自動更新長度。35 字元 Label 不可啟用超出範圍的舊規則（如 37-46、88-89）；新 TOTA BOX 測案未提供規則時不自動建立舊 MCS 規則。
+
+新設定須隨 Request 保存、複製、Workspace / Collection / Request ZIP，以及單次及 Batch 快照保留；Environment 可解析 TOTA BOX Hex。Preview 增加 `messageLayout`、`totaBoxLength`，以 `payloadHex` 顯示實際發送 Header；舊欄位保留，TOTA BOX 時 `mcsHeaderLength=0`。H2 schema、ZIP schema 與 Headless CLI 範圍不變。
+
+兩份 FIX notebook 都記錄 `CANCELLED: RST_STREAM closed stream`，沒有成功 Response；此次功能只支援正確組包與維護測案，不修正或宣稱解決 Gateway / Runtime 回程。以本機 gRPC 接收端驗證傳輸與回應，真實目標仍待使用者驗收。Gateway 原始碼僅為比對資料，不修改或提交。
 
 ### Preview
 
@@ -110,6 +131,9 @@ Request 主要欄位：
   "basicLabel": "...",
   "textArea": "...",
   "settings": {
+    "messageLayout": "MCS",
+    "totaBoxHex": "00 00 00 00 00 00",
+    "autoUpdateTcpipLength": false,
     "mcsHeaderLength": 72,
     "basicLabelLength": 158,
     "textAreaLength": 0,
@@ -190,7 +214,11 @@ java -jar post-bubi.jar \
 | --- | --- |
 | `GRPC_BUR_LENGTH_INVALID` | 固定長度設定不合法 |
 | `GRPC_BUR_TEXT_TOO_LONG` | 輸入超過設定長度 |
-| `GRPC_BUR_HEX_INVALID` | TCPIP Header hex 格式錯誤 |
+| `GRPC_BUR_HEX_INVALID` | TCPIP Header 或 TOTA BOX hex 格式錯誤 |
+| `GRPC_BUR_LAYOUT_INVALID` | 電文結構不是 MCS / TOTA_BOX |
+| `GRPC_BUR_TOTA_BOX_LENGTH_INVALID` | TOTA BOX 不是 6 bytes |
+| `GRPC_BUR_TCPIP_HEADER_INVALID` | 開啟自動長度，但 TCPIP Header 長度或識別碼不正確 |
+| `GRPC_BUR_PAYLOAD_LENGTH_OVERFLOW` | 開啟自動長度，電文超出 999999 bytes |
 | `GRPC_BUR_CONVERT_FAILED` | UTF-8/BUR 轉碼失敗 |
 | `GRPC_BUR_CODE_TABLE_MISSING` | 外部與 JAR 內建 CodeTable 都不可用 |
 | `GRPC_BUR_CODE_TABLE_LOAD_FAILED` | TBConvert 載入 CodeTable 失敗 |
@@ -210,8 +238,19 @@ java -jar post-bubi.jar \
 
 - 無外部 CodeTable 時從 JAR resource 載入。
 - TCPIP、MCS、Basic Label、Text Area 串接結果。
+- A98 / A99 TOTA BOX 分別 68 / 59 bytes，Hex 原樣保留、無 MCS；可選 packed BCD 長度、舊 MCS 預設不改值、無效格式及短 Label 範圍驗證。
+- 本機 gRPC 接收端驗證單次及三種 Batch 模式傳輸、回應及逐筆規則加值。
 - Basic Label 超長錯誤。
 - Timeout 預設與合法範圍驗證。
+
+瀏覽器 TOTA BOX 驗收沿用 `UIUX_REDESIGN.md` 的隔離 H2 / storage 啟動方式，設定 `UIUX_TEST_DATABASE=isolated`、`UIUX_BASE_URL`、`PLAYWRIGHT_MODULE` 及必要時的 `CHROME_EXECUTABLE`，執行 `node post-bubi-ui/tests/grpc-bur-layout.e2e.mjs`。Playwright 只使用開發機工具，不加入正式依賴；不得指向正式資料庫。2026-10-20 後端 63 項、前端 60 項、瀏覽器 31 組通過，細節與測試替身範圍見 `DEVELOPMENT_PROGRESS.md`。
+
+人工操作：
+
+1. 新增 gRPC BUR Request，在 Settings 選 `TCPIP + TOTA BOX + Label + Text`，設定上述 Header、6-byte TOTA BOX、Basic Label Length 35、Text Area Length 0，勾選「依電文總 bytes 自動更新 TCPIP 長度」。
+2. Body 填入表中的 A98 或 A99 Label / Text（保留空白），產生預覽，確認 `mcsHeaderLength=0`、`totaBoxLength=6`、`payloadLength=68` 或 `59`，以及 Header 第 4-6 bytes。
+3. 新建適合短 Label 的欄位規則，或保留空規則；不要啟用原本 37-46 / 88-89 的長 Label 規則。切換結構不會替使用者刪除規則。
+4. 選擇部署目標及相符的 proto / Plaintext，保存、重新整理並再次預覽，確認設定保留；一次送出驗收真實回應，再以少量 Batch 驗收。若有 CANCEL，依 Gateway log 追查，不反覆重送交易。
 - TBConvert 與 CodeTable 打入 executable JAR。
 
 實際 target server 驗收仍需要正確業務資料、可連線環境與相符 proto。
